@@ -1,0 +1,50 @@
+# Sharp GUI - Gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+*.egg-info/
+.eggs/
+
+# ml-sharp (auto-cloned)
+ml-sharp/
+
+# User data - DO NOT UPLOAD
+inputs/
+inputs*/
+outputs/
+outputs*/
+inputsbak/
+outputsbak/
+
+# Thumbnails
+.thumbnails/
+
+# Config
+config.json
+
+# SSL Certificates
+*.pem
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Backup files
+*.bak
+*.zip

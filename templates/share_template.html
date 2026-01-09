@@ -1,0 +1,553 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>{{MODEL_NAME}} - Sharp 3D</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        #viewer-container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+
+        .top-bar {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-radius: 16px;
+            padding: 12px 24px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+            z-index: 100;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .logo svg {
+            width: 20px;
+            height: 20px;
+            color: #0071e3;
+        }
+
+        .model-name {
+            color: #666;
+            font-size: 14px;
+            border-left: 1px solid #ddd;
+            padding-left: 12px;
+        }
+
+        /* 底部控制栏 */
+        .bottom-bar {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 24px;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+            z-index: 100;
+        }
+
+        .reset-btn {
+            background: transparent;
+            color: #444;
+            border: none;
+            border-radius: 18px;
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .reset-btn:hover {
+            background: rgba(255, 255, 255, 0.5);
+            color: black;
+        }
+
+        .reset-btn svg {
+            width: 18px;
+            height: 18px;
+            color: #0071e3;
+        }
+
+        /* --- 操作指南按钮 --- */
+        .help-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            z-index: 100;
+        }
+
+        .help-btn:hover {
+            background: rgba(255, 255, 255, 0.85);
+            transform: scale(1.05);
+        }
+
+        .help-btn svg {
+            width: 16px;
+            height: 16px;
+            color: #555;
+        }
+
+        /* --- 操作指南面板 --- */
+        .help-panel {
+            position: absolute;
+            top: 56px;
+            right: 16px;
+            width: 280px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+            padding: 16px;
+            z-index: 100;
+            opacity: 0;
+            transform: translateY(-10px) scale(0.95);
+            pointer-events: none;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .help-panel.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+
+        .help-panel h4 {
+            margin: 0 0 12px 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .help-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #555;
+            line-height: 1.4;
+        }
+
+        .help-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .help-icon {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+        }
+
+        .help-icon svg {
+            width: 12px;
+            height: 12px;
+            color: #666;
+        }
+
+        /* 分隔线 */
+        .help-divider {
+            height: 1px;
+            background: rgba(0, 0, 0, 0.08);
+            margin: 12px 0;
+        }
+
+        /* 免责声明样式 */
+        .disclaimer {
+            font-size: 11px;
+            color: #888;
+            line-height: 1.5;
+        }
+
+        .disclaimer a {
+            color: #0071e3;
+            text-decoration: none;
+        }
+
+        .disclaimer a:hover {
+            text-decoration: underline;
+        }
+
+        #loading {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            z-index: 50;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+        }
+
+        .spinner {
+            width: 40px;
+            height: 40px;
+            border: 3px solid rgba(0, 113, 227, 0.2);
+            border-top-color: #0071e3;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto 12px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .loading-text {
+            color: #555;
+            font-size: 15px;
+            font-weight: 500;
+        }
+
+        /* 进度条 */
+        .loading-progress {
+            width: 200px;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.08);
+            border-radius: 2px;
+            margin-top: 16px;
+            overflow: hidden;
+        }
+
+        .loading-progress-bar {
+            height: 100%;
+            background: #0071e3;
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .loading-percent {
+            font-size: 12px;
+            color: #888;
+            margin-top: 8px;
+        }
+
+        #loading.hidden {
+            opacity: 0;
+            pointer-events: none;
+        }
+    </style>
+
+    <!-- Import Map (使用内嵌 data URL) -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "{{THREE_DATA_URL}}",
+            "@mkkellogg/gaussian-splats-3d": "{{SPLATS_DATA_URL}}"
+        }
+    }
+    </script>
+</head>
+
+<body>
+    <div id="viewer-container"></div>
+
+    <div class="top-bar">
+        <div class="logo">
+            <svg fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+            </svg>
+            Sharp 3D
+        </div>
+        <div class="model-name">{{MODEL_NAME}}</div>
+    </div>
+
+    <div id="loading">
+        <div class="spinner"></div>
+        <div class="loading-text" id="loading-text">Loading 3D Model...</div>
+        <div class="loading-progress">
+            <div class="loading-progress-bar" id="loading-progress-bar"></div>
+        </div>
+        <div class="loading-percent" id="loading-percent">0%</div>
+    </div>
+
+    <!-- 操作指南按钮 -->
+    <button id="help-btn" class="help-btn" onclick="toggleHelpPanel()">
+        <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+    </button>
+
+    <!-- 操作指南面板 -->
+    <div id="help-panel" class="help-panel">
+        <h4>操作指南</h4>
+        <div class="help-item">
+            <div class="help-icon">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                </svg>
+            </div>
+            <div><b>拖拽/触摸</b> - 旋转模型视角</div>
+        </div>
+        <div class="help-item">
+            <div class="help-icon">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                </svg>
+            </div>
+            <div><b>滚轮/双指缩放</b> - 放大缩小</div>
+        </div>
+
+        <div class="help-divider"></div>
+
+        <div class="disclaimer">
+            <strong>免责声明</strong><br>
+            本 3D 模型由用户使用 AI 工具生成，模型内容由用户自行负责，与本开源项目及其开发者无关。严禁将本工具用于生成或传播任何违法、侵权或不当内容。<br><br>
+            <strong>Powered by</strong> <a href="https://github.com/anthropic/sharp-3d" target="_blank">Sharp 3D</a> ·
+            开源项目
+        </div>
+    </div>
+
+    <!-- 底部控制栏 -->
+    <div class="bottom-bar">
+        <button class="reset-btn" id="reset-btn">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Reset
+        </button>
+    </div>
+
+    <script type="module">
+        import * as GaussianSplats3D from '@mkkellogg/gaussian-splats-3d';
+
+        // 模型数据 (Base64)
+        const MODEL_DATA = '{{MODEL_DATA}}';
+        let viewer = null;
+
+        // Base64 转 ArrayBuffer (带进度)
+        function base64ToArrayBuffer(base64, onProgress) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+
+            // 分块处理以便报告进度
+            const chunkSize = 100000;
+            for (let i = 0; i < len; i += chunkSize) {
+                const end = Math.min(i + chunkSize, len);
+                for (let j = i; j < end; j++) {
+                    bytes[j] = binaryString.charCodeAt(j);
+                }
+                if (onProgress) {
+                    onProgress(Math.min(end / len, 1));
+                }
+            }
+            return bytes.buffer;
+        }
+
+        // 更新进度条
+        function updateProgress(percent, text) {
+            const progressBar = document.getElementById('loading-progress-bar');
+            const percentText = document.getElementById('loading-percent');
+            const loadingText = document.getElementById('loading-text');
+
+            progressBar.style.width = percent + '%';
+            percentText.textContent = Math.round(percent) + '%';
+            if (text) {
+                loadingText.textContent = text;
+            }
+        }
+
+        // 初始化查看器
+        async function init() {
+            const container = document.getElementById('viewer-container');
+            const loading = document.getElementById('loading');
+
+            try {
+                updateProgress(5, 'Initializing viewer...');
+
+                viewer = new GaussianSplats3D.Viewer({
+                    cameraUp: [0, -1, 0],
+                    initialCameraPosition: [0, 0, 1],
+                    rootElement: container,
+                    gpuAcceleratedSort: false,
+                    sharedMemoryForWorkers: false,
+                    useBuiltInControls: true,
+                    selfDrivenMode: true
+                });
+
+                updateProgress(10, 'Decoding model data...');
+
+                // 创建 Blob URL (带进度)
+                const buffer = base64ToArrayBuffer(MODEL_DATA, (p) => {
+                    updateProgress(10 + p * 40, 'Decoding model data...');
+                });
+
+                updateProgress(50, 'Loading 3D model...');
+
+                const blob = new Blob([buffer], { type: 'application/octet-stream' });
+                const url = URL.createObjectURL(blob);
+
+                // 模拟加载进度 (库不提供进度回调)
+                let fakeProgress = 50;
+                const progressInterval = setInterval(() => {
+                    fakeProgress += (100 - fakeProgress) * 0.1;
+                    if (fakeProgress < 95) {
+                        updateProgress(fakeProgress, 'Loading 3D model...');
+                    }
+                }, 100);
+
+                await viewer.addSplatScene(url, {
+                    showLoadingUI: false,
+                    position: [0, 0, 0],
+                    rotation: [0, 1, 0, 0],
+                    scale: [2.0, 2.0, 2.0],
+                    format: GaussianSplats3D.SceneFormat.Splat
+                });
+
+                clearInterval(progressInterval);
+                updateProgress(100, 'Complete!');
+
+                setTimeout(() => {
+                    loading.classList.add('hidden');
+                }, 300);
+
+                viewer.start();
+                URL.revokeObjectURL(url);
+
+            } catch (e) {
+                console.error('加载失败:', e);
+                loading.innerHTML = '<div style="color:#ff3b30">加载失败: ' + e.message + '</div>';
+            }
+        }
+
+        // 重置相机（带动画）
+        function resetCamera() {
+            if (!viewer) return;
+            const c = viewer.cameraControls || viewer.controls;
+            if (!c) return;
+
+            // 需要 THREE 库
+            import('three').then(THREE => {
+                // 1. 捕获当前状态
+                const startPos = new THREE.Vector3().copy(c.object.position);
+                const startTarget = new THREE.Vector3().copy(c.target);
+
+                // 2. 重置获取目标状态
+                c.reset();
+                const endPos = new THREE.Vector3().copy(c.object.position);
+                const endTarget = new THREE.Vector3().copy(c.target);
+
+                // 3. 立即恢复当前状态
+                c.object.position.copy(startPos);
+                c.target.copy(startTarget);
+                c.update();
+
+                // 4. 动画过渡
+                const duration = 800;
+                const startTime = performance.now();
+
+                function animateReset(time) {
+                    const elapsed = time - startTime;
+                    const t = Math.min(elapsed / duration, 1);
+                    // Ease out cubic
+                    const ease = 1 - Math.pow(1 - t, 3);
+
+                    c.object.position.lerpVectors(startPos, endPos, ease);
+                    c.target.lerpVectors(startTarget, endTarget, ease);
+                    c.update();
+
+                    if (t < 1) {
+                        requestAnimationFrame(animateReset);
+                    } else {
+                        c.object.position.copy(endPos);
+                        c.target.copy(endTarget);
+                        c.update();
+                    }
+                }
+                requestAnimationFrame(animateReset);
+            });
+        }
+
+        // 绑定重置按钮
+        document.getElementById('reset-btn').addEventListener('click', resetCamera);
+
+        // --- 操作指南面板切换 ---
+        const helpPanel = document.getElementById('help-panel');
+        const helpBtn = document.getElementById('help-btn');
+
+        window.toggleHelpPanel = function () {
+            helpPanel.classList.toggle('visible');
+        }
+
+        // 点击其他区域关闭帮助面板
+        document.addEventListener('click', function (e) {
+            if (helpPanel.classList.contains('visible') &&
+                !helpPanel.contains(e.target) &&
+                !helpBtn.contains(e.target)) {
+                helpPanel.classList.remove('visible');
+            }
+        });
+
+        init();
+    </script>
+</body>
+
+</html>

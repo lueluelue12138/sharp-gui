@@ -1,0 +1,2690 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sharp 3D Gallery</title>
+    <link rel="icon" href="data:,">
+    <style>
+        /* --- 启动加载/诊断屏幕 (美化版) --- */
+        #boot-screen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.8);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            transition: opacity 0.5s ease;
+        }
+
+        .boot-content {
+            text-align: center;
+            background: rgba(255, 255, 255, 0.5);
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            max-width: 80%;
+            width: 300px;
+        }
+
+        .boot-spinner {
+            width: 40px;
+            height: 40px;
+            margin: 0 auto 20px;
+            border: 3px solid rgba(0, 113, 227, 0.1);
+            border-radius: 50%;
+            border-top-color: #0071e3;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        #boot-status {
+            font-size: 16px;
+            font-weight: 500;
+            color: #333;
+            margin: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+        }
+
+        #boot-details-btn {
+            margin-top: 16px;
+            font-size: 12px;
+            color: #0071e3;
+            background: none;
+            border: none;
+            cursor: pointer;
+            text-decoration: underline;
+            display: none;
+            /* 默认隐藏，出错时显示 */
+        }
+
+        #boot-log {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            width: 100%;
+            height: 50%;
+            background: #1d1d1f;
+            color: #00ff00;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 20px;
+            box-sizing: border-box;
+            overflow-y: auto;
+            display: none;
+            z-index: 10000;
+            border-top: 1px solid #333;
+        }
+
+        .boot-error {
+            color: #ff3b30;
+        }
+
+        .boot-success {
+            color: #34c759;
+        }
+
+        :root {
+            /* 基础色调 */
+            --bg-color: #f5f5f7;
+            --text-primary: #1d1d1f;
+            --accent-blue: #0071e3;
+
+            /* ✨ 高级毛玻璃系统 */
+            --glass-bg: rgba(255, 255, 255, 0.65);
+            --glass-border: rgba(255, 255, 255, 0.6);
+            --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+            --glass-blur: blur(30px) saturate(180%);
+
+            --sidebar-width: 280px;
+        }
+
+        body {
+            margin: 0;
+            overflow: hidden;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            display: flex;
+            height: 100vh;
+        }
+
+        /* --- 左侧边栏 (Gallery) --- */
+        #sidebar {
+            width: var(--sidebar-width);
+            height: 100%;
+            background: rgba(255, 255, 255, 0.5);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border-right: 1px solid rgba(0, 0, 0, 0.1);
+            display: flex;
+            flex-direction: column;
+            z-index: 20;
+        }
+
+        .sidebar-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .app-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* 新建按钮 */
+        #btn-new {
+            width: 100%;
+            background: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+            box-shadow: 0 4px 10px rgba(0, 113, 227, 0.2);
+        }
+
+        #btn-new:hover {
+            background: #0077ED;
+            transform: translateY(-1px);
+        }
+
+        #btn-new:disabled {
+            opacity: 0.6;
+            cursor: wait;
+        }
+
+        /* 队列区域 */
+        #queue-container {
+            padding: 12px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            display: none;
+            /* 有任务时显示 */
+            background: rgba(255, 255, 255, 0.3);
+            max-height: 180px;
+            overflow-y: auto;
+        }
+
+        .section-title {
+            font-size: 11px;
+            color: #888;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+
+        .queue-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.5);
+            margin-bottom: 6px;
+            font-size: 12px;
+        }
+
+        .queue-status-icon {
+            width: 16px;
+            height: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* 旋转动画 */
+        .spin {
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            100% {
+                transform: rotate(360deg);
+            }
+        }
+
+        /* 拖拽高亮 */
+        #sidebar.drag-over {
+            background: rgba(0, 113, 227, 0.1) !important;
+            box-shadow: inset 0 0 0 2px var(--accent-blue);
+        }
+
+        #sidebar.drag-over::after {
+            content: 'Drop images here to generate';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--accent-blue);
+            pointer-events: none;
+        }
+
+        /* 列表区域 */
+        #gallery-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .gallery-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: transparent;
+            position: relative;
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        /* 删除动画 */
+        .gallery-item.deleting {
+            opacity: 0;
+            transform: translateX(-20px);
+            pointer-events: none;
+        }
+
+        .gallery-item:hover {
+            background: rgba(255, 255, 255, 0.6);
+        }
+
+        .gallery-item.active {
+            background: white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .thumb {
+            width: 40px;
+            height: 40px;
+            border-radius: 6px;
+            object-fit: cover;
+            background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+            background-size: 200% 100%;
+            animation: skeleton-loading 1.5s infinite;
+        }
+
+        .thumb[src]:not([src=""]) {
+            animation: none;
+            background: #eee;
+        }
+
+        @keyframes skeleton-loading {
+            0% {
+                background-position: 200% 0;
+            }
+
+            100% {
+                background-position: -200% 0;
+            }
+        }
+
+        .item-info {
+            flex: 1;
+            overflow: hidden;
+            max-width: calc(100% - 100px);
+            /* 为按钮留出空间 */
+        }
+
+        .item-name {
+            font-size: 13px;
+            font-weight: 500;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-date {
+            font-size: 11px;
+            color: #888;
+        }
+
+        /* 删除按钮 */
+        .btn-delete {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.1);
+            color: #666;
+            border: none;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            transition: all 0.2s;
+        }
+
+        .gallery-item:hover .btn-delete {
+            display: flex;
+        }
+
+        .btn-delete:hover {
+            background: #fff;
+            color: #666;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        }
+
+        /* 下载按钮 */
+        .btn-download {
+            position: absolute;
+            right: 36px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.1);
+            color: #666;
+            border: none;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            line-height: 1;
+            transition: all 0.2s;
+        }
+
+        .gallery-item:hover .btn-download {
+            display: flex;
+        }
+
+        .btn-download:hover {
+            background: #fff;
+            color: #666;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        }
+
+        /* 查看原图按钮 */
+        .btn-preview {
+            position: absolute;
+            right: 64px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.1);
+            color: #666;
+            border: none;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 14px;
+            line-height: 1;
+            transition: all 0.2s;
+        }
+
+        .gallery-item:hover .btn-preview {
+            display: flex;
+        }
+
+        .btn-preview:hover {
+            background: #fff;
+            color: #666;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        }
+
+        /* 统一按钮图标大小 */
+        .btn-delete svg,
+        .btn-download svg,
+        .btn-preview svg {
+            width: 14px;
+            height: 14px;
+            flex-shrink: 0;
+        }
+
+        /* 触屏设备: 始终显示操作按钮 */
+        @media (hover: none) {
+
+            .gallery-item .btn-delete,
+            .gallery-item .btn-download,
+            .gallery-item .btn-preview {
+                display: flex;
+                background: #fff;
+                color: #666;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+            }
+
+            .gallery-item .btn-delete svg,
+            .gallery-item .btn-download svg,
+            .gallery-item .btn-preview svg {
+                width: 14px;
+                height: 14px;
+            }
+
+            .item-info {
+                max-width: calc(100% - 110px);
+            }
+        }
+
+        /* 设置按钮 */
+        .settings-btn {
+            width: 28px;
+            height: 28px;
+            background: rgba(0, 0, 0, 0.05);
+            border: none;
+            border-radius: 50%;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s;
+            margin-left: auto;
+        }
+
+        .settings-btn:hover {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        .settings-btn svg {
+            width: 16px;
+            height: 16px;
+            color: #666;
+        }
+
+        /* 设置弹窗 */
+        .settings-modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            z-index: 100;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        .settings-modal.visible {
+            opacity: 1;
+        }
+
+        .settings-panel {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(30px);
+            -webkit-backdrop-filter: blur(30px);
+            border-radius: 20px;
+            padding: 24px;
+            width: 90%;
+            max-width: 400px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+            transform: scale(0.9);
+            transition: transform 0.3s;
+        }
+
+        .settings-modal.visible .settings-panel {
+            transform: scale(1);
+        }
+
+        .settings-panel h3 {
+            margin: 0 0 20px 0;
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .settings-group {
+            margin-bottom: 16px;
+        }
+
+        .settings-group label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: #666;
+            margin-bottom: 6px;
+        }
+
+        .settings-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid rgba(0, 0, 0, 0.1);
+            border-radius: 10px;
+            font-size: 13px;
+            background: white;
+            box-sizing: border-box;
+        }
+
+        .settings-group input:focus {
+            outline: none;
+            border-color: var(--accent-blue);
+        }
+
+        .settings-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .settings-actions button {
+            flex: 1;
+            padding: 10px;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .settings-actions .btn-cancel {
+            background: rgba(0, 0, 0, 0.05);
+            border: none;
+            color: #666;
+        }
+
+        .settings-actions .btn-save {
+            background: var(--accent-blue);
+            border: none;
+            color: white;
+        }
+
+        .settings-actions .btn-save:hover {
+            background: #0077ED;
+        }
+
+        /* --- 右侧主区域 (Viewer) --- */
+        #main-content {
+            flex: 1;
+            position: relative;
+            background-image: radial-gradient(at 0% 0%, rgba(200, 200, 250, 0.3) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(200, 220, 250, 0.3) 0px, transparent 50%);
+        }
+
+        /* 粒子背景画布 */
+        #particle-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 1;
+            opacity: 1;
+            transition: opacity 0.5s ease;
+        }
+
+        #particle-canvas.hidden {
+            opacity: 0;
+        }
+
+        #canvas-container {
+            width: 100%;
+            height: 100%;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* 空状态 */
+        #empty-state {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            color: #888;
+            pointer-events: none;
+        }
+
+        .empty-icon {
+            width: 64px;
+            height: 64px;
+            margin-bottom: 16px;
+            opacity: 0.5;
+            color: var(--accent-blue);
+        }
+
+        /* --- 覆盖层 (Loading) --- */
+        #loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            z-index: 50;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #loading-overlay.visible {
+            opacity: 1;
+        }
+
+        .spinner {
+            width: 44px;
+            height: 44px;
+            border: 4px solid rgba(0, 0, 0, 0.08);
+            border-radius: 50%;
+            border-top-color: var(--accent-blue);
+            animation: spin 0.8s ease-in-out infinite;
+            margin-bottom: 16px;
+        }
+
+        .loading-text {
+            font-size: 15px;
+            font-weight: 500;
+            color: #555;
+        }
+
+        /* 进度条 */
+        .loading-progress {
+            width: 200px;
+            height: 4px;
+            background: rgba(0, 0, 0, 0.08);
+            border-radius: 2px;
+            margin-top: 16px;
+            overflow: hidden;
+        }
+
+        .loading-progress-bar {
+            height: 100%;
+            background: var(--accent-blue);
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+
+        .loading-percent {
+            font-size: 12px;
+            color: #888;
+            margin-top: 8px;
+        }
+
+        /* --- 底部控制栏 --- */
+        .controls-container {
+            display: none;
+            gap: 16px;
+            pointer-events: auto;
+            transition: opacity 0.3s ease;
+        }
+
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: var(--glass-blur);
+            -webkit-backdrop-filter: var(--glass-blur);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            box-shadow: var(--glass-shadow);
+            padding: 8px;
+            display: flex;
+            gap: 8px;
+        }
+
+        button.control-btn {
+            background: transparent;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 18px;
+            font-size: 14px;
+            font-weight: 500;
+            color: #444;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* 确保所有控制按钮图标大小一致 */
+        button.control-btn svg {
+            width: 18px;
+            height: 18px;
+            flex-shrink: 0;
+        }
+
+        button.control-btn:hover {
+            background: rgba(255, 255, 255, 0.5);
+            color: black;
+        }
+
+        button.control-btn.active {
+            background: white;
+            color: var(--accent-blue);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            font-weight: 600;
+        }
+
+        .tooltip {
+            position: fixed;
+            bottom: 100px;
+            left: calc(50% + var(--sidebar-width) / 2);
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            z-index: 100;
+        }
+
+        .tooltip.show {
+            opacity: 1;
+        }
+
+        #file-input {
+            display: none;
+        }
+
+        /* --- 移动端适配 --- */
+        #btn-menu {
+            display: none;
+            /* 默认隐藏 */
+            position: absolute;
+            top: 16px;
+            left: 16px;
+            z-index: 30;
+            background: rgba(255, 255, 255, 0.8);
+            border: none;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            backdrop-filter: blur(10px);
+        }
+
+        #sidebar-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.3);
+            z-index: 15;
+            backdrop-filter: blur(2px);
+            opacity: 0;
+            transition: opacity 0.3s;
+        }
+
+        #sidebar-overlay.visible {
+            display: block;
+            opacity: 1;
+        }
+
+        @media (max-width: 768px) {
+            body {
+                flex-direction: column;
+            }
+
+            #sidebar {
+                position: absolute;
+                left: 0;
+                top: 0;
+                bottom: 0;
+                width: 85%;
+                max-width: 320px;
+                transform: translateX(-100%);
+                transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                background: rgba(255, 255, 255, 0.95);
+                box-shadow: 2px 0 20px rgba(0, 0, 0, 0.1);
+            }
+
+            #sidebar.open {
+                transform: translateX(0);
+            }
+
+            #btn-menu {
+                display: flex;
+            }
+
+            .controls-container {
+                bottom: 30px;
+                width: 90%;
+                justify-content: center;
+            }
+
+            .tooltip {
+                left: 50%;
+                bottom: 120px;
+                width: max-content;
+            }
+
+            /* 移动端删除按钮优化 */
+            .btn-delete {
+                display: flex !important;
+                /* 强制显示 */
+                background: rgba(0, 0, 0, 0.05);
+                color: #999;
+                width: 28px;
+                height: 28px;
+            }
+        }
+
+        /* --- 陀螺仪方向指示球 (iOS 26 风格) --- */
+        .gyro-indicator {
+            position: fixed;
+            bottom: 120px;
+            right: 24px;
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.4);
+            box-shadow:
+                0 8px 32px rgba(0, 0, 0, 0.1),
+                inset 0 1px 0 rgba(255, 255, 255, 0.5),
+                0 0 0 1px rgba(0, 0, 0, 0.05);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 60;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow: hidden;
+        }
+
+        .gyro-indicator.visible {
+            display: flex;
+            opacity: 1;
+            transform: scale(1);
+        }
+
+        .gyro-indicator.active {
+            background: rgba(255, 255, 255, 0.35);
+            border-color: rgba(255, 255, 255, 0.6);
+        }
+
+        .gyro-ball {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(255, 255, 255, 0.95) 0%, rgba(220, 220, 220, 0.9) 100%);
+            box-shadow:
+                0 2px 8px rgba(0, 0, 0, 0.15),
+                0 0 12px rgba(255, 255, 255, 0.5),
+                inset 0 1px 2px rgba(255, 255, 255, 1);
+            position: absolute;
+            transition: transform 0.08s ease-out;
+            z-index: 2;
+        }
+
+        .gyro-crosshair {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .gyro-crosshair::before,
+        .gyro-crosshair::after {
+            content: '';
+            position: absolute;
+            background: rgba(0, 0, 0, 0.08);
+        }
+
+        .gyro-crosshair::before {
+            width: 1px;
+            height: 20px;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        .gyro-crosshair::after {
+            width: 20px;
+            height: 1px;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        /* 陀螺仪提示文字 */
+        .gyro-hint {
+            position: fixed;
+            bottom: 190px;
+            right: 24px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.3s;
+            pointer-events: none;
+            z-index: 60;
+            white-space: nowrap;
+        }
+
+        .gyro-hint.show {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        @media (max-width: 768px) {
+            .gyro-indicator {
+                bottom: 100px;
+                right: 16px;
+                width: 56px;
+                height: 56px;
+            }
+
+            .gyro-ball {
+                width: 14px;
+                height: 14px;
+            }
+
+            .gyro-hint {
+                bottom: 165px;
+                right: 16px;
+            }
+        }
+
+        /* --- 控制栏折叠按钮 --- */
+        .controls-wrapper {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 20;
+            /* 确保在 canvas-container (z-index: 10) 上方 */
+        }
+
+        .controls-wrapper.collapsed {
+            transform: translateX(-50%) translateY(calc(100% - 28px));
+        }
+
+        .controls-wrapper.collapsed .controls-container {
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        .controls-wrapper.collapsed .collapse-arrow {
+            transform: rotate(180deg);
+        }
+
+        .collapse-arrow {
+            order: -1;
+            /* 让箭头排在最前面（上方） */
+            width: 36px;
+            height: 20px;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+        }
+
+        .collapse-arrow:hover {
+            background: rgba(255, 255, 255, 0.8);
+        }
+
+        .collapse-arrow svg {
+            width: 14px;
+            height: 14px;
+            color: #666;
+            transition: transform 0.3s ease;
+        }
+
+        /* Gyro 按钮默认隐藏（PC端） */
+        #btn-gyro {
+            display: none;
+        }
+
+        /* --- 操作指南按钮 --- */
+        .help-btn {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 32px;
+            height: 32px;
+            background: rgba(255, 255, 255, 0.6);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            z-index: 30;
+        }
+
+        .help-btn:hover {
+            background: rgba(255, 255, 255, 0.85);
+            transform: scale(1.05);
+        }
+
+        .help-btn svg {
+            width: 16px;
+            height: 16px;
+            color: #555;
+        }
+
+        /* --- 操作指南面板 --- */
+        .help-panel {
+            position: absolute;
+            top: 56px;
+            right: 16px;
+            width: 260px;
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            border: 1px solid rgba(255, 255, 255, 0.6);
+            border-radius: 16px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+            padding: 16px;
+            z-index: 35;
+            opacity: 0;
+            transform: translateY(-10px) scale(0.95);
+            pointer-events: none;
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .help-panel.visible {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+            pointer-events: auto;
+        }
+
+        .help-panel h4 {
+            margin: 0 0 12px 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .help-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: #555;
+            line-height: 1.4;
+        }
+
+        .help-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .help-icon {
+            width: 20px;
+            height: 20px;
+            flex-shrink: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+        }
+
+        .help-icon svg {
+            width: 12px;
+            height: 12px;
+            color: #666;
+        }
+
+        @media (max-width: 768px) {
+            .controls-wrapper {
+                bottom: 30px;
+                width: 90%;
+                max-width: 100%;
+            }
+
+            .controls-wrapper.collapsed {
+                transform: translateX(-50%) translateY(calc(100% - 28px));
+            }
+
+            /* 移动端显示 Gyro 按钮 */
+            #btn-gyro {
+                display: flex;
+            }
+
+            /* 控制栏适配移动端 - 可横向滚动 */
+            .glass-panel {
+                overflow-x: auto;
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: none;
+                max-width: calc(100vw - 40px);
+            }
+
+            .glass-panel::-webkit-scrollbar {
+                display: none;
+            }
+
+            /* 移动端按钮紧凑化 */
+            .glass-panel .control-btn {
+                padding: 8px 12px;
+                font-size: 12px;
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+
+            .help-panel {
+                width: calc(100% - 32px);
+                right: 16px;
+                left: 16px;
+            }
+        }
+
+        /* Android 安全区域适配 - 避开系统手势条 */
+        @supports (padding-bottom: env(safe-area-inset-bottom)) {
+            @media (max-width: 768px) {
+                .controls-wrapper {
+                    bottom: calc(30px + env(safe-area-inset-bottom, 20px));
+                }
+            }
+        }
+    </style>
+
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js",
+            "@mkkellogg/gaussian-splats-3d": "https://cdn.jsdelivr.net/npm/@mkkellogg/gaussian-splats-3d@0.4.7/build/gaussian-splats-3d.module.js"
+        }
+    }
+    </script>
+</head>
+
+<body>
+
+    <!-- 启动屏幕 (美化版) -->
+    <div id="boot-screen">
+        <div class="boot-content">
+            <div class="boot-spinner"></div>
+            <h3 id="boot-status">Loading...</h3>
+            <button id="boot-details-btn" onclick="toggleBootLog()">Show Details</button>
+        </div>
+    </div>
+    <div id="boot-log"></div>
+
+    <script>
+        // --- 全局错误捕获与日志系统 ---
+        const bootLog = document.getElementById('boot-log');
+        const bootStatus = document.getElementById('boot-status');
+        const bootScreen = document.getElementById('boot-screen');
+        const bootDetailsBtn = document.getElementById('boot-details-btn');
+        const bootSpinner = document.querySelector('.boot-spinner');
+
+        function toggleBootLog() {
+            bootLog.style.display = bootLog.style.display === 'block' ? 'none' : 'block';
+        }
+
+        function log(msg, type = 'info') {
+            const div = document.createElement('div');
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            if (type === 'error') div.className = 'boot-error';
+            if (type === 'success') div.className = 'boot-success';
+            bootLog.appendChild(div);
+            bootLog.scrollTop = bootLog.scrollHeight;
+            console.log(msg);
+        }
+
+        function showErrorState(msg) {
+            bootStatus.textContent = "Something went wrong";
+            bootStatus.style.color = "#ff3b30";
+            bootSpinner.style.borderColor = "#ff3b30";
+            bootSpinner.style.animation = "none";
+            bootDetailsBtn.style.display = "inline-block";
+            log(msg, 'error');
+        }
+
+        window.onerror = function (msg, url, line, col, error) {
+            showErrorState(`Error: ${msg}\nAt: ${url}:${line}:${col}`);
+            return false;
+        };
+
+        window.addEventListener('unhandledrejection', function (event) {
+            showErrorState(`Unhandled Promise Rejection: ${event.reason}`);
+        });
+
+        log("Boot sequence started...");
+        log("User Agent: " + navigator.userAgent);
+    </script>
+
+    <!-- 移动端菜单按钮 -->
+    <button id="btn-menu" onclick="toggleSidebar()">
+        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+    </button>
+
+    <!-- 遮罩层 -->
+    <div id="sidebar-overlay" onclick="toggleSidebar()"></div>
+
+    <!-- 左侧边栏 -->
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <div class="app-title">
+                <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
+                    </path>
+                </svg>
+                Sharp 3D
+                <button class="settings-btn" id="btn-settings" onclick="openSettings()">
+                    <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </button>
+            </div>
+            <button id="btn-new" onclick="document.getElementById('file-input').click()">
+                <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+                    <path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+                Generate New
+            </button>
+            <!-- 支持多选 -->
+            <input type="file" id="file-input" accept="image/*" multiple>
+        </div>
+
+        <!-- 队列区域 -->
+        <div id="queue-container">
+            <div class="section-title">Processing Queue</div>
+            <div id="queue-list"></div>
+        </div>
+
+        <div id="gallery-list">
+            <!-- 列表项将在这里生成 -->
+        </div>
+    </div>
+
+    <!-- 主显示区 -->
+    <div id="main-content">
+        <canvas id="particle-canvas"></canvas>
+        <div id="canvas-container"></div>
+
+        <!-- 空状态提示 -->
+        <div id="empty-state">
+            <svg class="empty-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z">
+                </path>
+            </svg>
+            <div style="font-weight:500">Select an item or generate new</div>
+        </div>
+
+        <!-- 加载遮罩 -->
+        <div id="loading-overlay">
+            <div class="spinner"></div>
+            <div class="loading-text" id="loading-text">Loading Model...</div>
+            <div class="loading-progress">
+                <div class="loading-progress-bar" id="loading-progress-bar"></div>
+            </div>
+            <div class="loading-percent" id="loading-percent">0%</div>
+        </div>
+
+        <!-- 操作指南按钮 -->
+        <button id="help-btn" class="help-btn" onclick="toggleHelpPanel()">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </button>
+
+        <!-- 操作指南面板 -->
+        <div id="help-panel" class="help-panel">
+            <h4>操作指南</h4>
+            <div class="help-item">
+                <div class="help-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                    </svg>
+                </div>
+                <div><b>拖拽/触摸</b> - 旋转模型视角</div>
+            </div>
+            <div class="help-item">
+                <div class="help-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+                    </svg>
+                </div>
+                <div><b>滚轮/双指缩放</b> - 放大缩小</div>
+            </div>
+            <div class="help-item">
+                <div class="help-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 18.5A6.5 6.5 0 1112 5.5a6.5 6.5 0 010 13z" />
+                    </svg>
+                </div>
+                <div><b>Gyro 模式</b> - 开启后倾斜手机预览</div>
+            </div>
+            <div class="help-item">
+                <div class="help-icon">
+                    <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                    </svg>
+                </div>
+                <div><b>Front View</b> - 限制为正面视角</div>
+            </div>
+        </div>
+
+        <!-- 底部控制栏容器 -->
+        <div class="controls-wrapper" id="controls-wrapper">
+            <!-- 折叠箭头 (在控制栏上方) -->
+            <div class="collapse-arrow" id="collapse-arrow" onclick="toggleControlsBar()">
+                <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </div>
+            <!-- 控制栏 -->
+            <div class="controls-container" id="controls-bar">
+                <div class="glass-panel">
+                    <button id="btn-limit" class="control-btn active" onclick="toggleLimits()">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Front View
+                    </button>
+                    <button id="btn-gyro" class="control-btn" onclick="toggleGyroMode()">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 18.5A6.5 6.5 0 1112 5.5a6.5 6.5 0 010 13zM12 2v2m0 16v2M2 12h2m16 0h2m-4.93-5.07l1.41-1.41m-12.02 0l1.41 1.41m0 10.14l-1.41 1.41m12.02 0l-1.41-1.41" />
+                        </svg>
+                        Gyro
+                    </button>
+                    <button class="control-btn" onclick="resetCamera()">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Reset
+                    </button>
+                    <button id="btn-fullscreen" class="control-btn" onclick="toggleFullscreen()">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                        Fullscreen
+                    </button>
+                    <button class="control-btn" onclick="exportModel()">
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                        </svg>
+                        Share
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 陀螺仪方向指示球 -->
+        <div id="gyro-indicator" class="gyro-indicator">
+            <div id="gyro-ball" class="gyro-ball"></div>
+            <div class="gyro-crosshair"></div>
+        </div>
+        <div id="gyro-hint" class="gyro-hint">Tilt to explore</div>
+
+        <div class="tooltip" id="zoom-tooltip">Hold Shift + Scroll for Precision Zoom</div>
+    </div>
+
+    <script type="module">
+        // --- Boot Sequence Integration ---
+        try {
+            log("Importing modules...");
+            const THREE = await import('three');
+            const { Viewer } = await import('@mkkellogg/gaussian-splats-3d');
+            log("Modules imported successfully.", "success");
+
+            window.THREE = THREE; // Expose for debugging
+            window.Viewer = Viewer;
+        } catch (e) {
+            log("Module Import Failed: " + e.message, "error");
+            throw e;
+        }
+
+        import * as THREE from 'three';
+        import { Viewer } from '@mkkellogg/gaussian-splats-3d';
+
+        log("Initializing variables...");
+        let viewer = null;
+        let isLimitsOn = true;
+        let pollInterval = null;
+        let processedTaskIds = new Set(); // 记录已完成并处理过的任务
+
+        // UI 引用
+        const galleryList = document.getElementById('gallery-list');
+        const queueContainer = document.getElementById('queue-container');
+        const queueList = document.getElementById('queue-list');
+        const fileInput = document.getElementById('file-input');
+        const overlay = document.getElementById('loading-overlay');
+        const loadingText = document.getElementById('loading-text');
+        const emptyState = document.getElementById('empty-state');
+        const controlsBar = document.getElementById('controls-bar');
+        const zoomTooltip = document.getElementById('zoom-tooltip');
+        const canvasContainer = document.getElementById('canvas-container');
+        const sidebar = document.getElementById('sidebar');
+        const sidebarOverlay = document.getElementById('sidebar-overlay');
+
+        // --- 移动端侧边栏控制 ---
+        window.toggleSidebar = function () {
+            const isOpen = sidebar.classList.contains('open');
+            if (isOpen) {
+                sidebar.classList.remove('open');
+                sidebarOverlay.classList.remove('visible');
+                setTimeout(() => sidebarOverlay.style.display = 'none', 300);
+            } else {
+                sidebarOverlay.style.display = 'block';
+                // 强制重绘
+                requestAnimationFrame(() => {
+                    sidebar.classList.add('open');
+                    sidebarOverlay.classList.add('visible');
+                });
+            }
+        }
+
+        // --- 控制栏折叠切换 ---
+        const controlsWrapper = document.getElementById('controls-wrapper');
+
+        window.toggleControlsBar = function () {
+            controlsWrapper.classList.toggle('collapsed');
+        }
+
+        // --- 操作指南面板切换 ---
+        const helpPanel = document.getElementById('help-panel');
+        const helpBtn = document.getElementById('help-btn');
+
+        window.toggleHelpPanel = function () {
+            helpPanel.classList.toggle('visible');
+        }
+
+        // 点击其他区域关闭帮助面板
+        document.addEventListener('click', function (e) {
+            if (helpPanel.classList.contains('visible') &&
+                !helpPanel.contains(e.target) &&
+                !helpBtn.contains(e.target)) {
+                helpPanel.classList.remove('visible');
+            }
+        });
+
+        // --- 1. Viewer 初始化 ---
+        function initViewer() {
+            canvasContainer.innerHTML = '';
+            viewer = new Viewer({
+                'cameraUp': [0, -1, 0],
+                'initialCameraPosition': [0, 0, 1], // 更近的初始视角
+                'rootElement': canvasContainer,
+                'gpuAcceleratedSort': false,
+                'sharedMemoryForWorkers': false,
+                'useBuiltInControls': true,
+                'selfDrivenMode': true
+            });
+        }
+
+        // --- 2. 加载模型逻辑 ---
+        async function loadModel(url) {
+            emptyState.style.display = 'none';
+            showLoading("Loading Scene...");
+            updateProgress(0, true);  // 强制重置进度
+            if (window.hideParticles) hideParticles();  // 隐藏粒子背景
+
+            // 修复：回退到销毁重建模式，解决模型重叠问题
+            if (viewer) {
+                try { if (viewer.dispose) viewer.dispose(); } catch (e) { }
+                viewer = null;
+            }
+            initViewer();
+
+            try {
+                await viewer.addSplatScene(url, {
+                    'showLoadingUI': false,
+                    'position': [0, 0, 0],
+                    'rotation': [0, 1, 0, 0],
+                    'scale': [2.0, 2.0, 2.0],
+                    'onProgress': (percent, message, stage) => {
+                        updateProgress(percent);
+                    }
+                });
+
+                updateProgress(100);
+                hideLoading();
+                controlsBar.style.display = 'flex';
+                viewer.start();
+                applyLimits();
+
+                // 重置相机到新的初始位置
+                const c = viewer.cameraControls || viewer.controls;
+                if (c) {
+                    c.reset(); // 重置到 initialCameraPosition
+                }
+
+            } catch (e) {
+                hideLoading();
+                console.error("Viewer Error:", e);
+                alert("Viewer Error: " + e.message);
+            }
+        }
+
+        // 更新进度条（只允许增加，防止跳变）
+        let maxProgress = 0;
+        function updateProgress(percent, forceReset = false) {
+            if (forceReset) {
+                maxProgress = 0;
+            }
+            // 只允许进度增加，忽略回退
+            if (percent > maxProgress) {
+                maxProgress = percent;
+            }
+            const progressBar = document.getElementById('loading-progress-bar');
+            const percentText = document.getElementById('loading-percent');
+            if (progressBar) {
+                progressBar.style.width = maxProgress + '%';
+            }
+            if (percentText) {
+                percentText.textContent = Math.round(maxProgress) + '%';
+            }
+        }
+
+        // --- 3. UI 交互逻辑 ---
+
+        function showLoading(text) {
+            loadingText.innerText = text;
+            overlay.style.display = 'flex';
+            requestAnimationFrame(() => overlay.classList.add('visible'));
+        }
+        function hideLoading() {
+            overlay.classList.remove('visible');
+            setTimeout(() => overlay.style.display = 'none', 300);
+        }
+
+        // 刷新图库
+        async function refreshGallery() {
+            log("Refreshing gallery...");
+            try {
+                const res = await fetch('/api/gallery');
+                if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+                const items = await res.json();
+                renderGallery(items);
+                log(`Gallery loaded with ${items.length} items.`, "success");
+
+                // App is ready
+                if (document.getElementById('boot-screen')) {
+                    setTimeout(() => {
+                        document.getElementById('boot-screen').style.display = 'none';
+                    }, 500);
+                }
+            } catch (e) {
+                log("Gallery Fetch Failed: " + e.message, "error");
+                console.error("Gallery Fetch Failed", e);
+            }
+        }
+
+        function renderGallery(items) {
+            galleryList.innerHTML = '';
+            items.forEach(item => {
+                const div = document.createElement('div');
+                div.className = 'gallery-item';
+                div.dataset.itemId = item.id;  // 用于删除动画
+                // 计算文件大小显示
+                const sizeText = item.size ? formatFileSize(item.size) : '';
+                // 使用缩略图 URL（如果有的话）
+                const thumbSrc = item.thumb_url || item.image_url || '';
+                div.innerHTML = `
+                    <img src="${thumbSrc}" class="thumb" loading="lazy" onerror="this.style.background='#eee'">
+                    <div class="item-info">
+                        <div class="item-name">${item.name}</div>
+                        <div class="item-date">${sizeText || 'Ready'}</div>
+                    </div>
+                    ${item.image_url ? `<button class="btn-preview" title="View Original" onclick="event.stopPropagation(); previewImage('${item.image_url}')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                    </button>` : ''}
+                    <button class="btn-download" title="Download" onclick="event.stopPropagation(); downloadModel('${item.id}')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                    </button>
+                    <button class="btn-delete" title="Delete" onclick="event.stopPropagation(); deleteItem('${item.id}')">
+                        <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                    </button>
+                `;
+                div.onclick = () => {
+                    document.querySelectorAll('.gallery-item').forEach(el => el.classList.remove('active'));
+                    div.classList.add('active');
+                    currentModelId = item.id;  // 记录当前模型 ID，用于分享
+                    loadModel(item.model_url);
+
+                    // 移动端点击后自动收起侧边栏
+                    if (window.innerWidth <= 768) {
+                        toggleSidebar();
+                    }
+                };
+                galleryList.appendChild(div);
+            });
+        }
+
+        // 文件大小格式化
+        function formatFileSize(bytes) {
+            if (bytes < 1024) return bytes + ' B';
+            if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+            return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+        }
+
+        // 下载模型
+        window.downloadModel = function (id) {
+            window.location.href = `/api/download/${id}`;
+        }
+
+        // 删除功能 (带动画)
+        window.deleteItem = async function (id) {
+            if (!confirm("Are you sure you want to delete this item?")) return;
+
+            // 找到对应的 gallery-item 并添加删除动画
+            const itemEl = document.querySelector(`.gallery-item[data-item-id="${id}"]`);
+            if (itemEl) {
+                itemEl.classList.add('deleting');
+            }
+
+            // 等待动画完成后再执行删除
+            setTimeout(async () => {
+                try {
+                    const res = await fetch(`/api/delete/${id}`, { method: 'DELETE' });
+                    const data = await res.json();
+                    if (data.success) {
+                        refreshGallery();
+                    } else {
+                        if (itemEl) itemEl.classList.remove('deleting');
+                        alert("Delete failed: " + data.error);
+                    }
+                } catch (e) {
+                    if (itemEl) itemEl.classList.remove('deleting');
+                    alert("Error deleting item: " + e.message);
+                }
+            }, 300);  // 等待动画时间
+        }
+
+        // 全屏切换
+        window.toggleFullscreen = function () {
+            const mainContent = document.getElementById('main-content');
+            const btn = document.getElementById('btn-fullscreen');
+
+            if (!document.fullscreenElement) {
+                // 进入全屏
+                if (mainContent.requestFullscreen) {
+                    mainContent.requestFullscreen();
+                } else if (mainContent.webkitRequestFullscreen) {
+                    mainContent.webkitRequestFullscreen();  // Safari
+                }
+                btn.classList.add('active');
+                btn.innerHTML = `
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                    Exit
+                `;
+            } else {
+                // 退出全屏
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                } else if (document.webkitExitFullscreen) {
+                    document.webkitExitFullscreen();  // Safari
+                }
+                btn.classList.remove('active');
+                btn.innerHTML = `
+                    <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                    </svg>
+                    Fullscreen
+                `;
+            }
+        }
+
+        // 监听全屏状态变化
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                const btn = document.getElementById('btn-fullscreen');
+                if (btn) {
+                    btn.classList.remove('active');
+                    btn.innerHTML = `
+                        <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
+                        </svg>
+                        Fullscreen
+                    `;
+                }
+            }
+        });
+
+        // 当前选中的模型 ID
+        let currentModelId = null;
+
+        // 导出分享 HTML
+        window.exportModel = async function () {
+            if (!currentModelId) {
+                alert('请先选择一个模型');
+                return;
+            }
+
+            showLoading('Preparing export...');
+            updateProgress(0, true);  // 重置进度条
+
+            // 模拟进度 (后端转换和压缩需要时间)
+            let progress = 5;
+            updateProgress(progress);
+            const progressInterval = setInterval(() => {
+                progress += (85 - progress) * 0.05;  // 渐进式进度
+                updateProgress(progress);
+
+                // 更新提示文字
+                if (progress < 20) {
+                    document.getElementById('loading-text').textContent = 'Converting model format...';
+                } else if (progress < 60) {
+                    document.getElementById('loading-text').textContent = 'Optimizing data...';
+                } else {
+                    document.getElementById('loading-text').textContent = 'Generating HTML...';
+                }
+            }, 200);
+
+            try {
+                const response = await fetch(`/api/export/${currentModelId}`);
+                clearInterval(progressInterval);
+
+                if (!response.ok) {
+                    throw new Error('Export failed');
+                }
+
+                updateProgress(95);
+                document.getElementById('loading-text').textContent = 'Downloading...';
+
+                const blob = await response.blob();
+                const url = URL.createObjectURL(blob);
+
+                // 触发下载
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `${currentModelId}_share.html`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+
+                updateProgress(100);
+                setTimeout(() => hideLoading(), 300);
+            } catch (e) {
+                clearInterval(progressInterval);
+                hideLoading();
+                alert('导出失败: ' + e.message);
+            }
+        }
+
+        // 统一上传处理函数
+        async function handleUpload(files) {
+            if (!files.length) return;
+
+            const formData = new FormData();
+            let hasFiles = false;
+            for (let i = 0; i < files.length; i++) {
+                if (files[i].type.startsWith('image/')) {
+                    formData.append('file', files[i]);
+                    hasFiles = true;
+                }
+            }
+
+            if (!hasFiles) {
+                alert("Please select image files.");
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/generate', { method: 'POST', body: formData });
+                const data = await res.json();
+
+                if (data.success) {
+                    // 开始轮询
+                    startPolling();
+                } else {
+                    alert("Upload Failed: " + data.error);
+                }
+            } catch (err) {
+                alert("Network Error: " + err.message);
+            }
+        }
+
+        // 上传生成 (批量) - 文件选择
+        fileInput.addEventListener('change', async (e) => {
+            handleUpload(e.target.files);
+            fileInput.value = ''; // 重置 input
+        });
+
+        // --- 拖拽上传支持 ---
+        // const sidebar = document.getElementById('sidebar'); // 已经在上面定义了
+
+        sidebar.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            sidebar.classList.add('drag-over');
+        });
+
+        sidebar.addEventListener('dragleave', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            // 只有当离开 sidebar 本身而不是进入子元素时才移除
+            if (e.relatedTarget && !sidebar.contains(e.relatedTarget)) {
+                sidebar.classList.remove('drag-over');
+            }
+        });
+
+        sidebar.addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            sidebar.classList.remove('drag-over');
+
+            const files = e.dataTransfer.files;
+            if (files.length > 0) {
+                handleUpload(files);
+            }
+        });
+
+        // --- 4. 队列轮询系统 (智能轮询版) ---
+        let pollTimeout = null;
+        let currentPollDelay = 2000;
+        const POLL_DELAY_ACTIVE = 2000;   // 有任务时 2秒
+        const POLL_DELAY_IDLE = 10000;    // 无任务时 10秒
+
+        function startPolling() {
+            if (pollTimeout) return;
+            pollTasks(); // 立即执行一次
+        }
+
+        async function pollTasks() {
+            try {
+                const res = await fetch('/api/tasks');
+                const data = await res.json();
+                const tasks = data.tasks || data;  // 兼容新旧格式
+                const hasActive = data.has_active !== undefined ? data.has_active :
+                    tasks.some(t => t.status === 'pending' || t.status === 'processing');
+
+                renderQueue(tasks);
+
+                // 智能调整轮询频率
+                currentPollDelay = hasActive ? POLL_DELAY_ACTIVE : POLL_DELAY_IDLE;
+            } catch (e) {
+                console.error("Poll Error", e);
+            }
+
+            // 使用 setTimeout 而不是 setInterval，方便动态调整间隔
+            pollTimeout = setTimeout(pollTasks, currentPollDelay);
+        }
+
+        function renderQueue(tasks) {
+            // 过滤掉已经完成很久的任务 (可选优化，这里简单展示所有非完成或刚完成的任务)
+            // 简单策略：只展示 pending, processing, 和 failed。completed 展示一会后移除?
+            // 为了简单，我们展示所有 pending/processing，以及最近完成的
+
+            const activeTasks = tasks.filter(t => {
+                if (t.status === 'pending' || t.status === 'processing') return true;
+                if (t.status === 'failed') return true;
+                // 如果是 completed，且还没被处理过(刷新图库)，则展示
+                if (t.status === 'completed' && !processedTaskIds.has(t.id)) {
+                    processedTaskIds.add(t.id);
+                    refreshGallery(); // 触发图库刷新
+                    return true; // 展示最后一次 "Done"
+                }
+                return false; // 已经处理过的 completed 任务不再显示在队列中
+            });
+
+            if (activeTasks.length === 0) {
+                queueContainer.style.display = 'none';
+                return;
+            }
+
+            queueContainer.style.display = 'block';
+            queueList.innerHTML = '';
+
+            activeTasks.forEach(task => {
+                const div = document.createElement('div');
+                div.className = 'queue-item';
+
+                let icon = '';
+                let statusColor = '#666';
+
+                if (task.status === 'pending') {
+                    icon = '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>';
+                    statusColor = '#f0ad4e';
+                } else if (task.status === 'processing') {
+                    icon = '<svg class="spin" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>';
+                    statusColor = '#0071e3';
+                } else if (task.status === 'completed') {
+                    icon = '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>';
+                    statusColor = '#28a745';
+                } else if (task.status === 'failed') {
+                    icon = '<svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>';
+                    statusColor = '#dc3545';
+                }
+
+                div.innerHTML = `
+                    <div class="queue-status-icon" style="color: ${statusColor}">${icon}</div>
+                    <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${task.filename}</div>
+                    <div style="font-size:10px; color:#888; text-transform:capitalize;">${task.status}</div>
+                `;
+                queueList.appendChild(div);
+            });
+        }
+
+        // --- 5. 相机控制 ---
+
+        window.toggleLimits = function () {
+            if (!viewer) return;
+            isLimitsOn = !isLimitsOn;
+            const btn = document.getElementById('btn-limit');
+            btn.classList.toggle('active', isLimitsOn);
+            btn.innerHTML = isLimitsOn
+                ? `<svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg> Front View`
+                : `<svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" /></svg> Free View`;
+            applyLimits();
+        }
+
+        window.resetCamera = function () {
+            if (viewer) {
+                const c = viewer.cameraControls || viewer.controls;
+                if (c) {
+                    // 1. Capture current state
+                    const startPos = new THREE.Vector3().copy(c.object.position);
+                    const startTarget = new THREE.Vector3().copy(c.target);
+
+                    // 2. Reset to get target state (instant)
+                    c.reset();
+                    const endPos = new THREE.Vector3().copy(c.object.position);
+                    const endTarget = new THREE.Vector3().copy(c.target);
+
+                    // 3. Restore current state immediately
+                    c.object.position.copy(startPos);
+                    c.target.copy(startTarget);
+                    c.update();
+
+                    // 4. Animate
+                    const duration = 800;
+                    const startTime = performance.now();
+
+                    function animateReset(time) {
+                        const elapsed = time - startTime;
+                        const t = Math.min(elapsed / duration, 1);
+                        // Ease out cubic
+                        const ease = 1 - Math.pow(1 - t, 3);
+
+                        c.object.position.lerpVectors(startPos, endPos, ease);
+                        c.target.lerpVectors(startTarget, endTarget, ease);
+                        c.update();
+
+                        if (t < 1) {
+                            requestAnimationFrame(animateReset);
+                        } else {
+                            // Ensure final state
+                            c.object.position.copy(endPos);
+                            c.target.copy(endTarget);
+                            c.update();
+                            applyLimits();
+                        }
+                    }
+                    requestAnimationFrame(animateReset);
+                }
+            }
+        }
+
+        function applyLimits() {
+            if (!viewer) return;
+            const c = viewer.cameraControls || viewer.controls;
+            if (!c) return;
+
+            if (isLimitsOn) {
+                c.minAzimuthAngle = -Math.PI / 4;
+                c.maxAzimuthAngle = Math.PI / 4;
+                c.minPolarAngle = Math.PI / 3;
+                c.maxPolarAngle = 2 * Math.PI / 3;
+                c.minDistance = 1.0;
+                c.maxDistance = 8.0;
+            } else {
+                c.minAzimuthAngle = Infinity; c.maxAzimuthAngle = Infinity;
+                c.minPolarAngle = 0; c.maxPolarAngle = Math.PI;
+                c.minDistance = 0.1; c.maxDistance = 20;
+            }
+            c.update();
+        }
+
+        // Shift 微调缩放 (修复 macOS Shift+Scroll 问题)
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'Shift' && viewer) {
+                const c = viewer.cameraControls || viewer.controls;
+                if (c) {
+                    c.zoomSpeed = 0.3; // 降低缩放速度实现精细控制
+                    zoomTooltip.classList.add('show');
+                }
+            }
+        });
+        window.addEventListener('keyup', (e) => {
+            if (e.key === 'Shift' && viewer) {
+                const c = viewer.cameraControls || viewer.controls;
+                if (c) {
+                    c.zoomSpeed = 1.0;
+                    zoomTooltip.classList.remove('show');
+                }
+            }
+        });
+
+        // 拦截 Shift+Scroll 事件，解决 macOS 下被映射为水平滚动的问题
+        canvasContainer.addEventListener('wheel', (e) => {
+            if (e.shiftKey) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                // 在 macOS 上，按住 Shift 滚动通常会将 deltaY 映射到 deltaX
+                // 我们需要检测这种情况并将其还原为垂直滚动，以便 OrbitControls 能识别为缩放
+                let deltaY = e.deltaY;
+                if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+                    deltaY = e.deltaX;
+                }
+
+                // 创建合成事件：移除 shiftKey，并将 delta 修正为垂直方向
+                const newEvent = new WheelEvent('wheel', {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window,
+                    deltaX: 0,
+                    deltaY: deltaY,
+                    deltaZ: e.deltaZ,
+                    deltaMode: e.deltaMode,
+                    clientX: e.clientX,
+                    clientY: e.clientY,
+                    screenX: e.screenX,
+                    screenY: e.screenY,
+                    shiftKey: false, // 关键：禁用 shiftKey 让控件认为是普通滚动
+                    ctrlKey: e.ctrlKey,
+                    altKey: e.altKey,
+                    metaKey: e.metaKey
+                });
+
+                e.target.dispatchEvent(newEvent);
+            }
+        }, { capture: true }); // 使用捕获阶段拦截事件
+
+        // --- Mobile Debugging ---
+        canvasContainer.addEventListener('touchstart', (e) => {
+            // log(`Touch start: ${e.touches.length} fingers`);
+        }, { passive: true });
+
+        document.getElementById('btn-menu').addEventListener('click', () => {
+            log("Menu button clicked");
+        });
+
+        // --- 6. 陀螺仪体感控制系统 (iOS 26 风格) ---
+
+        const gyroManager = {
+            isEnabled: false,
+            isSupported: false,
+            isPaused: false,
+            needsCalibration: true,  // 是否需要校准（首次启用时）
+
+            // 原始传感器数据
+            alpha: 0,
+            beta: 0,
+            gamma: 0,
+
+            // 平滑后的目标值
+            targetAzimuth: 0,
+            targetPolar: Math.PI / 2,
+
+            // 当前平滑值
+            smoothAzimuth: 0,
+            smoothPolar: Math.PI / 2,
+
+            // 配置
+            dampingFactor: 0.08,  // 阻尼系数，越小越平滑
+            maxTiltAngle: 35,     // 最大倾斜检测角度
+            sensitivity: 1.0,     // 灵敏度
+
+            // 参考角度（点击按钮时的设备姿态）
+            refBeta: 0,
+            refGamma: 0,
+
+            // UI 元素
+            indicator: null,
+            ball: null,
+            hint: null,
+            btn: null,
+
+            // 动画
+            animationId: null,
+            touchTimeout: null
+        };
+
+        // 初始化陀螺仪 UI 引用
+        gyroManager.indicator = document.getElementById('gyro-indicator');
+        gyroManager.ball = document.getElementById('gyro-ball');
+        gyroManager.hint = document.getElementById('gyro-hint');
+        gyroManager.btn = document.getElementById('btn-gyro');
+
+        // 检测设备是否支持陀螺仪
+        gyroManager.isSupported = 'DeviceOrientationEvent' in window;
+
+        // 请求陀螺仪权限 (iOS 13+ 需要)
+        async function requestGyroPermission() {
+            // iOS 13+ 需要用户授权
+            if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission === 'granted') {
+                        log('Gyroscope permission granted', 'success');
+                        return true;
+                    } else {
+                        log('Gyroscope permission denied', 'error');
+                        alert('需要陀螺仪权限才能使用体感预览功能');
+                        return false;
+                    }
+                } catch (e) {
+                    log('Gyroscope permission error: ' + e.message, 'error');
+                    return false;
+                }
+            }
+            // Android 和旧版 iOS 不需要特别授权
+            return true;
+        }
+
+        // 处理陀螺仪数据
+        function handleDeviceOrientation(event) {
+            if (!gyroManager.isEnabled || gyroManager.isPaused) return;
+
+            gyroManager.alpha = event.alpha || 0;  // 指南针方向 (0-360)
+            gyroManager.beta = event.beta || 0;    // 前后倾斜 (-180 to 180)
+            gyroManager.gamma = event.gamma || 0;  // 左右倾斜 (-90 to 90)
+
+            // 将倾斜角度映射到相机角度
+            // Beta: 手机前后倾斜 -> 相机上下看
+            // Gamma: 手机左右倾斜 -> 相机左右看
+
+            const maxTilt = gyroManager.maxTiltAngle;
+
+            // 首次数据时校准参考角度
+            if (gyroManager.needsCalibration) {
+                gyroManager.refBeta = gyroManager.beta;
+                gyroManager.refGamma = gyroManager.gamma;
+                gyroManager.needsCalibration = false;
+            }
+
+            // 相对于参考角度的偏移
+            let normalizedBeta = gyroManager.beta - gyroManager.refBeta;
+            normalizedBeta = Math.max(-maxTilt, Math.min(maxTilt, normalizedBeta));
+
+            let normalizedGamma = gyroManager.gamma - gyroManager.refGamma;
+            normalizedGamma = Math.max(-maxTilt, Math.min(maxTilt, normalizedGamma));
+
+            // 映射到相机角度范围
+            // Azimuth: ±45度 (左右)
+            // Polar: 60度 ~ 120度 (上下)
+            gyroManager.targetAzimuth = (normalizedGamma / maxTilt) * (Math.PI / 4) * gyroManager.sensitivity;
+            gyroManager.targetPolar = Math.PI / 2 + (normalizedBeta / maxTilt) * (Math.PI / 6) * gyroManager.sensitivity;
+        }
+
+        // 陀螺仪渲染循环
+        function gyroRenderLoop() {
+            if (!gyroManager.isEnabled) return;
+
+            // 平滑插值
+            gyroManager.smoothAzimuth += (gyroManager.targetAzimuth - gyroManager.smoothAzimuth) * gyroManager.dampingFactor;
+            gyroManager.smoothPolar += (gyroManager.targetPolar - gyroManager.smoothPolar) * gyroManager.dampingFactor;
+
+            // 更新相机
+            if (viewer && !gyroManager.isPaused) {
+                const c = viewer.cameraControls || viewer.controls;
+                if (c && c.object) {
+                    // 计算相机位置
+                    const distance = c.object.position.distanceTo(c.target);
+                    const x = distance * Math.sin(gyroManager.smoothPolar) * Math.sin(gyroManager.smoothAzimuth);
+                    const y = distance * Math.cos(gyroManager.smoothPolar);
+                    const z = distance * Math.sin(gyroManager.smoothPolar) * Math.cos(gyroManager.smoothAzimuth);
+
+                    c.object.position.set(
+                        c.target.x + x,
+                        c.target.y + y,
+                        c.target.z + z
+                    );
+                    c.object.lookAt(c.target);
+                    c.update();
+                }
+            }
+
+            // 更新指示球
+            updateIndicatorBall();
+
+            gyroManager.animationId = requestAnimationFrame(gyroRenderLoop);
+        }
+
+        // 更新方向指示球
+        function updateIndicatorBall() {
+            if (!gyroManager.ball) return;
+
+            // 将角度映射到球的位移 (最大 20px)
+            const maxOffset = 18;
+            const xOffset = (gyroManager.smoothAzimuth / (Math.PI / 4)) * maxOffset;
+            const yOffset = ((gyroManager.smoothPolar - Math.PI / 2) / (Math.PI / 6)) * maxOffset;
+
+            gyroManager.ball.style.transform = `translate(${xOffset}px, ${yOffset}px)`;
+        }
+
+        // 切换陀螺仪模式
+        window.toggleGyroMode = async function () {
+            if (!gyroManager.isSupported) {
+                alert('您的设备不支持陀螺仪');
+                return;
+            }
+
+            if (!viewer) {
+                alert('请先选择一个 3D 模型');
+                return;
+            }
+
+            if (gyroManager.isEnabled) {
+                // 关闭陀螺仪
+                disableGyro();
+            } else {
+                // 开启陀螺仪
+                const hasPermission = await requestGyroPermission();
+                if (hasPermission) {
+                    enableGyro();
+                }
+            }
+        }
+
+        function enableGyro() {
+            gyroManager.isEnabled = true;
+            gyroManager.isPaused = false;
+            gyroManager.needsCalibration = true;  // 启用时标记需要校准
+
+            // 重置平滑值
+            gyroManager.smoothAzimuth = 0;
+            gyroManager.smoothPolar = Math.PI / 2;
+            gyroManager.targetAzimuth = 0;
+            gyroManager.targetPolar = Math.PI / 2;
+
+            // 添加事件监听
+            window.addEventListener('deviceorientation', handleDeviceOrientation);
+
+            // 启动渲染循环
+            gyroRenderLoop();
+
+            // 更新 UI
+            gyroManager.btn.classList.add('active');
+            gyroManager.indicator.classList.add('visible');
+            gyroManager.indicator.classList.add('active');
+
+            // 显示提示
+            gyroManager.hint.classList.add('show');
+            setTimeout(() => {
+                gyroManager.hint.classList.remove('show');
+            }, 2500);
+
+            // 限制视角模式下使用陀螺仪
+            if (!isLimitsOn) {
+                toggleLimits();
+            }
+
+            log('Gyroscope mode enabled', 'success');
+        }
+
+        function disableGyro() {
+            gyroManager.isEnabled = false;
+
+            // 移除事件监听
+            window.removeEventListener('deviceorientation', handleDeviceOrientation);
+
+            // 停止渲染循环
+            if (gyroManager.animationId) {
+                cancelAnimationFrame(gyroManager.animationId);
+                gyroManager.animationId = null;
+            }
+
+            // 更新 UI
+            gyroManager.btn.classList.remove('active');
+            gyroManager.indicator.classList.remove('visible');
+            gyroManager.indicator.classList.remove('active');
+
+            log('Gyroscope mode disabled');
+        }
+
+        // 触摸时暂停陀螺仪，让用户可以手动调整
+        canvasContainer.addEventListener('touchstart', (e) => {
+            if (gyroManager.isEnabled && e.touches.length === 1) {
+                gyroManager.isPaused = true;
+                gyroManager.indicator.classList.remove('active');
+
+                // 清除之前的恢复定时器
+                if (gyroManager.touchTimeout) {
+                    clearTimeout(gyroManager.touchTimeout);
+                }
+            }
+        }, { passive: true });
+
+        canvasContainer.addEventListener('touchend', (e) => {
+            if (gyroManager.isEnabled && e.touches.length === 0) {
+                // 松手后延迟恢复陀螺仪控制
+                gyroManager.touchTimeout = setTimeout(() => {
+                    if (gyroManager.isEnabled) {
+                        gyroManager.isPaused = false;
+                        gyroManager.indicator.classList.add('active');
+
+                        // 从当前相机位置同步到陀螺仪状态
+                        if (viewer) {
+                            const c = viewer.cameraControls || viewer.controls;
+                            if (c && c.object) {
+                                const pos = c.object.position.clone().sub(c.target);
+                                const distance = pos.length();
+                                if (distance > 0) {
+                                    // 计算当前相机的方位角和极角
+                                    gyroManager.smoothAzimuth = Math.atan2(pos.x, pos.z);
+                                    gyroManager.smoothPolar = Math.acos(pos.y / distance);
+                                    gyroManager.targetAzimuth = gyroManager.smoothAzimuth;
+                                    gyroManager.targetPolar = gyroManager.smoothPolar;
+                                }
+                            }
+                        }
+                    }
+                }, 1500);
+            }
+        }, { passive: true });
+
+        // 页面可见性变化时处理陀螺仪
+        document.addEventListener('visibilitychange', () => {
+            if (document.hidden && gyroManager.isEnabled) {
+                gyroManager.isPaused = true;
+            } else if (!document.hidden && gyroManager.isEnabled) {
+                gyroManager.isPaused = false;
+            }
+        });
+
+        // 初始运行
+        log("Starting application...");
+        refreshGallery();
+        startPolling(); // 页面加载时也检查一下是否有未完成的任务
+
+        // 检查是否为本机访问，显示设置按钮
+        checkLocalAccess();
+
+        // --- 粒子背景动画 ---
+        (function initParticles() {
+            const canvas = document.getElementById('particle-canvas');
+            if (!canvas) return;
+
+            const ctx = canvas.getContext('2d');
+            let particles = [];
+            let mouseX = -1000, mouseY = -1000;  // 初始在画面外
+            let animationId = null;
+            let time = 0;
+
+            // 粒子配置
+            const config = {
+                baseCount: 250,        // 基础数量（增加）
+                minCount: 150,          // 最小数量（移动端）
+                maxCount: 300,         // 最大数量（大屏）
+                baseRadius: 2,
+                maxRadius: 4,
+                floatSpeed: 0.5,       // 自然浮动速度
+                floatAmplitude: 25,    // 浮动幅度
+                mouseRadius: 100,
+                mouseForce: 0.06,
+                resetSpeed: 0.001,     // 复位速度（更慢，游动感）
+                colors: [
+                    'rgba(0, 113, 227, 0.45)',  // 主蓝色
+                    'rgba(100, 160, 230, 0.35)',// 浅蓝
+                    'rgba(150, 180, 240, 0.3)', // 更浅蓝
+                    'rgba(80, 130, 200, 0.4)'   // 中蓝
+                ]
+            };
+
+            // 根据屏幕大小计算粒子数量
+            function getParticleCount() {
+                const area = canvas.width * canvas.height;
+                const baseArea = 1920 * 1080;
+                let count = Math.floor(config.baseCount * (area / baseArea));
+                return Math.max(config.minCount, Math.min(config.maxCount, count));
+            }
+
+            function resize() {
+                canvas.width = canvas.offsetWidth;
+                canvas.height = canvas.offsetHeight;
+            }
+
+            function createParticle() {
+                const x = Math.random() * canvas.width;
+                const y = Math.random() * canvas.height;
+                return {
+                    x: x,
+                    y: y,
+                    homeX: x,           // 原始位置
+                    homeY: y,
+                    vx: 0,
+                    vy: 0,
+                    radius: config.baseRadius + Math.random() * 2,
+                    color: config.colors[Math.floor(Math.random() * config.colors.length)],
+                    floatOffset: Math.random() * Math.PI * 2,  // 浮动相位偏移
+                    floatSpeedX: 0.3 + Math.random() * 0.4,    // 个体浮动速度
+                    floatSpeedY: 0.2 + Math.random() * 0.3
+                };
+            }
+
+            function initParticlePositions() {
+                particles = [];
+                const count = getParticleCount();
+                for (let i = 0; i < count; i++) {
+                    particles.push(createParticle());
+                }
+            }
+
+            function animate() {
+                time += 0.01;
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                particles.forEach(p => {
+                    // 自然浮动效果
+                    const floatX = Math.sin(time * p.floatSpeedX + p.floatOffset) * config.floatAmplitude * 0.3;
+                    const floatY = Math.cos(time * p.floatSpeedY + p.floatOffset) * config.floatAmplitude * 0.2;
+
+                    // 目标位置 = 原始位置 + 浮动偏移
+                    const targetX = p.homeX + floatX;
+                    const targetY = p.homeY + floatY;
+
+                    // 鼠标交互 - 推开效果
+                    const dx = mouseX - p.x;
+                    const dy = mouseY - p.y;
+                    const dist = Math.sqrt(dx * dx + dy * dy);
+
+                    if (dist < config.mouseRadius && dist > 0) {
+                        const force = (config.mouseRadius - dist) / config.mouseRadius;
+                        p.vx -= (dx / dist) * force * config.mouseForce;
+                        p.vy -= (dy / dist) * force * config.mouseForce;
+                    } else {
+                        // 自动复位到浮动目标位置
+                        p.vx += (targetX - p.x) * config.resetSpeed;
+                        p.vy += (targetY - p.y) * config.resetSpeed;
+                    }
+
+                    // 应用速度
+                    p.x += p.vx;
+                    p.y += p.vy;
+
+                    // 速度衰减
+                    p.vx *= 0.92;
+                    p.vy *= 0.92;
+
+                    // 边界软约束
+                    if (p.x < -50) p.x = canvas.width + 50;
+                    if (p.x > canvas.width + 50) p.x = -50;
+                    if (p.y < -50) p.y = canvas.height + 50;
+                    if (p.y > canvas.height + 50) p.y = -50;
+
+                    // 绘制粒子
+                    ctx.beginPath();
+                    ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.fill();
+                });
+
+                animationId = requestAnimationFrame(animate);
+            }
+
+            // 鼠标移动监听
+            document.getElementById('main-content').addEventListener('mousemove', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                mouseX = e.clientX - rect.left;
+                mouseY = e.clientY - rect.top;
+            });
+
+            // 鼠标离开时重置位置
+            document.getElementById('main-content').addEventListener('mouseleave', () => {
+                mouseX = -1000;
+                mouseY = -1000;
+            });
+
+            // 初始化
+            resize();
+            initParticlePositions();
+            animate();
+
+            // 窗口大小变化
+            window.addEventListener('resize', () => {
+                resize();
+                initParticlePositions();
+            });
+
+            // 暴露隐藏/显示方法
+            window.hideParticles = () => canvas.classList.add('hidden');
+            window.showParticles = () => canvas.classList.remove('hidden');
+        })();
+
+    </script>
+
+    <!-- 设置弹窗 -->
+    <div class="settings-modal" id="settings-modal" onclick="if(event.target === this) closeSettings()">
+        <div class="settings-panel">
+            <h3>⚙️ Settings</h3>
+            <div class="settings-group">
+                <label>Input Folder (图片保存位置)</label>
+                <input type="text" id="input-folder" placeholder="/path/to/inputs">
+            </div>
+            <div class="settings-group">
+                <label>Output Folder (模型输出位置)</label>
+                <input type="text" id="output-folder" placeholder="/path/to/outputs">
+            </div>
+            <p style="font-size: 11px; color: #888; margin: 12px 0 0 0;">
+                ⚠️ 修改后需重启服务器生效
+            </p>
+            <div class="settings-actions">
+                <button class="btn-cancel" onclick="closeSettings()">Cancel</button>
+                <button class="btn-save" onclick="saveSettings()">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 查看原图
+        window.previewImage = function (url) {
+            window.open(url, '_blank');
+        }
+
+        // 检查本机访问
+        async function checkLocalAccess() {
+            try {
+                const res = await fetch('/api/settings');
+                const data = await res.json();
+                if (data.is_local) {
+                    document.getElementById('btn-settings').style.display = 'flex';
+                }
+            } catch (e) {
+                console.log('Settings check failed:', e);
+            }
+        }
+
+        // 打开设置弹窗
+        window.openSettings = async function () {
+            const modal = document.getElementById('settings-modal');
+            modal.style.display = 'flex';
+            requestAnimationFrame(() => modal.classList.add('visible'));
+
+            // 加载当前设置
+            try {
+                const res = await fetch('/api/settings');
+                const data = await res.json();
+                if (data.input_folder) {
+                    document.getElementById('input-folder').value = data.input_folder;
+                }
+                if (data.output_folder) {
+                    document.getElementById('output-folder').value = data.output_folder;
+                }
+            } catch (e) {
+                console.error('Failed to load settings:', e);
+            }
+        }
+
+        // 关闭设置弹窗
+        window.closeSettings = function () {
+            const modal = document.getElementById('settings-modal');
+            modal.classList.remove('visible');
+            setTimeout(() => modal.style.display = 'none', 300);
+        }
+
+        // 保存设置
+        window.saveSettings = async function () {
+            const inputFolder = document.getElementById('input-folder').value;
+            const outputFolder = document.getElementById('output-folder').value;
+
+            try {
+                const res = await fetch('/api/settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        input_folder: inputFolder,
+                        output_folder: outputFolder
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(data.message);
+                    closeSettings();
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Failed to save settings: ' + e.message);
+            }
+        }
+    </script>
+</body>
+
+</html>
