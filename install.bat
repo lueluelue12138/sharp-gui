@@ -129,6 +129,29 @@ REM 创建目录
 if not exist "%SCRIPT_DIR%inputs" mkdir "%SCRIPT_DIR%inputs"
 if not exist "%SCRIPT_DIR%outputs" mkdir "%SCRIPT_DIR%outputs"
 
+REM 生成 HTTPS 证书 (可选)
+echo.
+echo [7/7] 生成 HTTPS 证书 (可选)...
+
+where openssl >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+    python "%SCRIPT_DIR%generate_cert.py"
+    if %ERRORLEVEL% equ 0 (
+        echo [OK] HTTPS 证书已生成
+    ) else (
+        echo [警告] 证书生成失败，但不影响基本功能
+        echo   HTTPS 功能将不可用，陀螺仪仅本机可用
+        echo   可稍后手动运行: python generate_cert.py
+    )
+) else (
+    echo [警告] 未找到 OpenSSL，跳过证书生成
+    echo   推荐安装 Git for Windows 以获取 OpenSSL:
+    echo   https://git-scm.com/download/win
+    echo   或使用 Chocolatey: choco install openssl
+    echo.
+    echo   HTTPS 功能将不可用，陀螺仪仅本机可用
+)
+
 REM 测试安装
 echo.
 echo 测试安装...

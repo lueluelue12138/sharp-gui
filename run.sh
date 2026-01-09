@@ -45,9 +45,24 @@ else
     LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
 fi
 
-echo "访问地址:"
-echo "  本机: http://127.0.0.1:5050"
-echo "  局域网: http://$LOCAL_IP:5050"
+# 检查 HTTPS 证书状态
+if [ -f "$SCRIPT_DIR/cert.pem" ] && [ -f "$SCRIPT_DIR/key.pem" ]; then
+    echo "🔒 HTTPS 模式 (完整功能支持)"
+    echo ""
+    echo "访问地址:"
+    echo "  本机:   https://127.0.0.1:5050"
+    echo "  局域网: https://$LOCAL_IP:5050"
+    echo ""
+    echo "📱 首次访问需接受证书安全警告"
+else
+    echo "🌐 HTTP 模式 (陀螺仪功能仅本机可用)"
+    echo ""
+    echo "访问地址:"
+    echo "  本机:   http://127.0.0.1:5050"
+    echo "  局域网: http://$LOCAL_IP:5050 (陀螺仪不可用)"
+    echo ""
+    echo "💡 建议运行 python generate_cert.py 生成证书以启用 HTTPS"
+fi
 echo ""
 echo "按 Ctrl+C 停止服务器"
 echo ""

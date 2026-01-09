@@ -195,6 +195,35 @@ setup_gui() {
     print_success "GUI 配置完成"
 }
 
+# 生成 HTTPS 证书
+generate_https_cert() {
+    print_step "生成 HTTPS 证书 (可选)..."
+    
+    VENV_DIR="$SCRIPT_DIR/venv"
+    source "$VENV_DIR/bin/activate"
+    
+    # 检查 OpenSSL 是否可用
+    if ! command -v openssl &> /dev/null; then
+        print_warning "未找到 OpenSSL，跳过证书生成"
+        if [ "$OS" == "macos" ]; then
+            echo "  可通过 brew install openssl 安装"
+        elif [ "$OS" == "linux" ]; then
+            echo "  可通过 sudo apt install openssl 安装"
+        fi
+        echo "  HTTPS 功能将不可用，陀螺仪仅本机可用"
+        return 0
+    fi
+    
+    # 调用 Python 脚本生成证书
+    if python "$SCRIPT_DIR/generate_cert.py"; then
+        print_success "HTTPS 证书已生成"
+    else
+        print_warning "证书生成失败，但不影响基本功能"
+        echo "  HTTPS 功能将不可用，陀螺仪仅本机可用"
+        echo "  可稍后手动运行: python generate_cert.py"
+    fi
+}
+
 # 测试安装
 test_installation() {
     print_step "测试安装..."
@@ -264,6 +293,7 @@ main() {
     create_venv
     install_dependencies
     setup_gui
+    generate_https_cert
     test_installation
     show_completion
 }

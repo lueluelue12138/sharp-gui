@@ -41,8 +41,25 @@ echo ========================================
 echo   Sharp GUI 启动中...
 echo ========================================
 echo.
-echo 访问地址:
-echo   http://127.0.0.1:5050
+
+REM 检查 HTTPS 证书状态
+if exist "%SCRIPT_DIR%cert.pem" if exist "%SCRIPT_DIR%key.pem" (
+    echo [HTTPS] 完整功能支持
+    echo.
+    echo 访问地址:
+    echo   本机:   https://127.0.0.1:5050
+    echo   局域网: https://[你的IP]:5050
+    echo.
+    echo 首次访问需接受证书安全警告
+) else (
+    echo [HTTP] 陀螺仪功能仅本机可用
+    echo.
+    echo 访问地址:
+    echo   本机:   http://127.0.0.1:5050
+    echo   局域网: http://[你的IP]:5050 ^(陀螺仪不可用^)
+    echo.
+    echo 建议运行 python generate_cert.py 生成证书以启用 HTTPS
+)
 echo.
 echo 按 Ctrl+C 停止服务器
 echo.
