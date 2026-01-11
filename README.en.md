@@ -23,7 +23,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp), featuring Apple-st
 
 </div>
 
-> [!WARNING] > **No content restrictions for local deployment** - Users are responsible for generated content. Please comply with laws and regulations. See [Disclaimer](#️-disclaimer).
+> [!WARNING] > **No content restrictions for local deployment** - Users are responsible for generated content. Please comply with laws and regulations. See [Disclaimer](#%EF%B8%8F-disclaimer).
 
 ---
 

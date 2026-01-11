@@ -22,9 +22,9 @@
 
 </div>
 
-> [!WARNING] > **本地部署无内容限制** - 生成内容由用户自行负责，请遵守法律法规。详见 [免责声明](#️-免责声明)。
+> [!WARNING] > **本地部署无内容限制** - 生成内容由用户自行负责，请遵守法律法规。详见 [免责声明](#%EF%B8%8F-免责声明)。
 >
-> **No content restrictions for local deployment** - Users are responsible for generated content. See [Disclaimer](#️-免责声明).
+> **No content restrictions for local deployment** - Users are responsible for generated content. See [Disclaimer](#%EF%B8%8F-免责声明).
 
 ---
 
