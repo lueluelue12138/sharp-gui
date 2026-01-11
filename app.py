@@ -487,33 +487,62 @@ def export_model(model_id):
 if __name__ == '__main__':
     import socket
     
-    # 获取本机 IP
+    # 获取本机 IP (改进版：从物理网卡获取，排除虚拟接口)
     def get_local_ip():
+        import subprocess
+        import re
+        
+        # 方法1: 从物理网卡获取 IP (wl*/en*/eth*)
         try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.connect(('8.8.8.8', 80))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
+            result = subprocess.run(['ip', 'addr', 'show'], capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                # 解析输出，找物理网卡的 IP
+                current_iface = ""
+                for line in result.stdout.split('\n'):
+                    # 匹配接口名，如 "2: wlp0s20f3:"
+                    iface_match = re.match(r'^\d+:\s+(\S+):', line)
+                    if iface_match:
+                        current_iface = iface_match.group(1)
+                    
+                    # 匹配 IPv4 地址
+                    ip_match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
+                    if ip_match and current_iface:
+                        ip = ip_match.group(1)
+                        # 排除回环和虚拟接口
+                        if ip == '127.0.0.1':
+                            continue
+                        if any(current_iface.startswith(prefix) for prefix in 
+                               ['docker', 'br-', 'veth', 'virbr', 'tun', 'cni']):
+                            continue
+                        if current_iface in ['lo', 'Mihomo']:
+                            continue
+                        # 优先返回物理网卡 IP
+                        if any(current_iface.startswith(prefix) for prefix in ['wl', 'en', 'eth']):
+                            return ip
         except:
-            return '127.0.0.1'
+            pass
+        
+        # 方法2: 兜底 - hostname -I 第一个非虚拟 IP
+        try:
+            result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=2)
+            if result.returncode == 0:
+                for ip in result.stdout.strip().split():
+                    # 排除常见虚拟网络段
+                    if ip.startswith('172.17.') or ip.startswith('28.0.'):
+                        continue
+                    return ip
+        except:
+            pass
+        
+        return '127.0.0.1'
     
     local_ip = get_local_ip()
     cert_file = os.path.join(BASE_DIR, 'cert.pem')
     key_file = os.path.join(BASE_DIR, 'key.pem')
     
-    print("Starting Sharp GUI with Queue System...")
-    
     # 检查是否存在 SSL 证书
     if os.path.exists(cert_file) and os.path.exists(key_file):
-        print(f"🔒 HTTPS 模式 (陀螺仪可用)")
-        print(f"   本机: https://127.0.0.1:5050")
-        print(f"   局域网: https://{local_ip}:5050")
-        print(f"   ⚠️  首次访问需接受证书警告")
         app.run(debug=True, port=5050, host='0.0.0.0', ssl_context=(cert_file, key_file))
     else:
-        print(f"🌐 HTTP 模式 (陀螺仪仅本机可用)")
-        print(f"   本机: http://127.0.0.1:5050")
-        print(f"   局域网: http://{local_ip}:5050")
-        print(f"   💡 运行 python generate_cert.py 生成证书以启用 HTTPS")
         app.run(debug=True, port=5050, host='0.0.0.0')
+

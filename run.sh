@@ -38,33 +38,65 @@ echo "  Sharp GUI 启动中..."
 echo "========================================"
 echo ""
 
-# 获取本机 IP
+# 获取本机 IP (改进版：从物理网卡获取，排除虚拟接口)
+get_local_ip() {
+    # 方法: 遍历网卡，优先选择 wl*(WiFi) 或 en*/eth*(以太网) 接口
+    # 排除: docker*, br*, veth*, lo, Mihomo, tun*, virbr*
+    local ip=""
+    
+    # 获取所有网卡IP，格式: "IP 接口名"
+    while read -r line; do
+        local addr=$(echo "$line" | awk '{print $1}' | cut -d'/' -f1)
+        local iface=$(echo "$line" | awk '{print $NF}')
+        
+        # 跳过虚拟接口
+        case "$iface" in
+            docker*|br-*|veth*|lo|Mihomo|tun*|virbr*|cni*) continue ;;
+        esac
+        
+        # 优先选择 WiFi 或以太网接口
+        case "$iface" in
+            wl*|en*|eth*)
+                echo "$addr"
+                return
+                ;;
+        esac
+    done < <(ip addr show | grep -E "inet " | grep -v "127.0.0.1" | awk '{print $2, $NF}')
+    
+    # 兜底: 返回 hostname -I 的第一个非 Docker/VPN IP
+    for ip in $(hostname -I 2>/dev/null); do
+        case "$ip" in
+            172.17.*|28.0.*) continue ;;  # Docker, Mihomo
+            *) echo "$ip"; return ;;
+        esac
+    done
+    
+    echo "127.0.0.1"
+}
+
 if [ "$(uname)" == "Darwin" ]; then
     LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || echo "127.0.0.1")
 else
-    LOCAL_IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "127.0.0.1")
+    LOCAL_IP=$(get_local_ip)
 fi
 
-# 检查 HTTPS 证书状态
+# 检查 HTTPS 证书状态并显示访问地址
+echo ""
 if [ -f "$SCRIPT_DIR/cert.pem" ] && [ -f "$SCRIPT_DIR/key.pem" ]; then
-    echo "🔒 HTTPS 模式 (完整功能支持)"
-    echo ""
-    echo "访问地址:"
-    echo "  本机:   https://127.0.0.1:5050"
-    echo "  局域网: https://$LOCAL_IP:5050"
-    echo ""
-    echo "📱 首次访问需接受证书安全警告"
+    PROTOCOL="https"
+    echo "🔒 HTTPS Mode / HTTPS 模式"
 else
-    echo "🌐 HTTP 模式 (陀螺仪功能仅本机可用)"
-    echo ""
-    echo "访问地址:"
-    echo "  本机:   http://127.0.0.1:5050"
-    echo "  局域网: http://$LOCAL_IP:5050 (陀螺仪不可用)"
-    echo ""
-    echo "💡 建议运行 python generate_cert.py 生成证书以启用 HTTPS"
+    PROTOCOL="http"
+    echo "🌐 HTTP Mode / HTTP 模式"
+    echo "   💡 Run 'python generate_cert.py' for HTTPS"
 fi
 echo ""
-echo "按 Ctrl+C 停止服务器"
+echo "Access URLs / 访问地址:"
+echo "  Local:    ${PROTOCOL}://127.0.0.1:5050"
+echo "  LAN:      ${PROTOCOL}://${LOCAL_IP}:5050"
+echo ""
+echo "Press Ctrl+C to stop / 按 Ctrl+C 停止"
+echo "=========================================="
 echo ""
 
 python app.py
