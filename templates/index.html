@@ -1405,7 +1405,10 @@
             d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
           ></path>
         </svg>
-        <div style="font-weight: 500">Select an item or generate new</div>
+        <div style="font-weight: 500">Select from gallery or generate new</div>
+        <div style="font-size: 12px; margin-top: 8px; opacity: 0.7">
+          Drop .ply / .splat files here to preview
+        </div>
       </div>
 
       <!-- 加载遮罩 -->
@@ -3109,6 +3112,120 @@
           alert("Failed to save settings: " + e.message);
         }
       };
+
+      // =====================================================
+      // 🎯 拖拽模型文件到预览区域直接加载
+      // 支持 .ply 和 .splat 格式
+      // =====================================================
+      (function setupModelDropZone() {
+        const dropZone = document.getElementById("viewer-main");
+        if (!dropZone) return;
+
+        // 创建拖拽提示覆盖层
+        const dropOverlay = document.createElement("div");
+        dropOverlay.id = "model-drop-overlay";
+        dropOverlay.innerHTML = `
+          <div class="drop-content">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" width="64" height="64">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" 
+                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path>
+            </svg>
+            <div>Drop .ply or .splat file to preview</div>
+          </div>
+        `;
+        dropOverlay.style.cssText = `
+          position: absolute;
+          top: 0; left: 0; right: 0; bottom: 0;
+          background: rgba(0, 122, 255, 0.15);
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+          border: 3px dashed rgba(0, 122, 255, 0.5);
+          border-radius: 16px;
+          display: none;
+          justify-content: center;
+          align-items: center;
+          z-index: 100;
+          pointer-events: none;
+        `;
+        const dropContent = dropOverlay.querySelector(".drop-content");
+        if (dropContent) {
+          dropContent.style.cssText = `
+            text-align: center;
+            color: #007aff;
+            font-weight: 500;
+            font-size: 16px;
+          `;
+        }
+        dropZone.appendChild(dropOverlay);
+
+        let dragCounter = 0;
+
+        dropZone.addEventListener("dragenter", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dragCounter++;
+          // 检查是否有有效的模型文件
+          const items = e.dataTransfer?.items;
+          if (items) {
+            for (let item of items) {
+              if (item.kind === "file") {
+                const name = item.type || "";
+                // 显示拖拽覆盖层
+                dropOverlay.style.display = "flex";
+                break;
+              }
+            }
+          }
+        });
+
+        dropZone.addEventListener("dragover", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        });
+
+        dropZone.addEventListener("dragleave", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dragCounter--;
+          if (dragCounter === 0) {
+            dropOverlay.style.display = "none";
+          }
+        });
+
+        dropZone.addEventListener("drop", async (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          dragCounter = 0;
+          dropOverlay.style.display = "none";
+
+          const files = e.dataTransfer?.files;
+          if (!files || files.length === 0) return;
+
+          // 只处理第一个文件
+          const file = files[0];
+          const name = file.name.toLowerCase();
+
+          // 检查文件格式
+          if (!name.endsWith(".ply") && !name.endsWith(".splat")) {
+            alert("Unsupported format. Please drop .ply or .splat files.");
+            return;
+          }
+
+          console.log("📦 Loading dropped model:", file.name);
+
+          // 创建 Blob URL 并加载
+          const blobUrl = URL.createObjectURL(file);
+          try {
+            await loadModel(blobUrl);
+            // 更新当前模型名称显示 (如果有)
+            console.log("✅ Model loaded:", file.name);
+          } catch (err) {
+            console.error("❌ Failed to load model:", err);
+            alert("Failed to load model: " + err.message);
+            URL.revokeObjectURL(blobUrl);
+          }
+        });
+      })();
     </script>
   </body>
 </html>
