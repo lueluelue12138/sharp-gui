@@ -56,7 +56,9 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 
 - **Skeleton Loading** - Smooth gradient animation while loading thumbnails
 - **Smart Polling** - 2s polling when active, 10s when idle
-- **Drag & Drop** - Drop images directly into sidebar
+- **Drag & Drop Upload** - Drop images directly into sidebar
+- **Drag & Drop Preview** - Drop .ply/.splat models to preview directly
+- **Queue Management** - Cancel/delete pending tasks
 - **Progress Bar** - Real-time loading percentage
 - **Delete Animation** - Smooth slide-out effect
 - **Collapsible Controls** - Bottom bar can be collapsed for more preview space
@@ -223,16 +225,20 @@ Click **Share** button to generate a standalone HTML file:
 
 ## ⚙️ Configuration
 
-### Custom Folders
+### Custom Workspace
 
-Edit `config.json` (generated on first run):
+Configure via UI settings or edit `config.json` (generated on first run):
 
 ```json
 {
-  "input_folder": "/path/to/inputs",
-  "output_folder": "/path/to/outputs"
+  "workspace_folder": "/path/to/workspace"
 }
 ```
+
+The system auto-creates:
+
+- `inputs/` - Uploaded images
+- `outputs/` - Generated models
 
 ### Enable HTTPS (Recommended)
 

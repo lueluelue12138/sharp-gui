@@ -205,6 +205,23 @@
         font-size: 12px;
       }
 
+      .queue-cancel-btn {
+        padding: 4px;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        color: #888;
+        border-radius: 4px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+      }
+      .queue-cancel-btn:hover {
+        background: rgba(220, 53, 69, 0.1);
+        color: #dc3545;
+      }
+
       .queue-status-icon {
         width: 16px;
         height: 16px;
@@ -538,6 +555,33 @@
         font-weight: 500;
         color: #666;
         margin-bottom: 6px;
+      }
+
+      .path-input-wrapper {
+        display: flex;
+        gap: 8px;
+      }
+
+      .path-input-wrapper input {
+        flex: 1;
+      }
+
+      .btn-browse {
+        padding: 10px 12px;
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        border-radius: 10px;
+        background: white;
+        cursor: pointer;
+        color: #666;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        transition: all 0.2s;
+      }
+      .btn-browse:hover {
+        background: var(--accent-blue);
+        border-color: var(--accent-blue);
+        color: white;
       }
 
       .settings-group input {
@@ -2368,12 +2412,46 @@
 
           div.innerHTML = `
                     <div class="queue-status-icon" style="color: ${statusColor}">${icon}</div>
-                    <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${task.filename}</div>
-                    <div style="font-size:10px; color:#888; text-transform:capitalize;">${task.status}</div>
+                    <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${
+                      task.filename
+                    }</div>
+                    <div style="font-size:10px; color:#888; text-transform:capitalize;">${
+                      task.status
+                    }</div>
+                    ${
+                      task.status === "pending"
+                        ? `
+                      <button class="queue-cancel-btn" onclick="cancelTask('${task.id}')" title="Cancel">
+                        <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                      </button>
+                    `
+                        : ""
+                    }
                 `;
           queueList.appendChild(div);
         });
       }
+
+      // 取消队列中的待处理任务
+      window.cancelTask = async function (taskId) {
+        try {
+          const res = await fetch(`/api/task/${taskId}/cancel`, {
+            method: "POST",
+          });
+          const data = await res.json();
+          if (data.success) {
+            console.log("✅ Task cancelled:", taskId);
+            // 立即刷新队列显示
+            pollTasks();
+          } else {
+            console.error("❌ Cancel failed:", data.error);
+          }
+        } catch (e) {
+          console.error("❌ Cancel error:", e);
+        }
+      };
 
       // --- 5. 相机控制 ---
 
@@ -3019,16 +3097,37 @@
       <div class="settings-panel">
         <h3>⚙️ Settings</h3>
         <div class="settings-group">
-          <label>Input Folder (图片保存位置)</label>
-          <input type="text" id="input-folder" placeholder="/path/to/inputs" />
-        </div>
-        <div class="settings-group">
-          <label>Output Folder (模型输出位置)</label>
-          <input
-            type="text"
-            id="output-folder"
-            placeholder="/path/to/outputs"
-          />
+          <label>Workspace Folder (工作目录)</label>
+          <div class="path-input-wrapper">
+            <input
+              type="text"
+              id="workspace-folder"
+              placeholder="/path/to/workspace"
+            />
+            <button
+              class="btn-browse"
+              onclick="browseFolder('workspace-folder', 'Select Workspace Folder')"
+              title="Browse"
+            >
+              <svg
+                width="16"
+                height="16"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"
+                ></path>
+              </svg>
+            </button>
+          </div>
+          <p style="font-size: 11px; color: #888; margin: 8px 0 0 0">
+            📁 inputs/ (图片) &nbsp;&nbsp; 📁 outputs/ (模型)
+          </p>
         </div>
         <p style="font-size: 11px; color: #888; margin: 12px 0 0 0">
           ⚠️ 修改后需重启服务器生效
@@ -3069,11 +3168,9 @@
         try {
           const res = await fetch("/api/settings");
           const data = await res.json();
-          if (data.input_folder) {
-            document.getElementById("input-folder").value = data.input_folder;
-          }
-          if (data.output_folder) {
-            document.getElementById("output-folder").value = data.output_folder;
+          if (data.workspace_folder) {
+            document.getElementById("workspace-folder").value =
+              data.workspace_folder;
           }
         } catch (e) {
           console.error("Failed to load settings:", e);
@@ -3087,18 +3184,42 @@
         setTimeout(() => (modal.style.display = "none"), 300);
       };
 
+      // 浏览文件夹 (调用系统原生对话框)
+      window.browseFolder = async function (inputId, title) {
+        const input = document.getElementById(inputId);
+        const currentPath = input.value || "";
+
+        try {
+          const res = await fetch("/api/browse-folder", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title, initial_dir: currentPath }),
+          });
+          const data = await res.json();
+
+          if (data.success && data.path) {
+            input.value = data.path;
+          } else if (data.error) {
+            // 对话框不可用时，提示用户手动输入
+            console.warn("Folder dialog error:", data.error);
+          }
+          // 用户取消不需要提示
+        } catch (e) {
+          console.error("Browse folder error:", e);
+        }
+      };
+
       // 保存设置
       window.saveSettings = async function () {
-        const inputFolder = document.getElementById("input-folder").value;
-        const outputFolder = document.getElementById("output-folder").value;
+        const workspaceFolder =
+          document.getElementById("workspace-folder").value;
 
         try {
           const res = await fetch("/api/settings", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              input_folder: inputFolder,
-              output_folder: outputFolder,
+              workspace_folder: workspaceFolder,
             }),
           });
           const data = await res.json();

@@ -22,8 +22,7 @@ CONFIG_FILE = os.path.join(BASE_DIR, 'config.json')
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, 'templates'))
 
 # 默认文件夹
-DEFAULT_INPUT_FOLDER = os.path.join(BASE_DIR, 'inputs')
-DEFAULT_OUTPUT_FOLDER = os.path.join(BASE_DIR, 'outputs')
+DEFAULT_WORKSPACE_FOLDER = BASE_DIR  # 工作目录默认为应用根目录
 
 
 def load_config():
@@ -31,13 +30,19 @@ def load_config():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, 'r') as f:
-                return json.load(f)
+                config = json.load(f)
+                # 兼容旧配置格式
+                if 'workspace_folder' not in config and 'input_folder' in config:
+                    # 从旧格式迁移：取 input_folder 的父目录作为 workspace
+                    old_input = config.get('input_folder', '')
+                    if old_input.endswith('/inputs') or old_input.endswith('\\inputs'):
+                        config['workspace_folder'] = os.path.dirname(old_input)
+                    else:
+                        config['workspace_folder'] = DEFAULT_WORKSPACE_FOLDER
+                return config
         except:
             pass
-    return {
-        'input_folder': DEFAULT_INPUT_FOLDER,
-        'output_folder': DEFAULT_OUTPUT_FOLDER
-    }
+    return {'workspace_folder': DEFAULT_WORKSPACE_FOLDER}
 
 
 def save_config(config):
@@ -56,8 +61,9 @@ def is_local_request():
 
 # 加载配置
 config = load_config()
-INPUT_FOLDER = config.get('input_folder', DEFAULT_INPUT_FOLDER)
-OUTPUT_FOLDER = config.get('output_folder', DEFAULT_OUTPUT_FOLDER)
+WORKSPACE_FOLDER = config.get('workspace_folder', DEFAULT_WORKSPACE_FOLDER)
+INPUT_FOLDER = os.path.join(WORKSPACE_FOLDER, 'inputs')
+OUTPUT_FOLDER = os.path.join(WORKSPACE_FOLDER, 'outputs')
 THUMBNAIL_FOLDER = os.path.join(INPUT_FOLDER, '.thumbnails')
 
 # 确保文件夹存在
@@ -65,6 +71,7 @@ os.makedirs(INPUT_FOLDER, exist_ok=True)
 os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 os.makedirs(THUMBNAIL_FOLDER, exist_ok=True)
 
+app.config['WORKSPACE_FOLDER'] = WORKSPACE_FOLDER
 app.config['INPUT_FOLDER'] = INPUT_FOLDER
 app.config['OUTPUT_FOLDER'] = OUTPUT_FOLDER
 app.config['THUMBNAIL_FOLDER'] = THUMBNAIL_FOLDER
@@ -173,7 +180,8 @@ def worker():
         
         with task_lock:
             task = task_status.get(task_id)
-            if not task:
+            if not task or task['status'] == 'cancelled':
+                # 任务被取消或不存在，跳过
                 task_queue.task_done()
                 continue
             input_path = task['input_path']
@@ -345,6 +353,25 @@ def get_tasks():
     })
 
 
+@app.route('/api/task/<task_id>/cancel', methods=['POST'])
+def cancel_task(task_id):
+    """取消队列中的待处理任务"""
+    with task_lock:
+        task = task_status.get(task_id)
+        if not task:
+            return jsonify({'success': False, 'error': 'Task not found'}), 404
+        
+        # 只能取消 pending 状态的任务
+        if task['status'] == 'pending':
+            task['status'] = 'cancelled'
+            return jsonify({'success': True, 'message': 'Task cancelled'})
+        elif task['status'] == 'processing':
+            return jsonify({'success': False, 'error': 'Cannot cancel task in progress'}), 400
+        else:
+            return jsonify({'success': False, 'error': f"Task already {task['status']}"}), 400
+
+
+
 @app.route('/api/delete/<item_id>', methods=['DELETE'])
 def delete_item(item_id):
     """删除图库项目 (包括原图和模型)"""
@@ -394,6 +421,8 @@ def settings():
         # 返回当前设置和是否为本机访问
         return jsonify({
             'is_local': is_local,
+            'workspace_folder': WORKSPACE_FOLDER if is_local else None,
+            # 也返回实际路径供显示
             'input_folder': INPUT_FOLDER if is_local else None,
             'output_folder': OUTPUT_FOLDER if is_local else None
         })
@@ -405,10 +434,11 @@ def settings():
         data = request.get_json()
         new_config = load_config()
         
-        if 'input_folder' in data:
-            new_config['input_folder'] = data['input_folder']
-        if 'output_folder' in data:
-            new_config['output_folder'] = data['output_folder']
+        if 'workspace_folder' in data:
+            new_config['workspace_folder'] = data['workspace_folder']
+            # 清除旧格式的配置
+            new_config.pop('input_folder', None)
+            new_config.pop('output_folder', None)
         
         save_config(new_config)
         
@@ -416,6 +446,104 @@ def settings():
             'success': True,
             'message': 'Settings saved. Restart server to apply changes.'
         })
+
+
+@app.route('/api/browse-folder', methods=['POST'])
+def browse_folder():
+    """调用系统原生文件夹选择对话框 (仅本机可用)
+    
+    使用系统原生工具：
+    - Linux: zenity (GTK) 或 kdialog (KDE)
+    - macOS: osascript (AppleScript)
+    - Windows: PowerShell
+    """
+    if not is_local_request():
+        return jsonify({'error': 'Only available from localhost'}), 403
+    
+    import subprocess
+    import platform
+    
+    data = request.get_json() or {}
+    title = data.get('title', 'Select Folder')
+    initial_dir = data.get('initial_dir', os.path.expanduser('~'))
+    if not os.path.isdir(initial_dir):
+        initial_dir = os.path.expanduser('~')
+    
+    system = platform.system()
+    
+    try:
+        if system == 'Linux':
+            # 优先使用 zenity (GTK，大多数 Linux 发行版都有)
+            # 如果是 KDE，可以尝试 kdialog
+            try:
+                result = subprocess.run(
+                    ['zenity', '--file-selection', '--directory', 
+                     '--title=' + title, '--filename=' + initial_dir + '/'],
+                    capture_output=True, text=True, timeout=120
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    return jsonify({'success': True, 'path': result.stdout.strip()})
+                elif result.returncode == 1:  # 用户取消
+                    return jsonify({'success': False, 'cancelled': True})
+            except FileNotFoundError:
+                # zenity 不可用，尝试 kdialog
+                try:
+                    result = subprocess.run(
+                        ['kdialog', '--getexistingdirectory', initial_dir, '--title', title],
+                        capture_output=True, text=True, timeout=120
+                    )
+                    if result.returncode == 0 and result.stdout.strip():
+                        return jsonify({'success': True, 'path': result.stdout.strip()})
+                except FileNotFoundError:
+                    pass
+                    
+        elif system == 'Darwin':  # macOS
+            script = f'''
+            tell application "System Events"
+                activate
+                set folderPath to choose folder with prompt "{title}" default location POSIX file "{initial_dir}"
+                return POSIX path of folderPath
+            end tell
+            '''
+            result = subprocess.run(
+                ['osascript', '-e', script],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return jsonify({'success': True, 'path': result.stdout.strip().rstrip('/')})
+            elif result.returncode != 0:
+                return jsonify({'success': False, 'cancelled': True})
+                
+        elif system == 'Windows':
+            # 使用 PowerShell 调用 Windows 文件夹选择器
+            script = f'''
+            Add-Type -AssemblyName System.Windows.Forms
+            $browser = New-Object System.Windows.Forms.FolderBrowserDialog
+            $browser.Description = "{title}"
+            $browser.SelectedPath = "{initial_dir}"
+            $browser.ShowNewFolderButton = $true
+            if ($browser.ShowDialog() -eq "OK") {{
+                Write-Output $browser.SelectedPath
+            }}
+            '''
+            result = subprocess.run(
+                ['powershell', '-Command', script],
+                capture_output=True, text=True, timeout=120
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return jsonify({'success': True, 'path': result.stdout.strip()})
+        
+        # 如果上面都失败了，返回错误
+        return jsonify({
+            'success': False, 
+            'error': 'No dialog tool available. Please enter path manually.'
+        }), 500
+        
+    except subprocess.TimeoutExpired:
+        return jsonify({'success': False, 'cancelled': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 
 
 @app.route('/api/export/<model_id>')
