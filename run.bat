@@ -42,27 +42,29 @@ echo   Sharp GUI 启动中...
 echo ========================================
 echo.
 
+REM 获取本机局域网 IP (使用 Python getaddrinfo)
+for /f "delims=" %%i in ('python -c "import socket; ips=list(set(ip[4][0] for ip in socket.getaddrinfo(socket.gethostname(),None,socket.AF_INET))); result=next((ip for ip in ips if ip.startswith('192.168.') or ip.startswith('10.') or (ip.startswith('172.') and 16<=int(ip.split('.')[1])<=31 and not ip.startswith('172.17.'))),None); print(result or next((ip for ip in ips if not ip.startswith('127.')),'127.0.0.1'))" 2^>nul') do set LOCAL_IP=%%i
+if not defined LOCAL_IP set LOCAL_IP=127.0.0.1
+
 REM 检查 HTTPS 证书状态
 if exist "%SCRIPT_DIR%cert.pem" if exist "%SCRIPT_DIR%key.pem" (
+    set PROTOCOL=https
     echo [HTTPS] 完整功能支持
-    echo.
-    echo 访问地址:
-    echo   本机:   https://127.0.0.1:5050
-    echo   局域网: https://[你的IP]:5050
-    echo.
-    echo 首次访问需接受证书安全警告
 ) else (
+    set PROTOCOL=http
     echo [HTTP] 陀螺仪功能仅本机可用
-    echo.
-    echo 访问地址:
-    echo   本机:   http://127.0.0.1:5050
-    echo   局域网: http://[你的IP]:5050 ^(陀螺仪不可用^)
-    echo.
     echo 建议运行 python generate_cert.py 生成证书以启用 HTTPS
 )
 echo.
+echo 访问地址:
+echo   本机:   %PROTOCOL%://127.0.0.1:5050
+echo   局域网: %PROTOCOL%://%LOCAL_IP%:5050
+echo.
 echo 按 Ctrl+C 停止服务器
 echo.
+
+REM 传递正确的 LAN IP 给 Flask
+set SHARP_LAN_IP=%LOCAL_IP%
 
 python app.py
 

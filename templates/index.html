@@ -1930,9 +1930,9 @@
         // ─────────────────────────────────────────────────────────
         // THREE.MOUSE.ROTATE = 0, THREE.MOUSE.PAN = 2, THREE.MOUSE.DOLLY = 1
         mouseButtons: {
-          LEFT: "PAN", // 左键: 'ROTATE'(旋转) | 'PAN'(平移) | 'DOLLY'(缩放)
+          LEFT: "ROTATE", // 左键: 'ROTATE'(旋转) | 'PAN'(平移) | 'DOLLY'(缩放)
           MIDDLE: "DOLLY", // 中键/滚轮点击: 通常是缩放
-          RIGHT: "ROTATE", // 右键: 默认改为旋转
+          RIGHT: "PAN", // 右键: 平移
         },
 
         // ─────────────────────────────────────────────────────────
@@ -2799,30 +2799,32 @@
             ? KEYBOARD_CONFIG.moveSpeedShift
             : KEYBOARD_CONFIG.moveSpeed;
 
-          // 获取相机方向向量
+          // 获取相机方向向量（完整方向，包括上下）
           const forward = new THREE.Vector3();
           camera.getWorldDirection(forward);
-          forward.y = 0; // 保持水平移动
-          forward.normalize();
 
-          // 计算右向量
+          // 计算右向量（相对于当前视角）
           const right = new THREE.Vector3();
           right.crossVectors(forward, camera.up).normalize();
+
+          // 计算上向量（相对于当前视角的"上"）
+          const up = new THREE.Vector3();
+          up.crossVectors(right, forward).normalize();
 
           // 计算移动增量
           const delta = new THREE.Vector3();
 
-          // W/S - 前后移动
+          // W/S - 沿视角方向前后移动
           if (keyState.w) delta.add(forward.clone().multiplyScalar(speed));
           if (keyState.s) delta.add(forward.clone().multiplyScalar(-speed));
 
-          // A/D - 左右移动
+          // A/D - 沿视角相对方向左右移动
           if (keyState.a) delta.add(right.clone().multiplyScalar(-speed));
           if (keyState.d) delta.add(right.clone().multiplyScalar(speed));
 
-          // Q/E - 上下移动
-          if (keyState.q) delta.y -= speed;
-          if (keyState.e) delta.y += speed;
+          // Q/E - 沿视角相对方向上下移动
+          if (keyState.q) delta.add(up.clone().multiplyScalar(-speed));
+          if (keyState.e) delta.add(up.clone().multiplyScalar(speed));
 
           // 同时移动相机和目标点（保持相对位置不变）
           camera.position.add(delta);
@@ -2840,37 +2842,7 @@
         }
       }
 
-      function startKeyboardMovement() {
-        if (!keyboardAnimationId) {
-          // 进入移动模式：切换为默认鼠标映射（左键旋转，右键平移）
-          const controls = viewer?.cameraControls || viewer?.controls;
-          if (controls && THREE.MOUSE) {
-            controls.mouseButtons = {
-              LEFT: THREE.MOUSE.ROTATE,
-              MIDDLE: THREE.MOUSE.DOLLY,
-              RIGHT: THREE.MOUSE.PAN,
-            };
-          }
-          keyboardAnimationId = requestAnimationFrame(updateKeyboardMovement);
-        }
-      }
 
-      function stopKeyboardMovement() {
-        // 退出移动模式：恢复用户自定义鼠标映射
-        const controls = viewer?.cameraControls || viewer?.controls;
-        if (controls && THREE.MOUSE) {
-          const map = {
-            ROTATE: THREE.MOUSE.ROTATE,
-            PAN: THREE.MOUSE.PAN,
-            DOLLY: THREE.MOUSE.DOLLY,
-          };
-          controls.mouseButtons = {
-            LEFT: map[CAMERA_CONFIG.mouseButtons.LEFT] ?? THREE.MOUSE.PAN,
-            MIDDLE: map[CAMERA_CONFIG.mouseButtons.MIDDLE] ?? THREE.MOUSE.DOLLY,
-            RIGHT: map[CAMERA_CONFIG.mouseButtons.RIGHT] ?? THREE.MOUSE.ROTATE,
-          };
-        }
-      }
 
       // Shift 微调缩放 + WASD 移动
       window.addEventListener("keydown", (e) => {
@@ -2884,7 +2856,9 @@
 
           e.preventDefault();
           keyState[key] = true;
-          startKeyboardMovement();
+          if (!keyboardAnimationId) {
+            keyboardAnimationId = requestAnimationFrame(updateKeyboardMovement);
+          }
         }
 
         // Shift 精细模式 (只在没有移动键时触发缩放提示)
@@ -2922,21 +2896,8 @@
           }
         }
 
-        // WASD + QE 释放
         if (["w", "a", "s", "d", "q", "e"].includes(key)) {
           keyState[key] = false;
-
-          // 检查是否所有移动键都已释放
-          const noMovement =
-            !keyState.w &&
-            !keyState.a &&
-            !keyState.s &&
-            !keyState.d &&
-            !keyState.q &&
-            !keyState.e;
-          if (noMovement) {
-            stopKeyboardMovement();
-          }
         }
       });
 
@@ -2947,7 +2908,6 @@
           cancelAnimationFrame(keyboardAnimationId);
           keyboardAnimationId = null;
         }
-        stopKeyboardMovement();
       });
 
       // 拦截 Shift+Scroll 事件，解决 macOS 下被映射为水平滚动的问题

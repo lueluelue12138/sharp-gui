@@ -145,8 +145,8 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 <summary><b>🎬 Camera Movement Controls</b></summary>
 
 <p align="center">
-  <img src="docs/images/demo-wasd.gif" width="400" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/demo-joystick.gif" height="300" alt="Virtual Joystick">
+  <img src="docs/images/demo-wasd.gif" height="400" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/demo-joystick.gif" height="400" alt="Virtual Joystick">
 </p>
 
 <p align="center">

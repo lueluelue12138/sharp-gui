@@ -147,7 +147,7 @@
 <summary><b>🎬 相机移动控制</b></summary>
 
 <p align="center">
-  <img src="docs/images/demo-wasd.gif" width="400" alt="WASD键盘控制">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/demo-wasd.gif" height="300" alt="WASD键盘控制">&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="docs/images/demo-joystick.gif" height="300" alt="虚拟摇杆">
 </p>
 

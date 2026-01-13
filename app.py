@@ -615,53 +615,36 @@ def export_model(model_id):
 if __name__ == '__main__':
     import socket
     
-    # 获取本机 IP (改进版：从物理网卡获取，排除虚拟接口)
+    # 获取本机局域网 IP (跨平台通用)
     def get_local_ip():
-        import subprocess
-        import re
-        
-        # 方法1: 从物理网卡获取 IP (wl*/en*/eth*)
+        """通过 hostname 解析获取所有本机 IP，返回第一个私有网络地址"""
         try:
-            result = subprocess.run(['ip', 'addr', 'show'], capture_output=True, text=True, timeout=2)
-            if result.returncode == 0:
-                # 解析输出，找物理网卡的 IP
-                current_iface = ""
-                for line in result.stdout.split('\n'):
-                    # 匹配接口名，如 "2: wlp0s20f3:"
-                    iface_match = re.match(r'^\d+:\s+(\S+):', line)
-                    if iface_match:
-                        current_iface = iface_match.group(1)
-                    
-                    # 匹配 IPv4 地址
-                    ip_match = re.search(r'inet\s+(\d+\.\d+\.\d+\.\d+)', line)
-                    if ip_match and current_iface:
-                        ip = ip_match.group(1)
-                        # 排除回环和虚拟接口
-                        if ip == '127.0.0.1':
-                            continue
-                        if any(current_iface.startswith(prefix) for prefix in 
-                               ['docker', 'br-', 'veth', 'virbr', 'tun', 'cni']):
-                            continue
-                        if current_iface in ['lo', 'Mihomo']:
-                            continue
-                        # 优先返回物理网卡 IP
-                        if any(current_iface.startswith(prefix) for prefix in ['wl', 'en', 'eth']):
-                            return ip
-        except:
-            pass
-        
-        # 方法2: 兜底 - hostname -I 第一个非虚拟 IP
-        try:
-            result = subprocess.run(['hostname', '-I'], capture_output=True, text=True, timeout=2)
-            if result.returncode == 0:
-                for ip in result.stdout.strip().split():
-                    # 排除常见虚拟网络段
-                    if ip.startswith('172.17.') or ip.startswith('28.0.'):
-                        continue
+            hostname = socket.gethostname()
+            # 获取所有 IPv4 地址
+            addrs = socket.getaddrinfo(hostname, None, socket.AF_INET)
+            ips = list(set(ip[4][0] for ip in addrs))
+            
+            # 过滤：优先返回私有网络 IP
+            for ip in ips:
+                if ip.startswith('127.'):
+                    continue
+                # 排除 VPN/容器 常见网段
+                if ip.startswith('28.0.') or ip.startswith('172.17.'):
+                    continue
+                # 私有网络地址: 192.168.x.x, 10.x.x.x, 172.16-31.x.x
+                if ip.startswith('192.168.') or ip.startswith('10.'):
+                    return ip
+                if ip.startswith('172.'):
+                    parts = ip.split('.')
+                    if 16 <= int(parts[1]) <= 31:
+                        return ip
+            
+            # 没有找到私有 IP，返回第一个非 127 的
+            for ip in ips:
+                if not ip.startswith('127.'):
                     return ip
         except:
             pass
-        
         return '127.0.0.1'
     
     local_ip = os.environ.get('SHARP_LAN_IP') or get_local_ip()

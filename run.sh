@@ -38,47 +38,15 @@ echo "  Sharp GUI 启动中..."
 echo "========================================"
 echo ""
 
-# 获取本机 IP (改进版：从物理网卡获取，排除虚拟接口)
-get_local_ip() {
-    # 方法: 遍历网卡，优先选择 wl*(WiFi) 或 en*/eth*(以太网) 接口
-    # 排除: docker*, br*, veth*, lo, Mihomo, tun*, virbr*
-    local ip=""
-    
-    # 获取所有网卡IP，格式: "IP 接口名"
-    while read -r line; do
-        local addr=$(echo "$line" | awk '{print $1}' | cut -d'/' -f1)
-        local iface=$(echo "$line" | awk '{print $NF}')
-        
-        # 跳过虚拟接口
-        case "$iface" in
-            docker*|br-*|veth*|lo|Mihomo|tun*|virbr*|cni*) continue ;;
-        esac
-        
-        # 优先选择 WiFi 或以太网接口
-        case "$iface" in
-            wl*|en*|eth*)
-                echo "$addr"
-                return
-                ;;
-        esac
-    done < <(ip addr show | grep -E "inet " | grep -v "127.0.0.1" | awk '{print $2, $NF}')
-    
-    # 兜底: 返回 hostname -I 的第一个非 Docker/VPN IP
-    for ip in $(hostname -I 2>/dev/null); do
-        case "$ip" in
-            172.17.*|28.0.*) continue ;;  # Docker, Mihomo
-            *) echo "$ip"; return ;;
-        esac
-    done
-    
-    echo "127.0.0.1"
-}
-
-if [ "$(uname)" == "Darwin" ]; then
-    LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || echo "127.0.0.1")
-else
-    LOCAL_IP=$(get_local_ip)
-fi
+# 获取本机局域网 IP (跨平台: 使用 Python getaddrinfo)
+LOCAL_IP=$(python3 -c "
+import socket
+try:
+    ips = list(set(ip[4][0] for ip in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)))
+    result = next((ip for ip in ips if ip.startswith('192.168.') or ip.startswith('10.') or (ip.startswith('172.') and 16 <= int(ip.split('.')[1]) <= 31 and not ip.startswith('172.17.'))), None)
+    print(result or next((ip for ip in ips if not ip.startswith('127.')), '127.0.0.1'))
+except: print('127.0.0.1')
+" 2>/dev/null || echo "127.0.0.1")
 
 # 检查 HTTPS 证书状态并显示访问地址
 echo ""
@@ -88,7 +56,7 @@ if [ -f "$SCRIPT_DIR/cert.pem" ] && [ -f "$SCRIPT_DIR/key.pem" ]; then
 else
     PROTOCOL="http"
     echo "🌐 HTTP Mode / HTTP 模式"
-    echo "   💡 Run 'python generate_cert.py' for HTTPS"
+    echo "   💡 Run 'python generate_cert.py' for HTTPS to support Gyroscope (陀螺仪)"
 fi
 echo ""
 echo "Access URLs / 访问地址:"
