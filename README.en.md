@@ -23,8 +23,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp), featuring Apple-st
 
 </div>
 
-> [!WARNING]
-> **No content restrictions for local deployment** - Users are responsible for generated content. Please comply with laws and regulations. See [Disclaimer](#%EF%B8%8F-disclaimer).
+> [!WARNING] > **No content restrictions for local deployment** - Users are responsible for generated content. Please comply with laws and regulations. See [Disclaimer](#%EF%B8%8F-disclaimer).
 
 ---
 
@@ -63,12 +62,25 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 - **Delete Animation** - Smooth slide-out effect
 - **Collapsible Controls** - Bottom bar can be collapsed for more preview space
 
+### 🎮 Camera Controls
+
+| Control              | Description                                           |
+| -------------------- | ----------------------------------------------------- |
+| **WASD/QE**          | Keyboard camera pan (forward/back/left/right/up/down) |
+| **Shift+WASD**       | Precision movement mode                               |
+| **Shift+Scroll**     | Precision zoom control                                |
+| **Virtual Joystick** | Mobile touch pan (tap Move button to enable)          |
+| **Gyroscope**        | Tilt phone to preview (tap Gyro button to enable)     |
+
+<!-- TODO: Add camera controls GIF -->
+<!-- ![Camera Controls Demo](docs/camera-controls.gif) -->
+
 ### 🔧 Advanced Features
 
 - **🔒 HTTPS Support** - Auto-generated self-signed certificates for LAN access
 - **📦 File Optimization** - PLY → Splat format conversion, **43% smaller**
 - **🧹 Auto Cleanup** - Completed tasks auto-cleaned after 1 hour
-- **⚙️ Configurable Paths** - Custom input/output folders
+- **⚙️ Configurable Paths** - Custom workspace folder
 - **🖥️ Fullscreen Mode** - Immersive 3D preview
 
 ---
@@ -126,6 +138,20 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 </p>
 
 <p align="center"><i>Tilt phone to control view, iOS-style real-time indicator ball</i></p>
+
+</details>
+
+<details>
+<summary><b>🎬 Camera Movement Controls</b></summary>
+
+<p align="center">
+  <img src="docs/images/demo-wasd.gif" width="400" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/demo-joystick.gif" height="300" alt="Virtual Joystick">
+</p>
+
+<p align="center">
+  <i>Left: WASD/QE keyboard movement (Shift for precision) | Right: Mobile virtual joystick</i>
+</p>
 
 </details>
 

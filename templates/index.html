@@ -979,6 +979,77 @@
         overflow: hidden;
       }
 
+      /* --- 虚拟摇杆 (Apple 风格) --- */
+      .virtual-joystick {
+        position: absolute;
+        bottom: 80px;
+        left: 24px;
+        width: 80px;
+        height: 80px;
+        border-radius: 50%;
+        background: transparent;
+        border: none;
+        box-shadow: none;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 100;
+        opacity: 0;
+        transform: scale(0.8);
+        transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+          transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease,
+          box-shadow 0.2s ease;
+        touch-action: none;
+        pointer-events: auto;
+      }
+
+      .virtual-joystick.visible {
+        display: flex;
+        opacity: 1;
+        transform: scale(1);
+      }
+
+      /* 激活状态才显示背景 */
+      .virtual-joystick.active {
+        background: rgba(255, 255, 255, 0.2);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.35);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12),
+          inset 0 1px 0 rgba(255, 255, 255, 0.4);
+      }
+
+      .joystick-stick {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: linear-gradient(
+          135deg,
+          rgba(255, 255, 255, 0.95) 0%,
+          rgba(230, 230, 230, 0.9) 100%
+        );
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2),
+          0 0 12px rgba(255, 255, 255, 0.4),
+          inset 0 1px 2px rgba(255, 255, 255, 1);
+        position: absolute;
+        pointer-events: none;
+        transition: transform 0.05s ease-out;
+      }
+
+      .joystick-hint {
+        display: none;
+      }
+
+      /* 仅触摸设备显示 Move 按钮 */
+      #btn-joystick {
+        display: none;
+      }
+      @media (pointer: coarse) {
+        #btn-joystick {
+          display: inline-flex;
+        }
+      }
+
       .gyro-indicator.visible {
         display: flex;
         opacity: 1;
@@ -1467,6 +1538,11 @@
       <canvas id="particle-canvas"></canvas>
       <div id="canvas-container"></div>
 
+      <!-- 虚拟摇杆 (在预览区内) -->
+      <div id="virtual-joystick" class="virtual-joystick">
+        <div id="joystick-stick" class="joystick-stick"></div>
+      </div>
+
       <!-- 空状态提示 -->
       <div id="empty-state">
         <svg
@@ -1565,6 +1641,41 @@
           </div>
           <div><b>Front View</b> - 限制为正面视角</div>
         </div>
+        <div class="help-item">
+          <div class="help-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+              />
+            </svg>
+          </div>
+          <div><b>WASD/QE</b> - 键盘平移相机 (Shift精细)</div>
+        </div>
+        <div class="help-item">
+          <div class="help-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+              />
+            </svg>
+          </div>
+          <div><b>Shift+滚轮</b> - 精细缩放控制</div>
+        </div>
+        <div class="help-item">
+          <div class="help-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <circle cx="12" cy="12" r="9" stroke-width="2" fill="none" />
+              <circle cx="12" cy="12" r="3" fill="currentColor" />
+            </svg>
+          </div>
+          <div><b>虚拟摇杆</b> - 移动端触摸平移 (Move按钮)</div>
+        </div>
       </div>
 
       <!-- 底部控制栏容器 -->
@@ -1634,6 +1745,25 @@
                 />
               </svg>
               Gyro
+            </button>
+            <button
+              id="btn-joystick"
+              class="control-btn"
+              onclick="toggleJoystick()"
+            >
+              <svg
+                width="18"
+                height="18"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <!-- 摇杆图标: 圆形底座 + 中心点 + 方向指示 -->
+                <circle cx="12" cy="12" r="9" stroke-width="2" fill="none" />
+                <circle cx="12" cy="12" r="3" />
+                <path stroke-width="2" d="M12 6v2M12 16v2M6 12h2M16 12h2" />
+              </svg>
+              Move
             </button>
             <button class="control-btn" onclick="resetCamera()">
               <svg
@@ -2020,6 +2150,11 @@
           // 🔄 自动旋转
           c.autoRotate = CAMERA_CONFIG.autoRotate;
           c.autoRotateSpeed = CAMERA_CONFIG.autoRotateSpeed;
+
+          // ⌨️ 禁用内置键盘控制 (使用自定义 WASD)
+          if (c.enableKeys !== undefined) c.enableKeys = false;
+          if (c.keys) c.keys = { LEFT: "", UP: "", RIGHT: "", BOTTOM: "" };
+          if (c.listenToKeyEvents) c.listenToKeyEvents(null); // 移除键盘监听
 
           c.update();
         }, 100);
@@ -2619,24 +2754,200 @@
         c.update();
       }
 
-      // Shift 微调缩放 (修复 macOS Shift+Scroll 问题)
+      // ╔════════════════════════════════════════════════════════════════════════╗
+      // ║                     ⌨️ 键盘控制系统                                      ║
+      // ╚════════════════════════════════════════════════════════════════════════╝
+
+      // WASD 键盘状态追踪
+      const keyState = {
+        w: false,
+        a: false,
+        s: false,
+        d: false,
+        q: false,
+        e: false, // 上下移动
+        shift: false, // 精细模式
+      };
+
+      // WASD 移动速度配置
+      const KEYBOARD_CONFIG = {
+        moveSpeed: 0.05, // 基础移动速度
+        moveSpeedShift: 0.01, // Shift 精细模式速度
+      };
+
+      // 键盘移动动画循环
+      let keyboardAnimationId = null;
+
+      function updateKeyboardMovement() {
+        if (!viewer) return;
+
+        const camera = viewer.camera;
+        const controls = viewer.cameraControls || viewer.controls;
+        if (!camera || !controls) return;
+
+        // 检查是否有任何移动键被按下
+        const hasMovement =
+          keyState.w ||
+          keyState.a ||
+          keyState.s ||
+          keyState.d ||
+          keyState.q ||
+          keyState.e;
+
+        if (hasMovement) {
+          const speed = keyState.shift
+            ? KEYBOARD_CONFIG.moveSpeedShift
+            : KEYBOARD_CONFIG.moveSpeed;
+
+          // 获取相机方向向量
+          const forward = new THREE.Vector3();
+          camera.getWorldDirection(forward);
+          forward.y = 0; // 保持水平移动
+          forward.normalize();
+
+          // 计算右向量
+          const right = new THREE.Vector3();
+          right.crossVectors(forward, camera.up).normalize();
+
+          // 计算移动增量
+          const delta = new THREE.Vector3();
+
+          // W/S - 前后移动
+          if (keyState.w) delta.add(forward.clone().multiplyScalar(speed));
+          if (keyState.s) delta.add(forward.clone().multiplyScalar(-speed));
+
+          // A/D - 左右移动
+          if (keyState.a) delta.add(right.clone().multiplyScalar(-speed));
+          if (keyState.d) delta.add(right.clone().multiplyScalar(speed));
+
+          // Q/E - 上下移动
+          if (keyState.q) delta.y -= speed;
+          if (keyState.e) delta.y += speed;
+
+          // 同时移动相机和目标点（保持相对位置不变）
+          camera.position.add(delta);
+          if (controls.target) {
+            controls.target.add(delta);
+          }
+
+          // 更新控制器
+          if (controls.update) controls.update();
+
+          // 继续动画循环
+          keyboardAnimationId = requestAnimationFrame(updateKeyboardMovement);
+        } else {
+          keyboardAnimationId = null;
+        }
+      }
+
+      function startKeyboardMovement() {
+        if (!keyboardAnimationId) {
+          // 进入移动模式：切换为默认鼠标映射（左键旋转，右键平移）
+          const controls = viewer?.cameraControls || viewer?.controls;
+          if (controls && THREE.MOUSE) {
+            controls.mouseButtons = {
+              LEFT: THREE.MOUSE.ROTATE,
+              MIDDLE: THREE.MOUSE.DOLLY,
+              RIGHT: THREE.MOUSE.PAN,
+            };
+          }
+          keyboardAnimationId = requestAnimationFrame(updateKeyboardMovement);
+        }
+      }
+
+      function stopKeyboardMovement() {
+        // 退出移动模式：恢复用户自定义鼠标映射
+        const controls = viewer?.cameraControls || viewer?.controls;
+        if (controls && THREE.MOUSE) {
+          const map = {
+            ROTATE: THREE.MOUSE.ROTATE,
+            PAN: THREE.MOUSE.PAN,
+            DOLLY: THREE.MOUSE.DOLLY,
+          };
+          controls.mouseButtons = {
+            LEFT: map[CAMERA_CONFIG.mouseButtons.LEFT] ?? THREE.MOUSE.PAN,
+            MIDDLE: map[CAMERA_CONFIG.mouseButtons.MIDDLE] ?? THREE.MOUSE.DOLLY,
+            RIGHT: map[CAMERA_CONFIG.mouseButtons.RIGHT] ?? THREE.MOUSE.ROTATE,
+          };
+        }
+      }
+
+      // Shift 微调缩放 + WASD 移动
       window.addEventListener("keydown", (e) => {
+        const key = e.key.toLowerCase();
+
+        // WASD + QE 移动控制 (优先处理移动键)
+        if (["w", "a", "s", "d", "q", "e"].includes(key) && viewer) {
+          // 防止输入框中触发
+          if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")
+            return;
+
+          e.preventDefault();
+          keyState[key] = true;
+          startKeyboardMovement();
+        }
+
+        // Shift 精细模式 (只在没有移动键时触发缩放提示)
         if (e.key === "Shift" && viewer) {
-          const c = viewer.cameraControls || viewer.controls;
-          if (c) {
-            c.zoomSpeed = CAMERA_CONFIG.precisionZoomSpeed;
-            zoomTooltip.classList.add("show");
+          keyState.shift = true;
+
+          // 如果没有按移动键，才显示精细缩放提示
+          const hasMovement =
+            keyState.w ||
+            keyState.a ||
+            keyState.s ||
+            keyState.d ||
+            keyState.q ||
+            keyState.e;
+          if (!hasMovement) {
+            const c = viewer.cameraControls || viewer.controls;
+            if (c) {
+              c.zoomSpeed = CAMERA_CONFIG.precisionZoomSpeed;
+              zoomTooltip.classList.add("show");
+            }
           }
         }
       });
+
       window.addEventListener("keyup", (e) => {
+        const key = e.key.toLowerCase();
+
+        // Shift 释放
         if (e.key === "Shift" && viewer) {
+          keyState.shift = false;
           const c = viewer.cameraControls || viewer.controls;
           if (c) {
             c.zoomSpeed = CAMERA_CONFIG.zoomSpeed;
             zoomTooltip.classList.remove("show");
           }
         }
+
+        // WASD + QE 释放
+        if (["w", "a", "s", "d", "q", "e"].includes(key)) {
+          keyState[key] = false;
+
+          // 检查是否所有移动键都已释放
+          const noMovement =
+            !keyState.w &&
+            !keyState.a &&
+            !keyState.s &&
+            !keyState.d &&
+            !keyState.q &&
+            !keyState.e;
+          if (noMovement) {
+            stopKeyboardMovement();
+          }
+        }
+      });
+
+      // 窗口失焦时重置所有按键状态
+      window.addEventListener("blur", () => {
+        Object.keys(keyState).forEach((k) => (keyState[k] = false));
+        if (keyboardAnimationId) {
+          cancelAnimationFrame(keyboardAnimationId);
+          keyboardAnimationId = null;
+        }
+        stopKeyboardMovement();
       });
 
       // 拦截 Shift+Scroll 事件，解决 macOS 下被映射为水平滚动的问题
@@ -2862,6 +3173,137 @@
 
         gyroManager.ball.style.transform = `translate(${xOffset}px, ${yOffset}px)`;
       }
+
+      // ╔════════════════════════════════════════════════════════════════════════╗
+      // ║                     🕹️ 虚拟摇杆系统                                      ║
+      // ╚════════════════════════════════════════════════════════════════════════╝
+
+      const joystick = {
+        element: document.getElementById("virtual-joystick"),
+        stick: document.getElementById("joystick-stick"),
+        btn: document.getElementById("btn-joystick"),
+        isEnabled: false,
+        isActive: false,
+        animationId: null,
+        centerX: 0,
+        centerY: 0,
+        deltaX: 0,
+        deltaY: 0,
+        maxRadius: 26, // 摇杆最大移动半径
+        moveSpeed: 0.03,
+      };
+
+      window.toggleJoystick = function () {
+        joystick.isEnabled = !joystick.isEnabled;
+        joystick.element.classList.toggle("visible", joystick.isEnabled);
+        joystick.btn.classList.toggle("active", joystick.isEnabled);
+
+        if (!joystick.isEnabled) {
+          stopJoystickMovement();
+        }
+      };
+
+      function startJoystickMovement() {
+        if (joystick.animationId) return;
+        joystick.animationId = requestAnimationFrame(updateJoystickMovement);
+      }
+
+      function stopJoystickMovement() {
+        if (joystick.animationId) {
+          cancelAnimationFrame(joystick.animationId);
+          joystick.animationId = null;
+        }
+        joystick.deltaX = 0;
+        joystick.deltaY = 0;
+        joystick.stick.style.transform = "translate(0, 0)";
+        joystick.element.classList.remove("active");
+        joystick.isActive = false;
+      }
+
+      function updateJoystickMovement() {
+        if (!viewer || !joystick.isActive) {
+          joystick.animationId = null;
+          return;
+        }
+
+        const camera = viewer.camera;
+        const controls = viewer.cameraControls || viewer.controls;
+        if (!camera || !controls) return;
+
+        // 归一化 delta (-1 到 1)
+        const nx = joystick.deltaX / joystick.maxRadius;
+        const ny = joystick.deltaY / joystick.maxRadius;
+
+        if (Math.abs(nx) > 0.1 || Math.abs(ny) > 0.1) {
+          const speed = joystick.moveSpeed;
+
+          // 获取相机方向
+          const forward = new THREE.Vector3();
+          camera.getWorldDirection(forward);
+          forward.y = 0;
+          forward.normalize();
+
+          const right = new THREE.Vector3();
+          right.crossVectors(forward, camera.up).normalize();
+
+          const delta = new THREE.Vector3();
+          // X 轴 = 左右平移
+          delta.add(right.clone().multiplyScalar(nx * speed));
+          // Y 轴 = 前后移动
+          delta.add(forward.clone().multiplyScalar(-ny * speed));
+
+          camera.position.add(delta);
+          if (controls.target) controls.target.add(delta);
+          if (controls.update) controls.update();
+        }
+
+        joystick.animationId = requestAnimationFrame(updateJoystickMovement);
+      }
+
+      // 触摸事件
+      joystick.element.addEventListener(
+        "touchstart",
+        (e) => {
+          e.preventDefault();
+          const rect = joystick.element.getBoundingClientRect();
+          joystick.centerX = rect.left + rect.width / 2;
+          joystick.centerY = rect.top + rect.height / 2;
+          joystick.isActive = true;
+          joystick.element.classList.add("active");
+          startJoystickMovement();
+        },
+        { passive: false }
+      );
+
+      joystick.element.addEventListener(
+        "touchmove",
+        (e) => {
+          e.preventDefault();
+          if (!joystick.isActive) return;
+          const touch = e.touches[0];
+          let dx = touch.clientX - joystick.centerX;
+          let dy = touch.clientY - joystick.centerY;
+
+          // 限制在最大半径内
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > joystick.maxRadius) {
+            dx = (dx / dist) * joystick.maxRadius;
+            dy = (dy / dist) * joystick.maxRadius;
+          }
+
+          joystick.deltaX = dx;
+          joystick.deltaY = dy;
+          joystick.stick.style.transform = `translate(${dx}px, ${dy}px)`;
+        },
+        { passive: false }
+      );
+
+      joystick.element.addEventListener("touchend", () =>
+        stopJoystickMovement()
+      );
+      joystick.element.addEventListener("touchcancel", () =>
+        stopJoystickMovement()
+      );
 
       // 切换陀螺仪模式
       window.toggleGyroMode = async function () {

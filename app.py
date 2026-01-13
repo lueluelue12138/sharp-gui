@@ -664,13 +664,30 @@ if __name__ == '__main__':
         
         return '127.0.0.1'
     
-    local_ip = get_local_ip()
+    local_ip = os.environ.get('SHARP_LAN_IP') or get_local_ip()
     cert_file = os.path.join(BASE_DIR, 'cert.pem')
     key_file = os.path.join(BASE_DIR, 'key.pem')
     
+    # 自定义启动日志，只显示正确的 IP 地址
+    import logging
+    log = logging.getLogger('werkzeug')
+    log.setLevel(logging.WARNING)  # 抑制默认的 "Running on" 输出
+    
     # 检查是否存在 SSL 证书
     if os.path.exists(cert_file) and os.path.exists(key_file):
-        app.run(debug=True, port=5050, host='0.0.0.0', ssl_context=(cert_file, key_file))
+        protocol = 'https'
+        ssl_ctx = (cert_file, key_file)
+    else:
+        protocol = 'http'
+        ssl_ctx = None
+    
+    # 输出简洁的启动信息（只在 reloader 子进程中输出，避免重复）
+    if os.environ.get('WERKZEUG_RUN_MAIN') == 'true':
+        print(f' * Running on {protocol}://127.0.0.1:5050')
+        print(f' * Running on {protocol}://{local_ip}:5050')
+        print('Press CTRL+C to quit')
+    
+    if ssl_ctx:
+        app.run(debug=True, port=5050, host='0.0.0.0', ssl_context=ssl_ctx)
     else:
         app.run(debug=True, port=5050, host='0.0.0.0')
-

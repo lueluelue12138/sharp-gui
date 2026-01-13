@@ -22,8 +22,7 @@
 
 </div>
 
-> [!WARNING]
-> **本地部署无内容限制** - 生成内容由用户自行负责，请遵守法律法规。详见 [免责声明](#%EF%B8%8F-免责声明)。
+> [!WARNING] > **本地部署无内容限制** - 生成内容由用户自行负责，请遵守法律法规。详见 [免责声明](#%EF%B8%8F-免责声明)。
 >
 > **No content restrictions for local deployment** - Users are responsible for generated content. See [Disclaimer](#%EF%B8%8F-免责声明).
 
@@ -65,12 +64,25 @@
 - **可折叠控制栏** - 底部控制栏可收起，最大化预览空间
 - **操作指南面板** - 右上角帮助按钮，清晰的交互提示
 
+### 🎮 相机控制
+
+| 控制方式       | 功能描述                             |
+| -------------- | ------------------------------------ |
+| **WASD/QE**    | 键盘平移相机（前后左右上下）         |
+| **Shift+WASD** | 精细移动模式                         |
+| **Shift+滚轮** | 精细缩放控制                         |
+| **虚拟摇杆**   | 移动端触摸平移（点击 Move 按钮开启） |
+| **陀螺仪**     | 倾斜手机预览（点击 Gyro 按钮开启）   |
+
+<!-- TODO: 添加操作演示 GIF -->
+<!-- ![相机控制演示](docs/camera-controls.gif) -->
+
 ### 🔧 高级特性
 
 - **🔒 HTTPS 支持** - 自动生成自签名证书，局域网安全访问
 - **📦 文件优化** - PLY → Splat 格式转换，减少 **43%** 文件大小
 - **🧹 自动清理** - 已完成任务 1 小时后自动清理，防止内存泄漏
-- **⚙️ 可配置路径** - 支持自定义输入/输出文件夹
+- **⚙️ 可配置路径** - 支持自定义工作区文件夹
 - **🖥️ 全屏模式** - 沉浸式 3D 预览体验
 
 ---
@@ -128,6 +140,20 @@
 </p>
 
 <p align="center"><i>倾斜手机控制视角，iOS 风格实时指示球反馈</i></p>
+
+</details>
+
+<details>
+<summary><b>🎬 相机移动控制</b></summary>
+
+<p align="center">
+  <img src="docs/images/demo-wasd.gif" width="400" alt="WASD键盘控制">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/demo-joystick.gif" height="300" alt="虚拟摇杆">
+</p>
+
+<p align="center">
+  <i>左：WASD/QE 键盘移动 (Shift精细) | 右：移动端虚拟摇杆</i>
+</p>
 
 </details>
 

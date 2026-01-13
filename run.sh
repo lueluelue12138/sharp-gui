@@ -92,11 +92,13 @@ else
 fi
 echo ""
 echo "Access URLs / 访问地址:"
-echo "  Local:    ${PROTOCOL}://127.0.0.1:5050"
-echo "  LAN:      ${PROTOCOL}://${LOCAL_IP}:5050"
+echo "  Local / 本地:    ${PROTOCOL}://127.0.0.1:5050"
+echo "  LAN / 局域网:    ${PROTOCOL}://${LOCAL_IP}:5050"
 echo ""
 echo "Press Ctrl+C to stop / 按 Ctrl+C 停止"
 echo "=========================================="
 echo ""
 
+# 传递正确的 LAN IP 给 Flask，用于日志输出
+export SHARP_LAN_IP="${LOCAL_IP}"
 python app.py
