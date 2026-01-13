@@ -162,6 +162,59 @@
         display: flex;
         flex-direction: column;
         z-index: 20;
+        transition: transform 0.3s ease, width 0.3s ease;
+        position: relative;
+      }
+
+      /* 侧边栏收起状态 */
+      #sidebar.collapsed {
+        transform: translateX(-100%);
+        width: 0;
+        overflow: hidden;
+        border-right: none;
+      }
+
+      /* 侧边栏切换按钮 */
+      .sidebar-toggle {
+        position: fixed;
+        left: var(--sidebar-width);
+        top: 50%;
+        transform: translateY(-50%);
+        width: 24px;
+        height: 48px;
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 0, 0, 0.1);
+        border-left: none;
+        border-radius: 0 8px 8px 0;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 21;
+        transition: left 0.3s ease, background 0.2s ease;
+        box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+      }
+
+      .sidebar-toggle:hover {
+        background: rgba(255, 255, 255, 0.95);
+      }
+
+      .sidebar-toggle svg {
+        width: 14px;
+        height: 14px;
+        color: var(--text-secondary);
+        transition: transform 0.3s ease;
+      }
+
+      /* 收起时按钮位置和箭头方向 */
+      #sidebar.collapsed ~ .sidebar-toggle {
+        left: 0;
+      }
+
+      #sidebar.collapsed ~ .sidebar-toggle svg {
+        transform: rotate(180deg);
       }
 
       .sidebar-header {
@@ -952,6 +1005,11 @@
           width: 28px;
           height: 28px;
         }
+
+        /* 移动端隐藏侧边栏收起按钮 (使用汉堡菜单) */
+        .sidebar-toggle {
+          display: none;
+        }
       }
 
       /* --- 陀螺仪方向指示球 (iOS 26 风格) --- */
@@ -982,10 +1040,10 @@
       /* --- 虚拟摇杆 (Apple 风格) --- */
       .virtual-joystick {
         position: absolute;
-        bottom: 80px;
-        left: 24px;
-        width: 80px;
-        height: 80px;
+        bottom: 100px;
+        left: 60px;
+        width: 120px;
+        height: 120px;
         border-radius: 50%;
         background: transparent;
         border: none;
@@ -1023,14 +1081,12 @@
         width: 32px;
         height: 32px;
         border-radius: 50%;
-        background: linear-gradient(
-          135deg,
-          rgba(255, 255, 255, 0.95) 0%,
-          rgba(230, 230, 230, 0.9) 100%
-        );
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2),
-          0 0 12px rgba(255, 255, 255, 0.4),
-          inset 0 1px 2px rgba(255, 255, 255, 1);
+        background: rgba(255, 255, 255, 0.4);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.6);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15),
+          inset 0 1px 0 rgba(255, 255, 255, 0.5);
         position: absolute;
         pointer-events: none;
         transition: transform 0.05s ease-out;
@@ -1047,6 +1103,10 @@
       @media (pointer: coarse) {
         #btn-joystick {
           display: inline-flex;
+        }
+        /* 触屏设备显示陀蝙仪按钮 (横屏也显示) */
+        #btn-gyro {
+          display: flex !important;
         }
       }
 
@@ -1325,7 +1385,10 @@
         #btn-gyro {
           display: flex;
         }
+      }
 
+      /* 触屏设备控制栏适配 */
+      @media (pointer: coarse) {
         /* 控制栏适配移动端 - 可横向滚动 */
         .glass-panel {
           overflow-x: auto;
@@ -1532,6 +1595,13 @@
         <!-- 列表项将在这里生成 -->
       </div>
     </div>
+
+    <!-- 侧边栏切换按钮 -->
+    <button class="sidebar-toggle" id="sidebar-toggle" onclick="toggleSidebarCollapse()">
+      <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
+      </svg>
+    </button>
 
     <!-- 主显示区 -->
     <div id="main-content">
@@ -2067,6 +2137,11 @@
             sidebarOverlay.classList.add("visible");
           });
         }
+      };
+
+      // --- PC/平板端侧边栏收起控制 ---
+      window.toggleSidebarCollapse = function () {
+        sidebar.classList.toggle("collapsed");
       };
 
       // --- 控制栏折叠切换 ---
@@ -3149,7 +3224,7 @@
         centerY: 0,
         deltaX: 0,
         deltaY: 0,
-        maxRadius: 26, // 摇杆最大移动半径
+        maxRadius: 35, // 摇杆最大移动半径 (外圈100px, 中心40px)
         moveSpeed: 0.03,
       };
 
@@ -3197,19 +3272,18 @@
         if (Math.abs(nx) > 0.1 || Math.abs(ny) > 0.1) {
           const speed = joystick.moveSpeed;
 
-          // 获取相机方向
+          // 获取相机方向向量（完整方向，包括上下）
           const forward = new THREE.Vector3();
           camera.getWorldDirection(forward);
-          forward.y = 0;
-          forward.normalize();
 
+          // 计算右向量（相对于当前视角）
           const right = new THREE.Vector3();
           right.crossVectors(forward, camera.up).normalize();
 
           const delta = new THREE.Vector3();
-          // X 轴 = 左右平移
+          // X 轴 = 沿视角相对方向左右平移
           delta.add(right.clone().multiplyScalar(nx * speed));
-          // Y 轴 = 前后移动
+          // Y 轴 = 沿视角方向前后移动
           delta.add(forward.clone().multiplyScalar(-ny * speed));
 
           camera.position.add(delta);
