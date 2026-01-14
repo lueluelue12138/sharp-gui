@@ -6,14 +6,24 @@
 
 <div align="center">
 
+**A Beautiful 3D Gaussian Splatting GUI**
+
+<br>
+
+**💡 Background**
+
+The "Spatial Photos" feature in iOS 26 offers an amazing immersive experience, but is currently limited to the Apple ecosystem.
+
+As a Web enthusiast, I built Sharp GUI to bridge this gap. My goal is to let anyone—whether on Android, Windows, or VR—create and share 3D spatial memories directly via a browser on their local network. This is a hobbyist exploration, built for everyone to enjoy.
+
+<br>
+
 ![Sharp GUI](https://img.shields.io/badge/Sharp-GUI-0071e3?style=for-the-badge&logo=apple&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776ab?style=for-the-badge&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-Backend-000000?style=for-the-badge&logo=flask&logoColor=white)
 ![Three.js](https://img.shields.io/badge/Three.js-Viewer-000000?style=for-the-badge&logo=threedotjs&logoColor=white)
 
-**A Beautiful 3D Gaussian Splatting GUI**
-
-Built on [Apple ml-sharp](https://github.com/apple/ml-sharp), featuring Apple-style modern design
+Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads needed. **Host Locally, Access Everywhere.**
 
 [Features](#-features) •
 [Preview](#-preview) •
@@ -23,11 +33,26 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp), featuring Apple-st
 
 </div>
 
-> [!WARNING] > **No content restrictions for local deployment** - Users are responsible for generated content. Please comply with laws and regulations. See [Disclaimer](#%EF%B8%8F-disclaimer).
+> [!WARNING] 
+> **No content restrictions for local deployment** - Users are fully responsible for generated content. Please comply with local laws and regulations. See [Disclaimer](#⚠️-disclaimer).
 
 ---
 
-## ✨ Features
+## ✨ Why Sharp GUI?
+
+### 🏠 Host Once, Access Anywhere
+
+No need to install apps on every device. Run Sharp GUI on one computer, and any phone or tablet on your LAN can access it instantly via browser. Full HTTPS support ensures features like gyroscope work perfectly on all devices.
+
+### 🚀 Core Features
+
+| Feature                  | Description                                                  |
+| ------------------------ | ------------------------------------------------------------ |
+| **📸 Image to 3D**       | Upload any image, AI generates 3D Gaussian Splatting model   |
+| **🖼️ Batch Processing**  | Multi-select/drag-drop upload with smart queue scheduling    |
+| **👁️ Real-time Preview** | High-performance viewer with Three.js + Gaussian Splats 3D   |
+| **📤 One-Click Share**   | Export as standalone HTML, viewable without server           |
+| **📱 Mobile Optimized**  | Perfect adaptation for phones/tablets with gyroscope support |
 
 ### 🎨 Apple-Style UI Design
 
@@ -40,16 +65,6 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 | **Particle Background** | Canvas-drawn floating particles for tech aesthetics           |
 | **Smooth Animations**   | All interactions tuned with `cubic-bezier` easing             |
 | **Dark Mode**           | Adaptive system dark mode support                             |
-
-### 🚀 Core Features
-
-| Feature                  | Description                                                  |
-| ------------------------ | ------------------------------------------------------------ |
-| **📸 Image to 3D**       | Upload any image, AI generates 3D Gaussian Splatting model   |
-| **🖼️ Batch Processing**  | Multi-select/drag-drop upload with smart queue scheduling    |
-| **👁️ Real-time Preview** | High-performance viewer with Three.js + Gaussian Splats 3D   |
-| **📤 One-Click Share**   | Export as standalone HTML, viewable without server           |
-| **📱 Mobile Optimized**  | Perfect adaptation for phones/tablets with gyroscope support |
 
 ### 🎯 UX Optimizations
 

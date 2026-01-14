@@ -5,14 +5,24 @@
 </p>
 <div align="center">
 
+**一个精美的 3D 高斯溅射 (Gaussian Splatting) 图形化界面**
+
+<br>
+
+**💡 项目背景**
+
+iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅限于苹果生态。
+
+作为一个 Web 技术爱好者，我开发了 Sharp GUI，旨在通过浏览器打破设备界限。无论你使用 Android、Windows 还是 VR 设备，都能在局域网内轻松生成并分享你的 3D 空间记忆。这是一个探索性的开源项目，希望能为你带来乐趣。
+
+<br>
+
 ![Sharp GUI](https://img.shields.io/badge/Sharp-GUI-0071e3?style=for-the-badge&logo=apple&logoColor=white)
 ![Python](https://img.shields.io/badge/Python-3.10+-3776ab?style=for-the-badge&logo=python&logoColor=white)
 ![Flask](https://img.shields.io/badge/Flask-Backend-000000?style=for-the-badge&logo=flask&logoColor=white)
 ![Three.js](https://img.shields.io/badge/Three.js-Viewer-000000?style=for-the-badge&logo=threedotjs&logoColor=white)
 
-**一个精美的 3D 高斯溅射 (Gaussian Splatting) 图形化界面**
-
-基于 [Apple ml-sharp](https://github.com/apple/ml-sharp) 打造，采用 Apple 风格的现代化设计语言
+基于 [Apple ml-sharp](https://github.com/apple/ml-sharp) 打造，无需上传云端，**本地部署，全屋访问**。
 
 [功能特性](#-功能特性) •
 [界面预览](#-界面预览) •
@@ -22,13 +32,29 @@
 
 </div>
 
-> [!WARNING] > **本地部署无内容限制** - 生成内容由用户自行负责，请遵守法律法规。详见 [免责声明](#%EF%B8%8F-免责声明)。
+> [!WARNING] 
+> **本地部署无内容限制** - 模型完全在本地生成，内容由用户自行负责，请遵守法律法规。详见 [免责声明](#%EF%B8%8F-免责声明)。
 >
 > **No content restrictions for local deployment** - Users are responsible for generated content. See [Disclaimer](#%EF%B8%8F-免责声明).
 
 ---
 
-## ✨ 功能特性
+## ✨ 为什么选择 Sharp GUI?
+
+### 🏠 一次部署，全屋访问
+
+无需在每台设备上安装 App。只需在一台电脑上运行 Sharp GUI，局域网内的手机、平板均可通过浏览器直接访问，即刻享受 3D 视觉盛宴。HTTPS 支持确保了陀螺仪等传感器功能在任何设备上都能完美调用。
+
+### 🚀 核心功能
+
+| 功能                | 描述                                                                                                   |
+| ------------------- | ------------------------------------------------------------------------------------------------------ |
+| **📸 空间影像生成** | 上传任意图片，基于 Apple ML-Sharp 自动生成 3D 高斯溅射模型                                             |
+| **🖼️ 现代工作流**   | 支持多选/拖拽批量上传，后台队列智能调度，实时进度展示                                                  |
+| **👁️ 全能查看器**   | 基于 Three.js + Gaussian Splats 3D 的高性能查看器，支持**鼠标 / 触摸 / 键盘(WASD) / 陀螺仪**全模态控制 |
+| **📤 零门槛分享**   | 一键导出为独立 HTML 文件，将你的空间记忆打包发给朋友，双击即看                                         |
+| **🔐 安全与隐私**   | 数据完全本地化，支持一键生成 SSL 证书，保障局域网传输安全                                              |
+| **📱 移动端优化**   | 完美适配手机/平板，支持陀螺仪体感控制                                                                  |
 
 ### 🎨 Apple 风格界面设计
 
@@ -41,16 +67,6 @@
 | **动态粒子背景** | Canvas 绘制的浮动粒子，增添科技感                       |
 | **流畅过渡动画** | 所有交互均有精心调校的 cubic-bezier 缓动曲线            |
 | **深色模式**     | 自适应系统深色模式偏好                                  |
-
-### 🚀 核心功能
-
-| 功能              | 描述                                              |
-| ----------------- | ------------------------------------------------- |
-| **📸 图片转 3D**  | 上传任意图片，AI 自动生成 3D 高斯溅射模型         |
-| **🖼️ 批量处理**   | 支持多选/拖拽批量上传，后台队列智能调度           |
-| **👁️ 实时预览**   | 基于 Three.js + Gaussian Splats 3D 的高性能查看器 |
-| **📤 一键分享**   | 导出为独立 HTML 文件，无需服务器即可查看          |
-| **📱 移动端优化** | 完美适配手机/平板，支持陀螺仪体感控制             |
 
 ### 🎯 用户体验优化
 
