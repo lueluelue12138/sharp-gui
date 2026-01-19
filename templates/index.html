@@ -405,11 +405,12 @@
 
       .gallery-item:hover {
         background: rgba(255, 255, 255, 0.6);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       }
 
       .gallery-item.active {
         background: white;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
       }
 
       .thumb {
@@ -1730,7 +1731,7 @@
           </div>
           <div><b>拖拽/触摸</b> - 旋转模型视角</div>
         </div>
-                <div class="help-item">
+        <div class="help-item">
           <div class="help-icon">
             <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path
@@ -3124,7 +3125,7 @@
                       task.status === 'processing' && task.stage ? task.stage : task.status
                     }</div>
                     ${
-                      task.status === "pending"
+                      (task.status === "pending" || task.status === "processing")
                         ? `
                       <button class="queue-cancel-btn" onclick="cancelTask('${task.id}')" title="Cancel">
                         <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -4199,8 +4200,21 @@
           });
           const data = await res.json();
           if (data.success) {
-            alert(data.message);
+            // 关闭设置面板并显示重启提示
             closeSettings();
+            showRestartOverlay();
+            
+            // 触发后端重启
+            try {
+              await fetch("/api/restart", { method: "POST" });
+            } catch (e) {
+              // 重启会导致连接断开，这是正常的
+            }
+            
+            // 延迟刷新页面（等待服务器重启）
+            setTimeout(() => {
+              location.reload();
+            }, 3000);
           } else {
             alert("Error: " + data.error);
           }
@@ -4208,6 +4222,32 @@
           alert("Failed to save settings: " + e.message);
         }
       };
+      
+      // 显示重启倒计时覆盖层
+      function showRestartOverlay() {
+        const overlay = document.createElement('div');
+        overlay.id = 'restart-overlay';
+        overlay.innerHTML = `
+          <div style="
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            color: white;
+            flex-direction: column;
+            gap: 16px;
+          ">
+            <div class="spinner" style="border-top-color: white;"></div>
+            <div style="font-size: 18px; font-weight: 500;">Restarting... 重启中...</div>
+            <div style="font-size: 14px; opacity: 0.7;">Page will refresh automatically / 页面将自动刷新</div>
+          </div>
+        `;
+        document.body.appendChild(overlay);
+      }
 
       // =====================================================
       // 🎯 拖拽模型文件到预览区域直接加载

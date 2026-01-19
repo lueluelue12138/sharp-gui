@@ -148,6 +148,7 @@ def ply_to_splat(ply_path):
 task_queue = queue.Queue()
 task_status = {}
 task_lock = threading.Lock()  # 线程锁保护 task_status
+running_processes = {}  # 存储运行中的进程，用于取消任务
 
 # 任务清理配置
 TASK_RETENTION_SECONDS = 3600  # 已完成任务保留1小时
@@ -201,6 +202,7 @@ def worker():
             "-o", output_folder
         ]
         
+        process = None
         try:
             # 使用 Popen 异步执行，实时读取输出解析进度
             process = subprocess.Popen(
@@ -211,11 +213,23 @@ def worker():
                 bufsize=1
             )
             
+            # 存储进程引用，用于取消
+            with task_lock:
+                running_processes[task_id] = process
+            
             # 实时读取输出并解析进度
             output_lines = []
+            cancelled = False
             for line in iter(process.stdout.readline, ''):
                 if not line:
                     break
+                
+                # 检查是否被取消
+                with task_lock:
+                    if task_status.get(task_id, {}).get('status') == 'cancelled':
+                        cancelled = True
+                        break
+                
                 output_lines.append(line)
                 line_lower = line.lower()
                 
@@ -243,6 +257,17 @@ def worker():
                         task_status[task_id]['progress'] = 95
                         task_status[task_id]['stage'] = 'saving'
             
+            # 如果被取消，终止进程
+            if cancelled:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except:
+                    process.kill()
+                print(f"🛑 Task {task_id} cancelled by user.")
+                task_queue.task_done()
+                continue
+            
             process.stdout.close()
             return_code = process.wait()
             
@@ -264,15 +289,22 @@ def worker():
             else:
                 stderr_output = ''.join(output_lines)
                 with task_lock:
-                    task_status[task_id]['status'] = 'failed'
-                    task_status[task_id]['error'] = stderr_output if stderr_output else "Unknown error"
+                    # 检查是否是因为取消而失败
+                    if task_status.get(task_id, {}).get('status') != 'cancelled':
+                        task_status[task_id]['status'] = 'failed'
+                        task_status[task_id]['error'] = stderr_output if stderr_output else "Unknown error"
                 print(f"❌ Task {task_id} failed with return code {return_code}")
 
         except Exception as e:
             with task_lock:
-                task_status[task_id]['status'] = 'failed'
-                task_status[task_id]['error'] = str(e)
+                if task_status.get(task_id, {}).get('status') != 'cancelled':
+                    task_status[task_id]['status'] = 'failed'
+                    task_status[task_id]['error'] = str(e)
             print(f"❌ Task {task_id} exception: {e}")
+        finally:
+            # 清理进程引用
+            with task_lock:
+                running_processes.pop(task_id, None)
         
         task_queue.task_done()
 
@@ -400,18 +432,26 @@ def get_tasks():
 
 @app.route('/api/task/<task_id>/cancel', methods=['POST'])
 def cancel_task(task_id):
-    """取消队列中的待处理任务"""
+    """取消队列中的任务（包括运行中的任务）"""
     with task_lock:
         task = task_status.get(task_id)
         if not task:
             return jsonify({'success': False, 'error': 'Task not found'}), 404
         
-        # 只能取消 pending 状态的任务
         if task['status'] == 'pending':
             task['status'] = 'cancelled'
             return jsonify({'success': True, 'message': 'Task cancelled'})
         elif task['status'] == 'processing':
-            return jsonify({'success': False, 'error': 'Cannot cancel task in progress'}), 400
+            # 标记为取消状态，worker 会检测到并终止进程
+            task['status'] = 'cancelled'
+            # 尝试立即终止进程
+            process = running_processes.get(task_id)
+            if process:
+                try:
+                    process.terminate()
+                except:
+                    pass
+            return jsonify({'success': True, 'message': 'Task cancellation requested'})
         else:
             return jsonify({'success': False, 'error': f"Task already {task['status']}"}), 400
 
@@ -491,6 +531,26 @@ def settings():
             'success': True,
             'message': 'Settings saved. Restart server to apply changes.'
         })
+
+
+@app.route('/api/restart', methods=['POST'])
+def restart_server():
+    """重启服务器 - 仅本机可访问"""
+    if not is_local_request():
+        return jsonify({'error': 'Restart can only be triggered from localhost'}), 403
+    
+    def do_restart():
+        time.sleep(1)  # 等待响应发送完成
+        print("🔄 Restarting server...")
+        os.execv(sys.executable, [sys.executable] + sys.argv)
+    
+    # 在后台线程中执行重启，确保响应能先返回
+    threading.Thread(target=do_restart, daemon=True).start()
+    
+    return jsonify({
+        'success': True,
+        'message': 'Server will restart in 1 second...'
+    })
 
 
 @app.route('/api/browse-folder', methods=['POST'])
