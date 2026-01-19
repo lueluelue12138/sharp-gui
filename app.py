@@ -191,6 +191,8 @@ def worker():
         print(f"🔄 Processing task {task_id}: {filename}")
         with task_lock:
             task_status[task_id]['status'] = 'processing'
+            task_status[task_id]['progress'] = 0
+            task_status[task_id]['stage'] = 'starting'
         
         # 构建命令
         cmd = [
@@ -200,10 +202,51 @@ def worker():
         ]
         
         try:
-            # 执行命令
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            # 使用 Popen 异步执行，实时读取输出解析进度
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1
+            )
             
-            if result.returncode == 0:
+            # 实时读取输出并解析进度
+            output_lines = []
+            for line in iter(process.stdout.readline, ''):
+                if not line:
+                    break
+                output_lines.append(line)
+                line_lower = line.lower()
+                
+                # 解析进度阶段
+                with task_lock:
+                    if 'downloading' in line_lower or 'download' in line_lower:
+                        task_status[task_id]['progress'] = 5
+                        task_status[task_id]['stage'] = 'downloading'
+                    elif 'loading checkpoint' in line_lower:
+                        task_status[task_id]['progress'] = 10
+                        task_status[task_id]['stage'] = 'loading'
+                    elif 'processing' in line_lower and filename.split('.')[0].lower() in line_lower:
+                        task_status[task_id]['progress'] = 15
+                        task_status[task_id]['stage'] = 'processing'
+                    elif 'preprocessing' in line_lower:
+                        task_status[task_id]['progress'] = 25
+                        task_status[task_id]['stage'] = 'preprocessing'
+                    elif 'inference' in line_lower:
+                        task_status[task_id]['progress'] = 50
+                        task_status[task_id]['stage'] = 'inference'
+                    elif 'postprocessing' in line_lower:
+                        task_status[task_id]['progress'] = 80
+                        task_status[task_id]['stage'] = 'postprocessing'
+                    elif 'saving' in line_lower:
+                        task_status[task_id]['progress'] = 95
+                        task_status[task_id]['stage'] = 'saving'
+            
+            process.stdout.close()
+            return_code = process.wait()
+            
+            if return_code == 0:
                 # 检查输出文件是否存在
                 name_without_ext = os.path.splitext(filename)[0]
                 expected_ply = os.path.join(output_folder, name_without_ext + ".ply")
@@ -211,17 +254,19 @@ def worker():
                 with task_lock:
                     if os.path.exists(expected_ply):
                         task_status[task_id]['status'] = 'completed'
+                        task_status[task_id]['progress'] = 100
+                        task_status[task_id]['stage'] = 'done'
                         print(f"✅ Task {task_id} completed successfully.")
                     else:
                         task_status[task_id]['status'] = 'failed'
                         task_status[task_id]['error'] = 'Output file not found after execution.'
                         print(f"❌ Task {task_id} failed: Output missing.")
             else:
+                stderr_output = ''.join(output_lines)
                 with task_lock:
                     task_status[task_id]['status'] = 'failed'
-                    task_status[task_id]['error'] = result.stderr if result.stderr else "Unknown error"
-                print(f"❌ Task {task_id} failed with return code {result.returncode}")
-                print(result.stderr)
+                    task_status[task_id]['error'] = stderr_output if stderr_output else "Unknown error"
+                print(f"❌ Task {task_id} failed with return code {return_code}")
 
         except Exception as e:
             with task_lock:

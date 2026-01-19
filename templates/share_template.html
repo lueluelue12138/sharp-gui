@@ -500,13 +500,13 @@
           URL.revokeObjectURL(url);
 
           // 交换鼠标左右键行为：左键=平移，右键=旋转
-          import("three").then((THREE) => {
-            const c = viewer.cameraControls || viewer.controls;
-            if (c && c.mouseButtons) {
-              c.mouseButtons.LEFT = THREE.MOUSE.PAN;
-              c.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
-            }
-          });
+          // import("three").then((THREE) => {
+          //   const c = viewer.cameraControls || viewer.controls;
+          //   if (c && c.mouseButtons) {
+          //     c.mouseButtons.LEFT = THREE.MOUSE.PAN;
+          //     c.mouseButtons.RIGHT = THREE.MOUSE.ROTATE;
+          //   }
+          // });
         } catch (e) {
           console.error("加载失败:", e);
           loading.innerHTML =

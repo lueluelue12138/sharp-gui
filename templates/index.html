@@ -314,6 +314,33 @@
         display: flex;
         align-items: center;
         justify-content: center;
+        flex-shrink: 0;
+      }
+
+      .queue-item-content {
+        flex: 1;
+        min-width: 0;
+      }
+
+      .queue-progress {
+        height: 3px;
+        background: rgba(0, 0, 0, 0.1);
+        border-radius: 2px;
+        margin-top: 4px;
+        overflow: hidden;
+      }
+
+      .queue-progress-bar {
+        height: 100%;
+        background: var(--accent-blue);
+        border-radius: 2px;
+        transition: width 0.3s ease;
+      }
+
+      .queue-progress-text {
+        font-size: 9px;
+        color: var(--accent-blue);
+        margin-top: 2px;
       }
 
       /* 旋转动画 */
@@ -584,6 +611,34 @@
         width: 16px;
         height: 16px;
         color: var(--text-secondary);
+      }
+
+      /* 语言切换按钮 */
+      .lang-btn {
+        height: 24px;
+        padding: 0 8px;
+        background: rgba(0, 0, 0, 0.05);
+        border: none;
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        transition: all var(--transition-normal);
+        margin-left: 6px;
+        font-size: 11px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        letter-spacing: 0.5px;
+      }
+
+      .lang-btn:hover {
+        background: rgba(0, 0, 0, 0.1);
+        color: var(--text-primary);
+      }
+
+      .lang-btn:active {
+        transform: scale(0.95);
       }
 
       /* 设置弹窗 */
@@ -1560,6 +1615,9 @@
               />
             </svg>
           </button>
+          <button class="lang-btn" id="btn-lang" onclick="toggleLanguage()">
+            <span id="lang-label">EN</span>
+          </button>
         </div>
         <button
           id="btn-new"
@@ -1579,7 +1637,7 @@
               stroke-linejoin="round"
             />
           </svg>
-          Generate New
+          <span data-i18n="generateNew">Generate New</span>
         </button>
         <!-- 支持多选 -->
         <input type="file" id="file-input" accept="image/*" multiple />
@@ -1587,7 +1645,7 @@
 
       <!-- 队列区域 -->
       <div id="queue-container">
-        <div class="section-title">Processing Queue</div>
+        <div class="section-title" data-i18n="processingQueue">Processing Queue</div>
         <div id="queue-list"></div>
       </div>
 
@@ -1628,8 +1686,8 @@
             d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
           ></path>
         </svg>
-        <div style="font-weight: 500">Select from gallery or generate new</div>
-        <div style="font-size: 12px; margin-top: 8px; opacity: 0.7">
+        <div style="font-weight: 500" data-i18n="emptyStateTitle">Select from gallery or generate new</div>
+        <div style="font-size: 12px; margin-top: 8px; opacity: 0.7" data-i18n="emptyStateHint">
           Drop .ply / .splat files here to preview
         </div>
       </div>
@@ -1637,7 +1695,7 @@
       <!-- 加载遮罩 -->
       <div id="loading-overlay">
         <div class="spinner"></div>
-        <div class="loading-text" id="loading-text">Loading Model...</div>
+        <div class="loading-text" id="loading-text" data-i18n="loadingModel">Loading Model...</div>
         <div class="loading-progress">
           <div class="loading-progress-bar" id="loading-progress-bar"></div>
         </div>
@@ -1671,6 +1729,32 @@
             </svg>
           </div>
           <div><b>拖拽/触摸</b> - 旋转模型视角</div>
+        </div>
+                <div class="help-item">
+          <div class="help-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5"
+              />
+            </svg>
+          </div>
+          <div><b>点击画面</b> - 锁定焦点 (以焦点为旋转中心)</div>
+        </div>
+        <div class="help-item">
+          <div class="help-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M8 9l4-4 4 4m0 6l-4 4-4-4"
+              />
+            </svg>
+          </div>
+          <div><b>左键拖拽</b> - 旋转视角 | <b>右键拖拽</b> - 平移画面</div>
         </div>
         <div class="help-item">
           <div class="help-icon">
@@ -1793,7 +1877,7 @@
                   d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
                 />
               </svg>
-              Front View
+              <span data-i18n="frontView">Front View</span>
             </button>
             <button
               id="btn-gyro"
@@ -1814,7 +1898,7 @@
                   d="M12 18.5A6.5 6.5 0 1112 5.5a6.5 6.5 0 010 13zM12 2v2m0 16v2M2 12h2m16 0h2m-4.93-5.07l1.41-1.41m-12.02 0l1.41 1.41m0 10.14l-1.41 1.41m12.02 0l-1.41-1.41"
                 />
               </svg>
-              Gyro
+              <span data-i18n="gyro">Gyro</span>
             </button>
             <button
               id="btn-joystick"
@@ -1833,7 +1917,7 @@
                 <circle cx="12" cy="12" r="3" />
                 <path stroke-width="2" d="M12 6v2M12 16v2M6 12h2M16 12h2" />
               </svg>
-              Move
+              <span data-i18n="move">Move</span>
             </button>
             <button class="control-btn" onclick="resetCamera()">
               <svg
@@ -1850,7 +1934,7 @@
                   d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
                 />
               </svg>
-              Reset
+              <span data-i18n="reset">Reset</span>
             </button>
             <button
               id="btn-fullscreen"
@@ -1871,7 +1955,7 @@
                   d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"
                 />
               </svg>
-              Fullscreen
+              <span data-i18n="fullscreen">Fullscreen</span>
             </button>
             <button class="control-btn" onclick="exportModel()">
               <svg
@@ -1888,7 +1972,7 @@
                   d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
                 />
               </svg>
-              Share
+              <span data-i18n="share">Share</span>
             </button>
           </div>
         </div>
@@ -1899,9 +1983,9 @@
         <div id="gyro-ball" class="gyro-ball"></div>
         <div class="gyro-crosshair"></div>
       </div>
-      <div id="gyro-hint" class="gyro-hint">Tilt to explore</div>
+      <div id="gyro-hint" class="gyro-hint" data-i18n="gyroHint">Tilt to explore</div>
 
-      <div class="tooltip" id="zoom-tooltip">
+      <div class="tooltip" id="zoom-tooltip" data-i18n="zoomTooltip">
         Hold Shift + Scroll for Precision Zoom
       </div>
     </div>
@@ -1946,6 +2030,317 @@
         ALLOWED_IMAGE_TYPES: ["image/jpeg", "image/png", "image/webp"],
         ALLOWED_MODEL_TYPES: [".ply", ".splat"],
       };
+
+      // ╔════════════════════════════════════════════════════════════════════════╗
+      // ║                     🌐 国际化 (i18n) 系统                                 ║
+      // ╚════════════════════════════════════════════════════════════════════════╝
+      const I18N = {
+        en: {
+          // 标题和按钮
+          appTitle: "Sharp 3D",
+          generateNew: "Generate New",
+          processingQueue: "Processing Queue",
+          
+          // 空状态
+          emptyStateTitle: "Select from gallery or generate new",
+          emptyStateHint: "Drop .ply / .splat files here to preview",
+          
+          // 加载状态
+          loading: "Loading...",
+          loadingModel: "Loading Model...",
+          
+          // 控制栏按钮
+          frontView: "Front View",
+          gyro: "Gyro",
+          move: "Move",
+          reset: "Reset",
+          fullscreen: "Fullscreen",
+          share: "Share",
+          
+          // 帮助面板
+          helpTitle: "Controls Guide",
+          helpDrag: "Drag/Touch",
+          helpDragDesc: "Rotate model view",
+          helpClick: "Click Canvas",
+          helpClickDesc: "Lock focus (rotation center)",
+          helpLeftRight: "Left Drag",
+          helpLeftRightDesc: "Rotate view",
+          helpRightDrag: "Right Drag",
+          helpRightDragDesc: "Pan view",
+          helpScroll: "Scroll/Pinch",
+          helpScrollDesc: "Zoom in/out",
+          helpGyro: "Gyro Mode",
+          helpGyroDesc: "Tilt phone to preview",
+          helpFrontView: "Front View",
+          helpFrontViewDesc: "Limit to front angle",
+          helpWASD: "WASD/QE",
+          helpWASDDesc: "Keyboard pan (Shift=fine)",
+          helpShiftScroll: "Shift+Scroll",
+          helpShiftScrollDesc: "Precision zoom",
+          helpJoystick: "Virtual Joystick",
+          helpJoystickDesc: "Mobile touch pan (Move btn)",
+          
+          // 提示
+          zoomTooltip: "Hold Shift + Scroll for Precision Zoom",
+          gyroHint: "Tilt to explore",
+          gyroNotSupported: "Your device does not support gyroscope",
+          selectModelFirst: "Please select a 3D model first",
+          
+          // Gallery
+          viewOriginal: "View Original",
+          download: "Download",
+          delete: "Delete",
+          confirmDelete: "Delete this item?",
+          
+          // 队列状态
+          queueWaiting: "Waiting...",
+          queueProcessing: "Processing...",
+          queueCompleted: "Completed",
+          queueFailed: "Failed",
+          
+          // 设置
+          settings: "Settings",
+          mlSharpPath: "ML-Sharp Path",
+          save: "Save",
+          cancel: "Cancel",
+          
+          // 错误
+          errorOccurred: "Something went wrong",
+          showDetails: "Show Details",
+          
+          // 导出/分享
+          preparingExport: "Preparing export...",
+          convertingModel: "Converting model format...",
+          optimizingData: "Optimizing data...",
+          generatingHtml: "Generating HTML...",
+          downloading: "Downloading...",
+          exportFailed: "Export failed",
+          
+          // 全屏
+          exitFullscreen: "Exit",
+          
+          // 确认对话框
+          confirmDeleteFull: "Are you sure you want to delete this item?",
+          deleteFailed: "Delete failed",
+          errorDeleting: "Error deleting item",
+          
+          // 文件上传
+          selectImageFiles: "Please select image files.",
+          uploadFailed: "Upload Failed",
+          
+          // 画廊状态
+          ready: "Ready",
+          
+          // 加载场景
+          loadingScene: "Loading Scene...",
+          viewerError: "Viewer Error",
+        },
+        zh: {
+          // 标题和按钮
+          appTitle: "Sharp 3D",
+          generateNew: "生成新模型",
+          processingQueue: "处理队列",
+          
+          // 空状态
+          emptyStateTitle: "从画廊选择或生成新模型",
+          emptyStateHint: "拖拽 .ply / .splat 文件到此处预览",
+          
+          // 加载状态
+          loading: "加载中...",
+          loadingModel: "正在加载模型...",
+          
+          // 控制栏按钮
+          frontView: "正面视角",
+          gyro: "陀螺仪",
+          move: "移动",
+          reset: "重置",
+          fullscreen: "全屏",
+          share: "分享",
+          
+          // 帮助面板
+          helpTitle: "操作指南",
+          helpDrag: "拖拽/触摸",
+          helpDragDesc: "旋转模型视角",
+          helpClick: "点击画面",
+          helpClickDesc: "锁定焦点 (以焦点为旋转中心)",
+          helpLeftRight: "左键拖拽",
+          helpLeftRightDesc: "旋转视角",
+          helpRightDrag: "右键拖拽",
+          helpRightDragDesc: "平移画面",
+          helpScroll: "滚轮/双指缩放",
+          helpScrollDesc: "放大缩小",
+          helpGyro: "Gyro 模式",
+          helpGyroDesc: "开启后倾斜手机预览",
+          helpFrontView: "Front View",
+          helpFrontViewDesc: "限制为正面视角",
+          helpWASD: "WASD/QE",
+          helpWASDDesc: "键盘平移相机 (Shift精细)",
+          helpShiftScroll: "Shift+滚轮",
+          helpShiftScrollDesc: "精细缩放控制",
+          helpJoystick: "虚拟摇杆",
+          helpJoystickDesc: "移动端触摸平移 (Move按钮)",
+          
+          // 提示
+          zoomTooltip: "按住 Shift + 滚轮可精细缩放",
+          gyroHint: "倾斜手机探索",
+          gyroNotSupported: "您的设备不支持陀螺仪",
+          selectModelFirst: "请先选择一个 3D 模型",
+          
+          // Gallery
+          viewOriginal: "查看原图",
+          download: "下载",
+          delete: "删除",
+          confirmDelete: "确定删除此项目？",
+          
+          // 队列状态
+          queueWaiting: "等待中...",
+          queueProcessing: "处理中...",
+          queueCompleted: "已完成",
+          queueFailed: "失败",
+          
+          // 设置
+          settings: "设置",
+          mlSharpPath: "ML-Sharp 路径",
+          save: "保存",
+          cancel: "取消",
+          
+          // 错误
+          errorOccurred: "出现问题",
+          showDetails: "显示详情",
+          
+          // 导出/分享
+          preparingExport: "准备导出...",
+          convertingModel: "正在转换模型格式...",
+          optimizingData: "正在优化数据...",
+          generatingHtml: "正在生成 HTML...",
+          downloading: "正在下载...",
+          exportFailed: "导出失败",
+          
+          // 全屏
+          exitFullscreen: "退出",
+          
+          // 确认对话框
+          confirmDeleteFull: "确定要删除此项目吗？",
+          deleteFailed: "删除失败",
+          errorDeleting: "删除出错",
+          
+          // 文件上传
+          selectImageFiles: "请选择图片文件。",
+          uploadFailed: "上传失败",
+          
+          // 画廊状态
+          ready: "就绪",
+          
+          // 加载场景
+          loadingScene: "正在加载场景...",
+          viewerError: "查看器错误",
+        }
+      };
+
+      // 当前语言
+      let currentLang = 'en';
+
+      // 获取当前语言（优先 localStorage，否则检测浏览器）
+      function getCurrentLang() {
+        const saved = localStorage.getItem('sharp3d-lang');
+        if (saved && (saved === 'en' || saved === 'zh')) {
+          return saved;
+        }
+        // 检测浏览器语言
+        const browserLang = navigator.language || navigator.userLanguage;
+        return browserLang.startsWith('zh') ? 'zh' : 'en';
+      }
+
+      // 翻译函数
+      function t(key) {
+        return I18N[currentLang]?.[key] || I18N['en']?.[key] || key;
+      }
+
+      // 设置语言
+      function setLanguage(lang) {
+        if (lang !== 'en' && lang !== 'zh') return;
+        currentLang = lang;
+        localStorage.setItem('sharp3d-lang', lang);
+        applyLanguage();
+      }
+
+      // 切换语言
+      window.toggleLanguage = function() {
+        const newLang = currentLang === 'en' ? 'zh' : 'en';
+        setLanguage(newLang);
+      };
+
+      // 应用语言到所有 UI 元素
+      function applyLanguage() {
+        // 更新语言按钮标签
+        const langLabel = document.getElementById('lang-label');
+        if (langLabel) {
+          langLabel.textContent = currentLang === 'en' ? '中' : 'EN';
+        }
+
+        // 更新所有带 data-i18n 属性的元素
+        document.querySelectorAll('[data-i18n]').forEach(el => {
+          const key = el.getAttribute('data-i18n');
+          el.textContent = t(key);
+        });
+
+        // 更新所有带 data-i18n-html 属性的元素（支持 HTML）
+        document.querySelectorAll('[data-i18n-html]').forEach(el => {
+          const key = el.getAttribute('data-i18n-html');
+          el.innerHTML = t(key);
+        });
+
+        // 更新 title 属性
+        document.querySelectorAll('[data-i18n-title]').forEach(el => {
+          const key = el.getAttribute('data-i18n-title');
+          el.title = t(key);
+        });
+
+        // 更新 placeholder 属性
+        document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+          const key = el.getAttribute('data-i18n-placeholder');
+          el.placeholder = t(key);
+        });
+
+        // 特殊元素更新
+        updateSpecialElements();
+      }
+
+      // 更新特殊元素（复杂结构）
+      function updateSpecialElements() {
+        // 帮助面板 (需要保持格式)
+        const helpItems = [
+          { key: 'helpDrag', descKey: 'helpDragDesc' },
+          { key: 'helpClick', descKey: 'helpClickDesc' },
+          { key: 'helpLeftRight', descKey: 'helpLeftRightDesc', extra: ` | <b>${t('helpRightDrag')}</b> - ${t('helpRightDragDesc')}` },
+          { key: 'helpScroll', descKey: 'helpScrollDesc' },
+          { key: 'helpGyro', descKey: 'helpGyroDesc' },
+          { key: 'helpFrontView', descKey: 'helpFrontViewDesc' },
+          { key: 'helpWASD', descKey: 'helpWASDDesc' },
+          { key: 'helpShiftScroll', descKey: 'helpShiftScrollDesc' },
+          { key: 'helpJoystick', descKey: 'helpJoystickDesc' },
+        ];
+
+        const helpPanel = document.getElementById('help-panel');
+        if (helpPanel) {
+          const helpTitle = helpPanel.querySelector('h4');
+          if (helpTitle) helpTitle.textContent = t('helpTitle');
+
+          const items = helpPanel.querySelectorAll('.help-item');
+          items.forEach((item, i) => {
+            if (helpItems[i]) {
+              const textDiv = item.querySelector('div:last-child');
+              if (textDiv) {
+                const extra = helpItems[i].extra || '';
+                textDiv.innerHTML = `<b>${t(helpItems[i].key)}</b> - ${t(helpItems[i].descKey)}${extra}`;
+              }
+            }
+          });
+        }
+      }
+
+      // 初始化语言
+      currentLang = getCurrentLang();
 
       // ╔════════════════════════════════════════════════════════════════════════╗
       // ║                     🛠️ 工具函数                                          ║
@@ -2238,7 +2633,7 @@
       // --- 2. 加载模型逻辑 ---
       async function loadModel(url) {
         emptyState.style.display = "none";
-        showLoading("Loading Scene...");
+        showLoading(t('loadingScene'));
         updateProgress(0, true); // 强制重置进度
         if (window.hideParticles) hideParticles(); // 隐藏粒子背景
 
@@ -2276,7 +2671,7 @@
         } catch (e) {
           hideLoading();
           console.error("Viewer Error:", e);
-          alert("Viewer Error: " + e.message);
+          alert(t('viewerError') + ": " + e.message);
         }
       }
 
@@ -2322,7 +2717,8 @@
           renderGallery(items);
           log(`Gallery loaded with ${items.length} items.`, "success");
 
-          // App is ready
+          // App is ready - apply language and hide boot screen
+          applyLanguage();
           if (document.getElementById("boot-screen")) {
             setTimeout(() => {
               document.getElementById("boot-screen").style.display = "none";
@@ -2348,11 +2744,11 @@
                     <img src="${thumbSrc}" class="thumb" loading="lazy" onerror="this.style.background='#eee'">
                     <div class="item-info">
                         <div class="item-name">${item.name}</div>
-                        <div class="item-date">${sizeText || "Ready"}</div>
+                        <div class="item-date">${sizeText || t('ready')}</div>
                     </div>
                     ${
                       item.image_url
-                        ? `<button class="btn-preview" title="View Original" onclick="event.stopPropagation(); previewImage('${item.image_url}')">
+                        ? `<button class="btn-preview" title="${t('viewOriginal')}" onclick="event.stopPropagation(); previewImage('${item.image_url}')">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
@@ -2360,14 +2756,14 @@
                     </button>`
                         : ""
                     }
-                    <button class="btn-download" title="Download" onclick="event.stopPropagation(); downloadModel('${
+                    <button class="btn-download" title="${t('download')}" onclick="event.stopPropagation(); downloadModel('${
                       item.id
                     }')">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                         </svg>
                     </button>
-                    <button class="btn-delete" title="Delete" onclick="event.stopPropagation(); deleteItem('${
+                    <button class="btn-delete" title="${t('delete')}" onclick="event.stopPropagation(); deleteItem('${
                       item.id
                     }')">
                         <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2406,7 +2802,7 @@
 
       // 删除功能 (带动画)
       window.deleteItem = async function (id) {
-        if (!confirm("Are you sure you want to delete this item?")) return;
+        if (!confirm(t('confirmDeleteFull'))) return;
 
         // 找到对应的 gallery-item 并添加删除动画
         const itemEl = document.querySelector(
@@ -2425,11 +2821,11 @@
               refreshGallery();
             } else {
               if (itemEl) itemEl.classList.remove("deleting");
-              alert("Delete failed: " + data.error);
+              alert(t('deleteFailed') + ": " + data.error);
             }
           } catch (e) {
             if (itemEl) itemEl.classList.remove("deleting");
-            alert("Error deleting item: " + e.message);
+            alert(t('errorDeleting') + ": " + e.message);
           }
         }, 300); // 等待动画时间
       };
@@ -2451,7 +2847,7 @@
                     <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                     </svg>
-                    Exit
+                    <span data-i18n="exitFullscreen">${t('exitFullscreen')}</span>
                 `;
         } else {
           // 退出全屏
@@ -2465,7 +2861,7 @@
                     <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                     </svg>
-                    Fullscreen
+                    <span data-i18n="fullscreen">${t('fullscreen')}</span>
                 `;
         }
       };
@@ -2480,7 +2876,7 @@
                         <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                         </svg>
-                        Fullscreen
+                        <span data-i18n="fullscreen">${t('fullscreen')}</span>
                     `;
           }
         }
@@ -2492,11 +2888,11 @@
       // 导出分享 HTML
       window.exportModel = async function () {
         if (!currentModelId) {
-          alert("请先选择一个模型");
+          alert(t('selectModelFirst'));
           return;
         }
 
-        showLoading("Preparing export...");
+        showLoading(t('preparingExport'));
         updateProgress(0, true); // 重置进度条
 
         // 模拟进度 (后端转换和压缩需要时间)
@@ -2509,13 +2905,13 @@
           // 更新提示文字
           if (progress < 20) {
             document.getElementById("loading-text").textContent =
-              "Converting model format...";
+              t('convertingModel');
           } else if (progress < 60) {
             document.getElementById("loading-text").textContent =
-              "Optimizing data...";
+              t('optimizingData');
           } else {
             document.getElementById("loading-text").textContent =
-              "Generating HTML...";
+              t('generatingHtml');
           }
         }, 200);
 
@@ -2529,7 +2925,7 @@
 
           updateProgress(95);
           document.getElementById("loading-text").textContent =
-            "Downloading...";
+            t('downloading');
 
           const blob = await response.blob();
           const url = URL.createObjectURL(blob);
@@ -2548,7 +2944,7 @@
         } catch (e) {
           clearInterval(progressInterval);
           hideLoading();
-          alert("导出失败: " + e.message);
+          alert(t('exportFailed') + ": " + e.message);
         }
       };
 
@@ -2566,7 +2962,7 @@
         }
 
         if (!hasFiles) {
-          alert("Please select image files.");
+          alert(t('selectImageFiles'));
           return;
         }
 
@@ -2581,10 +2977,10 @@
             // 开始轮询
             startPolling();
           } else {
-            alert("Upload Failed: " + data.error);
+            alert(t('uploadFailed') + ": " + data.error);
           }
         } catch (err) {
-          alert("Network Error: " + err.message);
+          alert(t('uploadFailed') + ": " + err.message);
         }
       }
 
@@ -2708,13 +3104,24 @@
             statusColor = "#dc3545";
           }
 
+          // 构建进度条 HTML（仅 processing 状态）
+          const progressBar = task.status === 'processing' && task.progress !== undefined
+            ? `<div class="queue-progress">
+                 <div class="queue-progress-bar" style="width: ${task.progress}%"></div>
+               </div>
+               <div class="queue-progress-text">${task.progress}%</div>`
+            : '';
+
           div.innerHTML = `
                     <div class="queue-status-icon" style="color: ${statusColor}">${icon}</div>
-                    <div style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${
-                      task.filename
-                    }</div>
+                    <div class="queue-item-content">
+                      <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${
+                        task.filename
+                      }</div>
+                      ${progressBar}
+                    </div>
                     <div style="font-size:10px; color:#888; text-transform:capitalize;">${
-                      task.status
+                      task.status === 'processing' && task.stage ? task.stage : task.status
                     }</div>
                     ${
                       task.status === "pending"

@@ -98,6 +98,7 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 - **🧹 Auto Cleanup** - Completed tasks auto-cleaned after 1 hour
 - **⚙️ Configurable Paths** - Custom workspace folder
 - **🖥️ Fullscreen Mode** - Immersive 3D preview
+- **🌐 Internationalization** - Chinese/English bilingual UI, auto-detects browser language, manual toggle
 
 ---
 
