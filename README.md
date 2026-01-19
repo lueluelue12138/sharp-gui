@@ -13,7 +13,7 @@
 
 iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅限于苹果生态。
 
-作为一个 Web 技术爱好者，我开发了 Sharp GUI，旨在通过浏览器打破设备界限。无论你使用 Android、Windows 还是 VR 设备，都能在局域网内轻松生成并分享你的 3D 空间记忆。这是一个探索性的开源项目，希望能为你带来乐趣。
+作为一个 Web 技术爱好者，我开发了 Sharp GUI，旨在通过浏览器打破设备界限。无论你使用 Android、Windows 还是 Mac 设备，都能 **[一键部署](#-快速开始)**，并在局域网内轻松生成并分享你的 3D 空间记忆。这是一个探索性的开源项目，希望能为你带来乐趣。
 
 <br>
 
@@ -32,7 +32,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 </div>
 
-> [!WARNING] 
+> [!WARNING]
 > **本地部署无内容限制** - 模型完全在本地生成，内容由用户自行负责，请遵守法律法规。详见 [免责声明](#%EF%B8%8F-免责声明)。
 >
 > **No content restrictions for local deployment** - Users are responsible for generated content. See [Disclaimer](#%EF%B8%8F-免责声明).
@@ -55,6 +55,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | **📤 零门槛分享**   | 一键导出为独立 HTML 文件，将你的空间记忆打包发给朋友，双击即看                                         |
 | **🔐 安全与隐私**   | 数据完全本地化，支持一键生成 SSL 证书，保障局域网传输安全                                              |
 | **📱 移动端优化**   | 完美适配手机/平板，支持陀螺仪体感控制                                                                  |
+| **🚀 一键部署运行** | 自动配置 Python 环境、下载依赖、生成 HTTPS 证书，开箱即用                                              |
 
 ### 🎨 Apple 风格界面设计
 
@@ -126,40 +127,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 ### 功能演示
 
-<details>
-<summary><b>🎬 批量上传 + 队列处理</b></summary>
-
-<p align="center">
-  <img src="docs/images/demo-upload.gif" width="600" alt="批量上传演示">
-</p>
-
-<p align="center"><i>拖拽多张图片到侧边栏，队列实时更新处理进度</i></p>
-
-</details>
-
-<details>
-<summary><b>🎬 3D 模型交互预览</b></summary>
-
-<p align="center">
-  <img src="docs/images/demo-preview.gif" width="600" alt="3D预览演示">
-</p>
-
-<p align="center"><i>鼠标拖拽旋转、滚轮缩放、Reset 按钮动画重置</i></p>
-
-</details>
-
-<details>
-<summary><b>🎬 陀螺仪体感控制 (移动端)</b></summary>
-
-<p align="center">
-  <img src="docs/images/demo-gyro.gif" height="400" alt="陀螺仪演示">
-</p>
-
-<p align="center"><i>倾斜手机控制视角，iOS 风格实时指示球反馈</i></p>
-
-</details>
-
-<details>
+<!-- <details> -->
 <summary><b>🎬 相机移动控制</b></summary>
 
 <p align="center">
@@ -171,9 +139,31 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
   <i>左：WASD/QE 键盘移动 (Shift精细) | 右：移动端虚拟摇杆</i>
 </p>
 
-</details>
+<!-- </details> -->
 
-<details>
+<!-- <details> -->
+<summary><b>🎬 批量上传 + 队列处理</b></summary>
+
+<p align="center">
+  <img src="docs/images/demo-upload.gif" width="600" alt="批量上传演示">
+</p>
+
+<p align="center"><i>拖拽多张图片到侧边栏，队列实时更新处理进度</i></p>
+
+<!-- </details> -->
+
+<!-- <details> -->
+<summary><b>🎬 陀螺仪体感控制 (移动端)</b></summary>
+
+<p align="center">
+  <img src="docs/images/demo-gyro.gif" height="400" alt="陀螺仪演示">
+</p>
+
+<p align="center"><i>倾斜手机控制视角，iOS 风格实时指示球反馈</i></p>
+
+<!-- </details> -->
+
+<!-- <details> -->
 <summary><b>🎬 一键导出分享</b></summary>
 
 <p align="center">
@@ -182,7 +172,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 <p align="center"><i>点击 Share 导出独立 HTML，双击即可在任何浏览器打开</i></p>
 
-</details>
+<!-- </details> -->
 
 ---
 

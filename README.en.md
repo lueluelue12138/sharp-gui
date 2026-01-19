@@ -14,7 +14,7 @@
 
 The "Spatial Photos" feature in iOS 26 offers an amazing immersive experience, but is currently limited to the Apple ecosystem.
 
-As a Web enthusiast, I built Sharp GUI to bridge this gap. My goal is to let anyone—whether on Android, Windows, or VR—create and share 3D spatial memories directly via a browser on their local network. This is a hobbyist exploration, built for everyone to enjoy.
+As a Web enthusiast, I built Sharp GUI to bridge this gap. My goal is to let anyone—whether on Android, Windows, or Mac—**[deploy with one click](#-quick-start)** and create and share 3D spatial memories directly via a browser on their local network. This is a hobbyist exploration, built for everyone to enjoy.
 
 <br>
 
@@ -33,7 +33,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 </div>
 
-> [!WARNING] 
+> [!WARNING]
 > **No content restrictions for local deployment** - Users are fully responsible for generated content. Please comply with local laws and regulations. See [Disclaimer](#⚠️-disclaimer).
 
 ---
@@ -46,13 +46,14 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 
 ### 🚀 Core Features
 
-| Feature                  | Description                                                  |
-| ------------------------ | ------------------------------------------------------------ |
-| **📸 Image to 3D**       | Upload any image, AI generates 3D Gaussian Splatting model   |
-| **🖼️ Batch Processing**  | Multi-select/drag-drop upload with smart queue scheduling    |
-| **👁️ Real-time Preview** | High-performance viewer with Three.js + Gaussian Splats 3D   |
-| **📤 One-Click Share**   | Export as standalone HTML, viewable without server           |
-| **📱 Mobile Optimized**  | Perfect adaptation for phones/tablets with gyroscope support |
+| Feature                  | Description                                                       |
+| ------------------------ | ----------------------------------------------------------------- |
+| **📸 Image to 3D**       | Upload any image, AI generates 3D Gaussian Splatting model        |
+| **🖼️ Batch Processing**  | Multi-select/drag-drop upload with smart queue scheduling         |
+| **👁️ Real-time Preview** | High-performance viewer with Three.js + Gaussian Splats 3D        |
+| **📤 One-Click Share**   | Export as standalone HTML, viewable without server                |
+| **📱 Mobile Optimized**  | Perfect adaptation for phones/tablets with gyroscope support      |
+| **🚀 One-Click Deploy**  | Auto-configures Python env, downloads deps, generates HTTPS certs |
 
 ### 🎨 Apple-Style UI Design
 
@@ -123,7 +124,21 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 
 ### Feature Demos
 
-<details>
+<!-- <details> -->
+<summary><b>🎬 Camera Movement Controls</b></summary>
+
+<p align="center">
+  <img src="docs/images/demo-wasd.gif" height="300" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/demo-joystick.gif" height="300" alt="Virtual Joystick">
+</p>
+
+<p align="center">
+  <i>Left: WASD/QE keyboard movement (Shift for precision) | Right: Mobile virtual joystick</i>
+</p>
+
+<!-- </details> -->
+
+<!-- <details> -->
 <summary><b>🎬 Batch Upload + Queue Processing</b></summary>
 
 <p align="center">
@@ -132,20 +147,9 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 
 <p align="center"><i>Drag multiple images to sidebar, queue updates in real-time</i></p>
 
-</details>
+<!-- </details> -->
 
-<details>
-<summary><b>🎬 3D Model Interactive Preview</b></summary>
-
-<p align="center">
-  <img src="docs/images/demo-preview.gif" width="600" alt="Preview Demo">
-</p>
-
-<p align="center"><i>Mouse drag to rotate, scroll to zoom, animated reset</i></p>
-
-</details>
-
-<details>
+<!-- <details> -->
 <summary><b>🎬 Gyroscope Control (Mobile)</b></summary>
 
 <p align="center">
@@ -154,23 +158,9 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 
 <p align="center"><i>Tilt phone to control view, iOS-style real-time indicator ball</i></p>
 
-</details>
+<!-- </details> -->
 
-<details>
-<summary><b>🎬 Camera Movement Controls</b></summary>
-
-<p align="center">
-  <img src="docs/images/demo-wasd.gif" height="400" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/demo-joystick.gif" height="400" alt="Virtual Joystick">
-</p>
-
-<p align="center">
-  <i>Left: WASD/QE keyboard movement (Shift for precision) | Right: Mobile virtual joystick</i>
-</p>
-
-</details>
-
-<details>
+<!-- <details> -->
 <summary><b>🎬 One-Click Export & Share</b></summary>
 
 <p align="center">
@@ -179,7 +169,7 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 
 <p align="center"><i>Click Share to export standalone HTML, double-click to open in any browser</i></p>
 
-</details>
+<!-- </details> -->
 
 ---
 
