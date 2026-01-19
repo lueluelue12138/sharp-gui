@@ -38,15 +38,17 @@ echo "  Sharp GUI 启动中..."
 echo "========================================"
 echo ""
 
-# 获取本机局域网 IP (跨平台: 使用 Python getaddrinfo)
-LOCAL_IP=$(python3 -c "
-import socket
-try:
-    ips = list(set(ip[4][0] for ip in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)))
-    result = next((ip for ip in ips if ip.startswith('192.168.') or ip.startswith('10.') or (ip.startswith('172.') and 16 <= int(ip.split('.')[1]) <= 31 and not ip.startswith('172.17.'))), None)
-    print(result or next((ip for ip in ips if not ip.startswith('127.')), '127.0.0.1'))
-except: print('127.0.0.1')
-" 2>/dev/null || echo "127.0.0.1")
+# 获取本机局域网 IP (简洁版)
+if [[ "$OSTYPE" == "darwin"* ]]; then
+    # macOS: 优先 en0/en1，回退到 ifconfig 解析
+    LOCAL_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || \
+               ifconfig 2>/dev/null | grep "inet " | grep -v 127.0.0.1 | awk '{print $2}' | head -1 || \
+               echo "127.0.0.1")
+else
+    # Linux: hostname -I 返回所有非回环 IP，取第一个私有 IP
+    LOCAL_IP=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E '^(192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.)' | head -1)
+    LOCAL_IP=${LOCAL_IP:-127.0.0.1}
+fi
 
 # 检查 HTTPS 证书状态并显示访问地址
 echo ""
