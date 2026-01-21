@@ -777,6 +777,7 @@
       #main-content {
         flex: 1;
         position: relative;
+        overflow: hidden; /* 防止全屏退出后 canvas 超出 */
         background-image: radial-gradient(
             at 0% 0%,
             rgba(200, 200, 250, 0.3) 0px,
@@ -811,6 +812,7 @@
         height: 100%;
         position: relative;
         z-index: 10;
+        overflow: hidden; /* 防止全屏退出后 canvas 超出 */
       }
 
       /* 空状态 */
@@ -951,18 +953,22 @@
 
       .tooltip {
         position: fixed;
-        bottom: 100px;
+        bottom: 140px; /* 上移避免与控制栏和箭头重叠 */
         left: calc(50% + var(--sidebar-width) / 2);
         transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.7);
-        color: white;
-        padding: 8px 16px;
-        border-radius: var(--radius-xl);
-        font-size: 13px;
+        /* 与控制栏 glass-panel 完全一致的样式 */
+        background: var(--glass-bg);
+        backdrop-filter: var(--glass-blur);
+        -webkit-backdrop-filter: var(--glass-blur);
+        border: 1px solid var(--glass-border);
+        box-shadow: var(--glass-shadow);
+        color: #444;
+        padding: 10px 20px;
+        border-radius: var(--radius-2xl);
+        font-size: 14px;
         font-weight: 500;
-        backdrop-filter: blur(10px);
         opacity: 0;
-        transition: opacity 0.3s;
+        transition: opacity 0.3s, transform 0.3s;
         pointer-events: none;
         z-index: 100;
       }
@@ -1831,6 +1837,14 @@
           </div>
           <div><b>虚拟摇杆</b> - 移动端触摸平移 (Move按钮)</div>
         </div>
+        <div class="help-item">
+          <div class="help-icon">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div data-i18n-html="helpSpeedMode"><b>Shift</b> 加速 / <b>Alt</b> 精细 - 控制移动和缩放速度</div>
+        </div>
       </div>
 
       <!-- 底部控制栏容器 -->
@@ -2080,6 +2094,7 @@
           helpShiftScrollDesc: "Precision zoom",
           helpJoystick: "Virtual Joystick",
           helpJoystickDesc: "Mobile touch pan (Move btn)",
+          helpSpeedMode: "<b>Shift</b> Speed Up / <b>Alt</b> Precision - Control move & zoom speed",
           
           // 提示
           zoomTooltip: "Hold Shift + Scroll for Precision Zoom",
@@ -2172,7 +2187,7 @@
           helpScrollDesc: "放大缩小",
           helpGyro: "Gyro 模式",
           helpGyroDesc: "开启后倾斜手机预览",
-          helpFrontView: "Front View",
+          helpFrontView: "正面视角",
           helpFrontViewDesc: "限制为正面视角",
           helpWASD: "WASD/QE",
           helpWASDDesc: "键盘平移相机 (Shift精细)",
@@ -2180,6 +2195,7 @@
           helpShiftScrollDesc: "精细缩放控制",
           helpJoystick: "虚拟摇杆",
           helpJoystickDesc: "移动端触摸平移 (Move按钮)",
+          helpSpeedMode: "<b>Shift</b> 加速 / <b>Alt</b> 精细 - 控制移动和缩放速度",
           
           // 提示
           zoomTooltip: "按住 Shift + 滚轮可精细缩放",
@@ -2407,10 +2423,24 @@
         rotateSpeed: 1.0, // 旋转速度 (1.0 = 默认，越大越快)
         panSpeed: 1.0, // 平移速度 (1.0 = 默认)
         zoomSpeed: 1.0, // 缩放速度 (1.0 = 默认，scroll wheel)
-        keyPanSpeed: 7.0, // 键盘平移速度 (像素/按键)
+        keyPanSpeed: 10.0, // 键盘平移速度 (像素/按键)
 
-        // Shift 键精细控制模式
-        precisionZoomSpeed: 0.3, // 按住 Shift 时的缩放速度 (更精细)
+        // ─────────────────────────────────────────────────────────
+        // 🚀 Shift 键加速模式 (更快)
+        // ─────────────────────────────────────────────────────────
+        acceleratedZoomSpeed: 3.0, // 缩放加速 (滚轮)
+        acceleratedMoveSpeed: 0.15, // 键盘移动加速 (WASD)
+        
+        // ─────────────────────────────────────────────────────────
+        // 🔍 Alt/Option 键精细模式 (更慢)
+        // ─────────────────────────────────────────────────────────
+        precisionZoomSpeed: 0.3, // 缩放精细 (滚轮)
+        precisionMoveSpeed: 0.01, // 键盘移动精细 (WASD)
+        
+        // ─────────────────────────────────────────────────────────
+        // ⌨️ 键盘移动基础速度 (WASD)
+        // ─────────────────────────────────────────────────────────
+        keyboardMoveSpeed: 0.05, // 默认移动速度
 
         // ─────────────────────────────────────────────────────────
         // 📏 距离限制 (缩放范围)
@@ -2428,9 +2458,9 @@
           // 垂直旋转限制
           minPolar: Math.PI / 3, // 上边界: 60° (不能看太顶)
           maxPolar: (2 * Math.PI) / 3, // 下边界: 120° (不能看太底)
-          // 限制模式下的距离范围
-          minDist: 1.0,
-          maxDist: 8.0,
+          // 距离范围 (与自由模式一致，不做额外限制)
+          minDist: 0.1,
+          maxDist: 20,
         },
 
         // ─────────────────────────────────────────────────────────
@@ -2868,8 +2898,11 @@
       };
 
       // 监听全屏状态变化
-      document.addEventListener("fullscreenchange", () => {
-        if (!document.fullscreenElement) {
+      document.addEventListener("fullscreenchange", handleFullscreenChange);
+      document.addEventListener("webkitfullscreenchange", handleFullscreenChange);
+      
+      function handleFullscreenChange() {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
           const btn = document.getElementById("btn-fullscreen");
           if (btn) {
             btn.classList.remove("active");
@@ -2881,6 +2914,73 @@
                     `;
           }
         }
+        
+        // 修复：全屏切换后强制调整 viewer 大小
+        setTimeout(() => {
+          resizeViewer();
+          
+          // 如果 resize 无效，退出全屏时重新加载模型
+          if (!document.fullscreenElement && !document.webkitFullscreenElement && currentModelId) {
+            // 延迟执行，确保布局已更新
+            setTimeout(() => {
+              const container = document.getElementById("canvas-container");
+              const canvases = container ? container.querySelectorAll("canvas") : [];
+              // 检查 canvas 是否尺寸异常
+              if (canvases.length > 0) {
+                const canvas = canvases[0];
+                const containerWidth = container.clientWidth;
+                // 如果 canvas 宽度明显超出容器，重新加载
+                if (canvas.width > containerWidth * window.devicePixelRatio * 1.2) {
+                  console.log("🔄 Canvas size mismatch, reloading model...");
+                  const modelUrl = `/files/outputs/${currentModelId}.ply`;
+                  loadModel(modelUrl);
+                }
+              }
+            }, 200);
+          }
+        }, 150);
+      }
+      
+      // 强制调整 viewer canvas 尺寸
+      function resizeViewer() {
+        if (!viewer) return;
+        
+        const container = document.getElementById("canvas-container");
+        if (!container) return;
+        
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        
+        // 查找并调整所有 canvas 元素
+        const canvases = container.querySelectorAll("canvas");
+        canvases.forEach(canvas => {
+          canvas.width = width * window.devicePixelRatio;
+          canvas.height = height * window.devicePixelRatio;
+          canvas.style.width = width + "px";
+          canvas.style.height = height + "px";
+        });
+        
+        // 尝试调用 viewer 的渲染器 resize
+        if (viewer.renderer) {
+          viewer.renderer.setSize(width, height);
+        }
+        if (viewer.camera) {
+          viewer.camera.aspect = width / height;
+          viewer.camera.updateProjectionMatrix();
+        }
+      }
+      
+      // 防抖定时器
+      let resizeDebounceTimer = null;
+      
+      // 监听窗口大小变化（防抖，避免频繁调用）
+      window.addEventListener('resize', () => {
+        if (resizeDebounceTimer) clearTimeout(resizeDebounceTimer);
+        resizeDebounceTimer = setTimeout(() => {
+          if (viewer) {
+            resizeViewer();
+          }
+        }, 200);
       });
 
       // 当前选中的模型 ID
@@ -2967,6 +3067,9 @@
           return;
         }
 
+        // 显示上传中提示
+        showUploadingIndicator(files.length);
+
         try {
           const res = await fetch("/api/generate", {
             method: "POST",
@@ -2975,14 +3078,81 @@
           const data = await res.json();
 
           if (data.success) {
-            // 开始轮询
-            startPolling();
+            // 立即使用返回的任务数据渲染队列（不等待轮询）
+            if (data.tasks && data.tasks.length > 0) {
+              renderQueueImmediate(data.tasks);
+            }
+            // 强制立即刷新轮询（清除旧的定时器，立即执行）
+            forceRefreshQueue();
           } else {
+            hideUploadingIndicator();
             alert(t('uploadFailed') + ": " + data.error);
           }
         } catch (err) {
+          hideUploadingIndicator();
           alert(t('uploadFailed') + ": " + err.message);
         }
+      }
+
+      // 显示上传中提示
+      function showUploadingIndicator(count) {
+        queueContainer.style.display = "block";
+        // 添加临时的上传中项
+        const tempItem = document.createElement("div");
+        tempItem.className = "queue-item uploading-temp";
+        tempItem.innerHTML = `
+          <div class="queue-status-icon" style="color: #0071e3">
+            <svg class="spin" width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+          </div>
+          <div style="flex:1">Uploading ${count} file(s)...</div>
+        `;
+        queueList.insertBefore(tempItem, queueList.firstChild);
+      }
+
+      // 隐藏上传中提示
+      function hideUploadingIndicator() {
+        const tempItems = queueList.querySelectorAll('.uploading-temp');
+        tempItems.forEach(item => item.remove());
+      }
+
+      // 立即渲染新任务（不等待轮询）
+      function renderQueueImmediate(newTasks) {
+        hideUploadingIndicator();
+        // 确保队列容器可见
+        queueContainer.style.display = "block";
+        // 在队列顶部添加新任务
+        newTasks.forEach(task => {
+          const div = document.createElement("div");
+          div.className = "queue-item";
+          div.innerHTML = `
+            <div class="queue-status-icon" style="color: #f0ad4e">
+              <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
+            <div class="queue-item-content">
+              <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${task.filename}</div>
+            </div>
+            <div style="font-size:10px; color:#888;">pending</div>
+            <button class="queue-cancel-btn" onclick="cancelTask('${task.id}')" title="Cancel">
+              <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+          `;
+          queueList.insertBefore(div, queueList.firstChild);
+        });
+      }
+
+      // 强制刷新队列（立即执行轮询）
+      function forceRefreshQueue() {
+        if (pollTimeout) {
+          clearTimeout(pollTimeout);
+          pollTimeout = null;
+        }
+        pollTasks();
       }
 
       // 上传生成 (批量) - 文件选择
@@ -3056,20 +3226,28 @@
       }
 
       function renderQueue(tasks) {
-        // 过滤掉已经完成很久的任务 (可选优化，这里简单展示所有非完成或刚完成的任务)
-        // 简单策略：只展示 pending, processing, 和 failed。completed 展示一会后移除?
-        // 为了简单，我们展示所有 pending/processing，以及最近完成的
+        // 从 sessionStorage 恢复已处理的任务 ID
+        const storedIds = sessionStorage.getItem('processedTaskIds');
+        if (storedIds && processedTaskIds.size === 0) {
+          try {
+            JSON.parse(storedIds).forEach(id => processedTaskIds.add(id));
+          } catch (e) {}
+        }
 
+        // 过滤任务：只显示 pending, processing, failed
+        // completed 任务只在刚完成时短暂显示用于触发刷新，不在队列中持久显示
         const activeTasks = tasks.filter((t) => {
           if (t.status === "pending" || t.status === "processing") return true;
           if (t.status === "failed") return true;
-          // 如果是 completed，且还没被处理过(刷新图库)，则展示
+          // 如果是 completed，且还没被处理过(刷新图库)
           if (t.status === "completed" && !processedTaskIds.has(t.id)) {
             processedTaskIds.add(t.id);
+            // 保存到 sessionStorage
+            sessionStorage.setItem('processedTaskIds', JSON.stringify([...processedTaskIds]));
             refreshGallery(); // 触发图库刷新
-            return true; // 展示最后一次 "Done"
+            return false; // 不在队列中显示，直接隐藏
           }
-          return false; // 已经处理过的 completed 任务不再显示在队列中
+          return false;
         });
 
         if (activeTasks.length === 0) {
@@ -3249,13 +3427,8 @@
         d: false,
         q: false,
         e: false, // 上下移动
-        shift: false, // 精细模式
-      };
-
-      // WASD 移动速度配置
-      const KEYBOARD_CONFIG = {
-        moveSpeed: 0.05, // 基础移动速度
-        moveSpeedShift: 0.01, // Shift 精细模式速度
+        shift: false, // 加速模式
+        ctrl: false, // 精细模式 (Ctrl/Alt)
       };
 
       // 键盘移动动画循环
@@ -3278,9 +3451,13 @@
           keyState.e;
 
         if (hasMovement) {
-          const speed = keyState.shift
-            ? KEYBOARD_CONFIG.moveSpeedShift
-            : KEYBOARD_CONFIG.moveSpeed;
+          // 根据按键状态选择速度
+          let speed = CAMERA_CONFIG.keyboardMoveSpeed;
+          if (keyState.shift) {
+            speed = CAMERA_CONFIG.acceleratedMoveSpeed;
+          } else if (keyState.ctrl) {
+            speed = CAMERA_CONFIG.precisionMoveSpeed;
+          }
 
           // 获取相机方向向量（完整方向，包括上下）
           const forward = new THREE.Vector3();
@@ -3344,24 +3521,25 @@
           }
         }
 
-        // Shift 精细模式 (只在没有移动键时触发缩放提示)
+        // Shift 加速模式
         if (e.key === "Shift" && viewer) {
           keyState.shift = true;
-
-          // 如果没有按移动键，才显示精细缩放提示
-          const hasMovement =
-            keyState.w ||
-            keyState.a ||
-            keyState.s ||
-            keyState.d ||
-            keyState.q ||
-            keyState.e;
-          if (!hasMovement) {
-            const c = viewer.cameraControls || viewer.controls;
-            if (c) {
-              c.zoomSpeed = CAMERA_CONFIG.precisionZoomSpeed;
-              zoomTooltip.classList.add("show");
-            }
+          const c = viewer.cameraControls || viewer.controls;
+          if (c) {
+            c.zoomSpeed = CAMERA_CONFIG.acceleratedZoomSpeed;
+            zoomTooltip.textContent = "⚡ Fast Mode";
+            zoomTooltip.classList.add("show");
+          }
+        }
+        
+        // Alt 键精细模式 (所有平台统一使用 Alt/Option)
+        if (e.key === "Alt" && viewer) {
+          keyState.ctrl = true;
+          const c = viewer.cameraControls || viewer.controls;
+          if (c) {
+            c.zoomSpeed = CAMERA_CONFIG.precisionZoomSpeed;
+            zoomTooltip.textContent = "🔍 Precision Mode";
+            zoomTooltip.classList.add("show");
           }
         }
       });
@@ -3373,7 +3551,17 @@
         if (e.key === "Shift" && viewer) {
           keyState.shift = false;
           const c = viewer.cameraControls || viewer.controls;
-          if (c) {
+          if (c && !keyState.ctrl) {
+            c.zoomSpeed = CAMERA_CONFIG.zoomSpeed;
+            zoomTooltip.classList.remove("show");
+          }
+        }
+        
+        // Alt 释放
+        if (e.key === "Alt" && viewer) {
+          keyState.ctrl = false;
+          const c = viewer.cameraControls || viewer.controls;
+          if (c && !keyState.shift) {
             c.zoomSpeed = CAMERA_CONFIG.zoomSpeed;
             zoomTooltip.classList.remove("show");
           }
