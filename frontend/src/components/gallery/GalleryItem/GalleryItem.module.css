@@ -1,0 +1,112 @@
+.item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    transition: all var(--transition-slow);
+    background: transparent;
+    position: relative;
+}
+
+.item:hover {
+    background: rgba(255, 255, 255, 0.6);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+.item.active {
+    background: white;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+}
+
+/* Thumbnail */
+.thumb {
+    width: 40px;
+    height: 40px;
+    border-radius: var(--radius-sm);
+    object-fit: cover;
+    background: linear-gradient(90deg,
+            #f0f0f0 25%,
+            #e0e0e0 50%,
+            #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: skeleton-loading 1.5s infinite;
+    flex-shrink: 0;
+}
+
+.thumb[src]:not([src=""]) {
+    animation: none;
+    background: #eee;
+}
+
+@keyframes skeleton-loading {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+/* Info */
+.info {
+    flex: 1;
+    overflow: hidden;
+    max-width: calc(100% - 100px);
+}
+
+.name {
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.meta {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+/* Action buttons */
+.actionBtn {
+    width: 24px;
+    height: 24px;
+    border-radius: var(--radius-full);
+    background: rgba(0, 0, 0, 0.1);
+    color: var(--text-secondary);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-normal);
+    flex-shrink: 0;
+}
+
+.item:hover .actionBtn {
+    display: flex;
+}
+
+.actionBtn:hover {
+    background: #fff;
+    color: var(--text-secondary);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.deleteBtn:hover {
+    color: var(--danger-color);
+}
+
+/* Touch devices: always show buttons */
+@media (hover: none) {
+    .actionBtn {
+        display: flex;
+        background: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+    }
+
+    .info {
+        max-width: calc(100% - 130px);
+    }
+}

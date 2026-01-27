@@ -1,0 +1,63 @@
+/* Virtual Joystick */
+.joystickWrapper {
+    position: absolute;
+    bottom: 100px;
+    left: 60px;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    opacity: 0;
+    transform: scale(0.8);
+    transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+        transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), background 0.2s ease,
+        box-shadow 0.2s ease;
+    touch-action: none;
+    pointer-events: auto;
+}
+
+.joystickWrapper.visible {
+    display: flex;
+    opacity: 1;
+    transform: scale(1);
+}
+
+/* Active state background */
+.joystickWrapper.active {
+    background: rgba(255, 255, 255, 0.2);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.35);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12),
+        inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.stick {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15),
+        inset 0 1px 0 rgba(255, 255, 255, 0.5);
+    position: absolute;
+    pointer-events: none;
+    transition: transform 0.05s ease-out;
+    /* Small delay for smooth feel */
+}
+
+/* Mobile Adaptation */
+@media (max-width: 768px) {
+    .joystickWrapper {
+        bottom: 80px;
+        left: 40px;
+    }
+}

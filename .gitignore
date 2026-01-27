@@ -21,6 +21,7 @@ outputs/
 outputs*/
 inputsbak/
 outputsbak/
+tmp/
 
 # Thumbnails
 .thumbnails/

@@ -8,6 +8,8 @@
 
 **A Beautiful 3D Gaussian Splatting GUI**
 
+<img src="assets/logo.png" alt="Sharp GUI Logo" width="200" />
+
 <br>
 
 **💡 Background**
@@ -188,28 +190,54 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 
 ### System Requirements
 
-| Platform                  | Inference  | Video Rendering | Status       |
-| ------------------------- | ---------- | --------------- | ------------ |
-| **Linux x86_64 + NVIDIA** | ✅ CUDA    | ✅              | Full Support |
-| **Linux x86_64 no GPU**   | ✅ CPU     | ❌              | Supported    |
-| **macOS Apple Silicon**   | ✅ MPS     | ❌              | ✅ Verified  |
-| **macOS Intel**           | ✅ CPU     | ❌              | Supported    |
-| **Windows**               | ⚠️ Testing | ⚠️              | Partial      |
+| Platform                  | Inference     | Video Rendering | Status        |
+| ------------------------- | ------------- | --------------- | ------------- |
+| **macOS Apple Silicon**   | ✅ MPS        | ❌              | ✅ Verified   |
+| **Linux x86_64 no GPU**   | ✅ CPU        | ❌              | ✅ Verified   |
+| **Linux x86_64 + NVIDIA** | ✅ CUDA       | ✅              | ❓ Unverified |
+| **macOS Intel**           | ✅ CPU        | ❌              | ❓ Unverified |
+| **Windows**               | ❓ Unverified | ❓              | ❓ Unverified |
 
-> ⚠️ **Note**: One-click deployment is currently verified on **macOS** only.
-> For other platforms, please test and report issues on [GitHub Issues](https://github.com/lueluelue12138/sharp-gui/issues).
+> 📢 **No GPU? No problem!** 3D model generation works on pure CPU. Only video rendering requires CUDA.  
+> 👉 Unverified platforms should theoretically work. Report issues on [GitHub Issues](https://github.com/lueluelue12138/sharp-gui/issues).
 
-### One-Click Install
+### Option 1: Download Pre-built Package (Recommended for Users)
+
+Download the latest version from [Releases](https://github.com/lueluelue12138/sharp-gui/releases):
 
 ```bash
-# Clone project
-git clone https://github.com/lueluelue12138/sharp-gui.git
+# 1. Download and extract
+unzip sharp-gui-v1.0.0.zip
 cd sharp-gui
 
-# Run install script (auto-clones ml-sharp and configures environment)
+# 2. Run install script (Python only)
 ./install.sh      # Linux/macOS
 # or
 install.bat       # Windows
+
+# 3. Start server
+./run.sh          # Linux/macOS
+# or
+run.bat           # Windows
+```
+
+> 💡 Pre-built packages include compiled frontend, **no Node.js required**. Ready to use out of the box.  
+> ⚠️ Note: Pre-built packages are based on stable releases and may not include the latest development features.
+
+### Option 2: Install from Source (Developers / Latest Features)
+
+```bash
+# 1. Clone project
+git clone https://github.com/lueluelue12138/sharp-gui.git
+cd sharp-gui
+
+# 2. Run install script (auto-clones ml-sharp and configures environment)
+./install.sh      # Linux/macOS
+# or
+install.bat       # Windows
+
+# 3. (Optional) To modify frontend, install Node.js 18+ then run:
+./build.sh        # Build frontend
 ```
 
 > 💡 The install script auto-generates HTTPS certificates. HTTPS mode is recommended for full functionality.
@@ -217,7 +245,8 @@ install.bat       # Windows
 ### Start Server
 
 ```bash
-./run.sh          # Linux/macOS
+./run.sh          # Linux/macOS (React version)
+./run.sh --legacy # Use original single-file version
 # or
 run.bat           # Windows
 ```
@@ -297,38 +326,103 @@ First HTTPS access shows certificate warning (self-signed), click "Continue" to 
 
 ## 🏗️ Architecture
 
+### Project Structure
+
 ```
 sharp-gui/
 ├── 📄 app.py                 # Flask backend + task queue system
 ├── 📄 install.sh/bat         # One-click install scripts
-├── 📄 run.sh/bat             # Startup scripts
-├── 📄 generate_cert.py       # SSL certificate generator (cross-platform)
-├── 📁 templates/
-│   ├── index.html           # Main page (2600+ lines, single-file SPA)
-│   └── share_template.html  # Share page template (embedded 3D viewer)
-├── 📁 static/lib/           # Three.js + Gaussian Splats 3D
-├── 📁 ml-sharp/             # (after install) Apple ML-Sharp core
-├── 📁 inputs/               # Input images
-└── 📁 outputs/              # Output models (.ply)
+├── 📄 run.sh/bat             # Startup scripts (supports --legacy flag)
+├── 📄 build.sh/bat           # Frontend build scripts
+├── 📄 release.sh/bat         # Release packaging scripts
+├── 📄 generate_cert.py       # SSL certificate generator
+├── 📁 frontend/              # React modern frontend (v1.0.0+)
+├── 📁 templates/             # Original single-file frontend (Legacy)
+├── 📁 static/lib/            # Three.js + Gaussian Splats 3D
+├── 📁 ml-sharp/              # (after install) Apple ML-Sharp core
+├── 📁 inputs/                # Input images
+└── 📁 outputs/               # Output models (.ply)
+```
+
+### Frontend Architecture (React)
+
+```
+frontend/
+├── 📁 src/
+│   ├── 📁 api/               # API client (gallery, tasks, settings)
+│   ├── 📁 components/
+│   │   ├── 📁 common/        # Common components (Button, Modal, Loading, ParticleBackground)
+│   │   ├── 📁 gallery/       # Gallery components (GalleryList, GalleryItem)
+│   │   ├── 📁 layout/        # Layout components (Sidebar, ControlsBar, TaskQueue, Settings)
+│   │   └── 📁 viewer/        # Viewer components (ViewerCanvas, VirtualJoystick, GyroIndicator)
+│   ├── 📁 hooks/             # Custom Hooks (useViewer, useGyroscope, useKeyboard)
+│   ├── 📁 i18n/              # Internationalization (zh.json, en.json)
+│   ├── 📁 store/             # Zustand state management
+│   ├── 📁 styles/            # Global styles (variables, animations)
+│   ├── 📁 types/             # TypeScript type definitions
+│   └── 📁 utils/             # Utility functions
+├── 📄 vite.config.ts         # Vite config (code splitting)
+└── 📁 dist/                  # Build output
 ```
 
 ### Tech Stack
 
-| Layer         | Technology                                                         |
-| ------------- | ------------------------------------------------------------------ |
-| **Frontend**  | Native HTML/CSS/JS, Three.js, Gaussian Splats 3D, Canvas particles |
-| **Styling**   | Apple Glass Morphism, SF Pro font stack, CSS variables             |
-| **Backend**   | Python 3.10+, Flask, multi-threaded task queue                     |
-| **AI Engine** | Apple ML-Sharp (PyTorch, gsplat)                                   |
-| **3D Format** | PLY (original), Splat (optimized export)                           |
+| Layer            | Technology                                          |
+| ---------------- | --------------------------------------------------- |
+| **Frontend**     | React 19 + TypeScript + Vite / Single-file (Legacy) |
+| **State**        | Zustand                                             |
+| **i18n**         | i18next + react-i18next                             |
+| **Styling**      | CSS Modules + Apple Glass Morphism                  |
+| **Backend**      | Python 3.10+, Flask, multi-threaded task queue      |
+| **AI Engine**    | Apple ML-Sharp (PyTorch, gsplat)                    |
+| **3D Rendering** | Three.js + Gaussian Splats 3D                       |
 
 ### Performance Optimizations
 
-- **Thumbnail System** - Auto-generated 200px JPEG thumbnails to save bandwidth
-- **Smart Polling** - Dynamic polling interval based on task status (2s ↔ 10s)
-- **Splat Conversion** - Export converts PLY (56 bytes/point) to Splat (32 bytes/point)
-- **Progress Optimization** - Progress only increases, no jumping back
-- **Auto Memory Cleanup** - Completed tasks removed from memory after 1 hour
+| Optimization              | Description                                                                      |
+| ------------------------- | -------------------------------------------------------------------------------- |
+| **Code Splitting**        | Vite manualChunks: three.js (489KB), gaussian-splats (249KB), react-vendor (4KB) |
+| **Thumbnail System**      | Auto-generated 200px JPEG thumbnails, saves bandwidth                            |
+| **Smart Polling**         | Active 2s polling, idle 10s, saves resources                                     |
+| **Format Conversion**     | PLY → Splat export conversion, 43% smaller file size                             |
+| **Memory Cleanup**        | Completed tasks auto-removed from memory after 1 hour                            |
+| **Progress Optimization** | Progress bar only moves forward, no visual jumping                               |
+
+---
+
+## 🛠️ Developer Guide
+
+### Frontend Development
+
+```bash
+# Install dependencies
+cd frontend
+npm install
+
+# Development mode (hot reload)
+npm run dev
+
+# Build for production
+npm run build
+# Or use project script
+./build.sh
+```
+
+### Switch Frontend Version
+
+```bash
+./run.sh           # Use React modern version (default)
+./run.sh --legacy  # Use original single-file version
+```
+
+### Create Release Package
+
+```bash
+# Auto build and package
+./release.sh v1.0.0
+
+# Output: sharp-gui-v1.0.0.zip (includes pre-built frontend)
+```
 
 ---
 

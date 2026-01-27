@@ -1,0 +1,197 @@
+/* Controls Wrapper - Centered at bottom */
+.controlsWrapper {
+    position: absolute;
+    bottom: 40px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+    z-index: 100;
+    /* Increased to ensure visibility */
+    pointer-events: none;
+    /* Let clicks pass through wrapper areas */
+}
+
+/* Controls Container pointer events */
+.controlsContainer {
+    transition: opacity 0.3s ease;
+    pointer-events: auto;
+}
+
+.controlsWrapper.collapsed {
+    transform: translateX(-50%) translateY(calc(100% - 28px));
+}
+
+.controlsWrapper.collapsed .controlsContainer {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.controlsWrapper.collapsed .collapseArrow svg {
+    transform: rotate(180deg);
+}
+
+/* Collapse Arrow - floating above controls */
+.collapseArrow {
+    order: -1;
+    width: 36px;
+    height: 20px;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all var(--transition-slow);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    pointer-events: auto;
+    /* Re-enable clicks */
+}
+
+.collapseArrow:hover {
+    background: rgba(255, 255, 255, 0.8);
+}
+
+.collapseArrow svg {
+    width: 14px;
+    height: 14px;
+    color: var(--text-secondary);
+    transition: transform 0.3s ease;
+}
+
+/* Controls Container & Glass Panel */
+.controlsContainer {
+    transition: opacity 0.3s ease;
+}
+
+.glassPanel {
+    background: var(--glass-bg, rgba(255, 255, 255, 0.65));
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.6));
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--glass-shadow, 0 8px 32px 0 rgba(31, 38, 135, 0.07));
+    padding: 8px;
+    display: flex;
+    gap: 8px;
+}
+
+/* Control Buttons */
+.controlBtn {
+    background: transparent;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 18px;
+    font-size: 14px;
+    font-weight: 500;
+    color: #444;
+    cursor: pointer;
+    transition: all var(--transition-normal);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+}
+
+.controlBtn svg {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+.controlBtn:hover {
+    background: rgba(255, 255, 255, 0.5);
+    color: black;
+}
+
+.controlBtn.active {
+    background: white;
+    color: var(--accent-blue);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+}
+
+/* Gyro Button - Hidden on PC/Mouse, Shown on Touch/Mobile */
+.gyroBtn {
+    display: none !important;
+    /* Force hide on PC */
+}
+
+/* Joystick Button - Hidden on PC/Mouse, Shown on Touch/Mobile */
+.joystickBtn {
+    display: none !important;
+}
+
+@media (pointer: coarse) {
+    .gyroBtn {
+        display: flex !important;
+    }
+
+    .joystickBtn {
+        display: flex !important;
+    }
+}
+
+/* Tooltip */
+.tooltip {
+    position: fixed;
+    bottom: 140px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--glass-bg, rgba(255, 255, 255, 0.65));
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid var(--glass-border, rgba(255, 255, 255, 0.6));
+    box-shadow: var(--glass-shadow);
+    color: #444;
+    padding: 10px 20px;
+    border-radius: var(--radius-2xl);
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+    z-index: 100;
+}
+
+.tooltip.visible {
+    opacity: 1;
+}
+
+/* Mobile Adaptation */
+@media (max-width: 768px) {
+    .controlsWrapper {
+        bottom: 30px;
+        width: 90%;
+        max-width: 100%;
+    }
+
+    .controlsWrapper.collapsed {
+        transform: translateX(-50%) translateY(calc(100% - 28px));
+    }
+}
+
+@media (pointer: coarse) {
+    .glassPanel {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        max-width: calc(100vw - 40px);
+    }
+
+    .glassPanel::-webkit-scrollbar {
+        display: none;
+    }
+
+    .controlBtn {
+        padding: 8px 12px;
+        font-size: 12px;
+        flex-shrink: 0;
+    }
+}

@@ -1,0 +1,38 @@
+/* Speed Mode Tooltip */
+.tooltip {
+    position: fixed;
+    bottom: 140px;
+    /* Account for sidebar offset - center in viewer area */
+    left: calc(50% + var(--sidebar-width, 280px) / 2);
+    transform: translateX(-50%) translateY(10px);
+    background: rgba(245, 245, 247, 0.85);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    color: #444;
+    padding: 10px 20px;
+    border-radius: 999px;
+    font-size: 14px;
+    font-weight: 500;
+    opacity: 0;
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
+    z-index: 100;
+    white-space: nowrap;
+}
+
+.tooltip.visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+/* Mobile - no sidebar offset needed */
+@media (max-width: 768px) {
+    .tooltip {
+        left: 50%;
+        bottom: 100px;
+        font-size: 12px;
+        padding: 8px 16px;
+    }
+}

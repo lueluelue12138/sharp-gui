@@ -1,0 +1,52 @@
+/* ========================================
+   Sharp-GUI Design System - CSS Variables
+   Migrated from original index.html
+   ======================================== */
+
+:root {
+  /* === 色彩系统 === */
+  --bg-color: #f5f5f7;
+  --text-primary: #1d1d1f;
+  --text-secondary: #666;
+  --text-muted: #888;
+  --accent-blue: #0071e3;
+  --accent-blue-hover: #0077ed;
+  --success-color: #34c759;
+  --warning-color: #f0ad4e;
+  --danger-color: #dc3545;
+  --error-color: #ff3b30;
+
+  /* === 间距系统 === */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 20px;
+  --space-2xl: 24px;
+
+  /* === 圆角系统 === */
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-2xl: 24px;
+  --radius-full: 50%;
+
+  /* === 过渡动画 === */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+  --transition-slow: 0.3s ease;
+  --transition-bounce: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* === 毛玻璃效果 === */
+  --glass-bg: rgba(255, 255, 255, 0.65);
+  --glass-bg-light: rgba(255, 255, 255, 0.5);
+  --glass-border: rgba(255, 255, 255, 0.6);
+  --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+  --glass-blur: blur(30px) saturate(180%);
+
+  /* === 布局 === */
+  --sidebar-width: 280px;
+  --controls-height: 60px;
+}

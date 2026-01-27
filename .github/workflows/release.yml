@@ -1,0 +1,86 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*" # 当推送 v 开头的 tag 时触发
+
+# 授予 GITHUB_TOKEN 写权限，用于创建 Release
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. 检出代码
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. 安装 Node.js
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      # 3. 构建前端
+      - name: Build Frontend
+        run: |
+          cd frontend
+          npm ci
+          npm run build
+
+      # 4. 创建发布包
+      - name: Create Release Archive
+        run: |
+          VERSION=${{ github.ref_name }}
+
+          # 创建干净的发布目录
+          mkdir -p release-build
+
+          # 复制核心文件
+          cp app.py generate_cert.py release-build/
+          cp install.sh install.bat run.sh run.bat build.sh build.bat release-build/
+          cp README.md README.en.md LICENSE release-build/ 2>/dev/null || true
+
+          # 复制目录
+          cp -r templates static release-build/
+          cp -r frontend release-build/
+
+          # 清理不需要的文件
+          rm -rf release-build/frontend/node_modules
+          rm -rf release-build/frontend/.vite
+          rm -rf release-build/frontend/src  # 普通用户不需要源码
+
+          # 创建 zip
+          cd release-build
+          zip -r ../sharp-gui-${VERSION}.zip .
+
+          echo "Created: sharp-gui-${VERSION}.zip"
+          ls -lh ../sharp-gui-${VERSION}.zip
+
+      # 5. 上传到 Release
+      - name: Upload Release Asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: sharp-gui-*.zip
+          generate_release_notes: true
+          body: |
+            ## 📦 快速使用 (Quick Start)
+
+            1. 下载 `sharp-gui-${{ github.ref_name }}.zip`
+            2. 解压后运行安装脚本:
+               - **Linux/macOS**: `./install.sh && ./run.sh`
+               - **Windows**: `install.bat` 然后 `run.bat`
+            3. 浏览器访问 `https://127.0.0.1:5050`
+
+            📖 **详细教程 (中文)**: [查看 README](https://github.com/${{ github.repository }})
+
+            📖 **English Guide**: [View README](https://github.com/${{ github.repository }}/blob/main/README.en.md)
+
+            ---
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,130 @@
+/* ========================================
+   Sharp-GUI Global Styles
+   Migrated from original index.html
+   ======================================== */
+
+@import './variables.css';
+@import './animations.css';
+
+/* === 重置样式 === */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+/* === 基础样式 === */
+html {
+    font-size: 16px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+    margin: 0;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    display: flex;
+    height: 100vh;
+}
+
+#root {
+    width: 100%;
+    height: 100%;
+    display: flex;
+}
+
+/* === 滚动条样式 === */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+}
+
+/* === 选中文本样式 === */
+::selection {
+    background: rgba(0, 113, 227, 0.2);
+    color: inherit;
+}
+
+/* === 焦点样式 === */
+:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
+}
+
+/* === 按钮重置 === */
+button {
+    font-family: inherit;
+    cursor: pointer;
+    border: none;
+    background: none;
+}
+
+button:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+}
+
+/* === 输入框重置 === */
+input {
+    font-family: inherit;
+    border: none;
+    background: none;
+}
+
+input:focus {
+    outline: none;
+}
+
+/* === 图片重置 === */
+img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* === 链接重置 === */
+a {
+    color: inherit;
+    text-decoration: none;
+}
+
+/* === 工具类 === */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+/* === 毛玻璃面板基础类 === */
+.glass-panel {
+    background: var(--glass-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-2xl);
+    box-shadow: var(--glass-shadow);
+}

@@ -1,0 +1,117 @@
+.helpBtn {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    width: 32px;
+    height: 32px;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    z-index: 30;
+    color: #555;
+    padding: 0;
+}
+
+.helpBtn:hover {
+    background: rgba(255, 255, 255, 0.85);
+    transform: scale(1.05);
+}
+
+.helpBtn svg {
+    width: 16px;
+    height: 16px;
+}
+
+.helpPanel {
+    position: absolute;
+    top: 56px;
+    right: 16px;
+    width: 260px;
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(30px) saturate(180%);
+    -webkit-backdrop-filter: blur(30px) saturate(180%);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    padding: 16px;
+    z-index: 35;
+    opacity: 0;
+    transform: translateY(-10px) scale(0.95);
+    pointer-events: none;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.helpPanel.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+.helpPanel h4 {
+    margin: 0 0 12px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+}
+
+.helpItem {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: #555;
+    line-height: 1.4;
+}
+
+.helpItem:last-child {
+    margin-bottom: 0;
+}
+
+.helpIcon {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: var(--radius-sm);
+}
+
+.helpIcon svg {
+    width: 12px;
+    height: 12px;
+    color: var(--text-secondary);
+}
+
+/* kbd key styling */
+.helpPanel :global(kbd) {
+    display: inline-block;
+    padding: 2px 6px;
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", "Monaco", "Inconsolata", monospace;
+    font-size: 11px;
+    font-weight: 600;
+    color: #444;
+    background: rgba(0, 0, 0, 0.08);
+    border: 1px solid rgba(0, 0, 0, 0.12);
+    border-radius: 4px;
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.1);
+    white-space: nowrap;
+}
+
+@media (pointer: coarse) {
+    .helpPanel {
+        width: calc(100% - 32px);
+        right: 16px;
+        left: 16px;
+    }
+}

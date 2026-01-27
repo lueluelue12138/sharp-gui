@@ -21,6 +21,10 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, 'config.json')
 app = Flask(__name__, template_folder=os.path.join(BASE_DIR, 'templates'))
 
+# 前端模式: "react" 或 "legacy"
+FRONTEND_MODE = os.environ.get('SHARP_FRONTEND_MODE', 'react')
+REACT_BUILD_DIR = os.path.join(BASE_DIR, 'frontend', 'dist')
+
 # 默认文件夹
 DEFAULT_WORKSPACE_FOLDER = BASE_DIR  # 工作目录默认为应用根目录
 
@@ -327,7 +331,46 @@ def after_request(response):
 
 @app.route('/')
 def index():
+    """根据模式返回前端页面"""
+    # Legacy 模式强制使用原始模板
+    if FRONTEND_MODE == 'legacy':
+        return render_template('index.html')
+    
+    # React 模式: 检查构建是否存在
+    react_index = os.path.join(REACT_BUILD_DIR, 'index.html')
+    if os.path.exists(react_index):
+        return send_from_directory(REACT_BUILD_DIR, 'index.html')
+    
+    # 回退到原始模板
     return render_template('index.html')
+
+
+@app.route('/assets/<path:filename>')
+def react_assets(filename):
+    """服务 React 静态资源"""
+    return send_from_directory(
+        os.path.join(REACT_BUILD_DIR, 'assets'), 
+        filename,
+        max_age=31536000  # 1 year cache
+    )
+
+
+# React 前端根目录静态文件 (favicon, manifest 等)
+REACT_ROOT_STATIC_FILES = {
+    'favicon.ico', 'favicon.svg', 'favicon-96x96.png',
+    'apple-touch-icon.png', 'site.webmanifest',
+    'web-app-manifest-192x192.png', 'web-app-manifest-512x512.png',
+    'logo.png'
+}
+
+@app.route('/<path:filename>')
+def react_root_static(filename):
+    """服务 React 根目录静态文件 (favicon, manifest 等)"""
+    if filename in REACT_ROOT_STATIC_FILES:
+        return send_from_directory(REACT_BUILD_DIR, filename)
+    # 非静态文件返回 404，让其他路由处理
+    from flask import abort
+    abort(404)
 
 
 @app.route('/api/gallery')
