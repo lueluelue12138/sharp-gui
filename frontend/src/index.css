@@ -99,3 +99,24 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
+
+/* Hide the built-in VR/AR buttons from GaussianSplats3D library */
+#VRButton,
+.VRButton,
+#ARButton,
+.ARButton,
+button[id*="VR"],
+button[id*="AR"],
+button[id*="xr"],
+[class*="xr-button"],
+[class*="vr-button"],
+[class*="ar-button"],
+[style*="position: absolute"][style*="bottom"][style*="VR"],
+/* Generic XR button detection */
+button[onclick*="VR"],
+button[onclick*="xr"] {
+  display: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}

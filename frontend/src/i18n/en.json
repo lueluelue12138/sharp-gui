@@ -17,6 +17,8 @@
   "controls_reset": "Reset",
   "controls_fullscreen": "Fullscreen",
   "controls_share": "Share",
+  "controls_vr": "VR Preview",
+  "controls_exit_vr": "Exit VR",
   "controls_help": "Help",
 
   "helpTitle": "Controls Guide",
@@ -41,6 +43,10 @@
   "helpJoystick": "Virtual Joystick",
   "helpJoystickDesc": "Mobile touch pan (Move btn)",
   "helpSpeedMode": "<kbd>Shift</kbd> Speed Up / <kbd>Alt</kbd> Precision - Control move & zoom speed",
+  "helpVR": "VR Mode",
+  "helpVRDesc": "Tap VR button for immersive preview, move headset to look around",
+  "helpVRJoystick": "VR Joystick",
+  "helpVRJoystickDesc": "Left stick to move, right stick to rotate",
 
   "zoomTooltip": "Hold Shift + Scroll for Precision Zoom",
   "gyroHint": "Tilt to explore",

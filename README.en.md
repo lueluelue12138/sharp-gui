@@ -16,7 +16,7 @@
 
 The "Spatial Photos" feature in iOS 26 offers an amazing immersive experience, but is currently limited to the Apple ecosystem.
 
-As a Web enthusiast, I built Sharp GUI to bridge this gap. My goal is to let anyone—whether on Android, Windows, or Mac—**[deploy with one click](#-quick-start)** and create and share 3D spatial memories directly via a browser on their local network. This is a hobbyist exploration, built for everyone to enjoy.
+As a Web enthusiast, I built Sharp GUI to bridge this gap. My goal is to let anyone—whether on Android, Windows, Mac or VR device —**[deploy with one click](#-quick-start)** and create and share 3D spatial memories directly via a browser on their local network. This is a hobbyist exploration, built for everyone to enjoy.
 
 <br>
 
@@ -44,18 +44,19 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 ### 🏠 Host Once, Access Anywhere
 
-No need to install apps on every device. Run Sharp GUI on one computer, and any phone or tablet on your LAN can access it instantly via browser. Full HTTPS support ensures features like gyroscope work perfectly on all devices.
+No need to install apps on every device. Run Sharp GUI on one computer, and any phone, tablet or VR device on your LAN can access it instantly via browser. Full HTTPS support ensures features like gyroscope work perfectly on all devices.
 
 ### 🚀 Core Features
 
-| Feature                  | Description                                                       |
-| ------------------------ | ----------------------------------------------------------------- |
-| **📸 Image to 3D**       | Upload any image, AI generates 3D Gaussian Splatting model        |
-| **🖼️ Batch Processing**  | Multi-select/drag-drop upload with smart queue scheduling         |
-| **👁️ Real-time Preview** | High-performance viewer with Three.js + Gaussian Splats 3D        |
-| **📤 One-Click Share**   | Export as standalone HTML, viewable without server                |
-| **📱 Mobile Optimized**  | Perfect adaptation for phones/tablets with gyroscope support      |
-| **🚀 One-Click Deploy**  | Auto-configures Python env, downloads deps, generates HTTPS certs |
+| Feature                  | Description                                                                                       |
+| ------------------------ | ------------------------------------------------------------------------------------------------- |
+| **📸 Image to 3D**       | Upload any image, AI generates 3D Gaussian Splatting model                                        |
+| **🖼️ Batch Processing**  | Multi-select/drag-drop upload with smart queue scheduling                                         |
+| **👁️ Real-time Preview** | High-performance viewer with Three.js + Gaussian Splats 3D                                        |
+| **📱 Mobile Optimized**  | Perfect adaptation for phones/tablets with gyroscope support                                      |
+| **🥽 VR Preview**        | WebXR VR mode support, immersive experience on Quest/Vision Pro with controller joystick movement |
+| **📤 One-Click Share**   | Export as standalone HTML, viewable without server                                                |
+| **🚀 One-Click Deploy**  | Auto-configures Python env, downloads deps, generates HTTPS certs                                 |
 
 ### 🎨 Apple-Style UI Design
 
@@ -80,19 +81,6 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 - **Delete Animation** - Smooth slide-out effect
 - **Collapsible Controls** - Bottom bar can be collapsed for more preview space
 
-### 🎮 Camera Controls
-
-| Control              | Description                                           |
-| -------------------- | ----------------------------------------------------- |
-| **WASD/QE**          | Keyboard camera pan (forward/back/left/right/up/down) |
-| **Shift+WASD**       | Precision movement mode                               |
-| **Shift+Scroll**     | Precision zoom control                                |
-| **Virtual Joystick** | Mobile touch pan (tap Move button to enable)          |
-| **Gyroscope**        | Tilt phone to preview (tap Gyro button to enable)     |
-
-<!-- TODO: Add camera controls GIF -->
-<!-- ![Camera Controls Demo](docs/camera-controls.gif) -->
-
 ### 🔧 Advanced Features
 
 - **🔒 HTTPS Support** - Auto-generated self-signed certificates for LAN access
@@ -100,6 +88,7 @@ Built with Apple Human Interface Guidelines for a premium user experience:
 - **🧹 Auto Cleanup** - Completed tasks auto-cleaned after 1 hour
 - **⚙️ Configurable Paths** - Custom workspace folder
 - **🖥️ Fullscreen Mode** - Immersive 3D preview
+- **🥽 VR Mode** - WebXR-based VR preview, supports Quest/Vision Pro and other headsets with controller joystick movement
 - **🌐 Internationalization** - Chinese/English bilingual UI, auto-detects browser language, manual toggle
 
 ---
@@ -265,13 +254,34 @@ Access **https://127.0.0.1:5050 (recommended)** or **http://127.0.0.1:5050** �
 
 ### 3D Interaction Controls
 
-| Action        | Desktop                                  | Mobile                      |
-| ------------- | ---------------------------------------- | --------------------------- |
-| Rotate View   | Left-click drag                          | Single finger swipe         |
-| Zoom          | Scroll / Shift+Scroll (fine)             | Pinch                       |
-| Gyroscope     | -                                        | Enable Gyro then tilt phone |
-| Reset         | Click "Reset" button                     | Same                        |
-| Toggle Limits | Click "Front View" for free/limited mode | Same                        |
+#### Basic Operations
+
+| Action      | Desktop          | Mobile              |
+| ----------- | ---------------- | ------------------- |
+| Rotate View | Left-click drag  | Single finger swipe |
+| Pan         | Right-click drag | Two finger pan      |
+| Zoom        | Scroll wheel     | Pinch               |
+| Fine Zoom   | Shift + Scroll   | -                   |
+| Lock Focus  | Click on model   | Tap on model        |
+
+#### Camera Movement
+
+| Control              | Description                                           |
+| -------------------- | ----------------------------------------------------- |
+| **WASD / QE**        | Keyboard camera pan (forward/back/left/right/up/down) |
+| **Shift + WASD**     | Fast movement mode                                    |
+| **Alt + WASD**       | Precision movement mode                               |
+| **Virtual Joystick** | Mobile touch pan (tap Move button to enable)          |
+
+#### Special Modes
+
+| Mode       | Action                  | Description                        |
+| ---------- | ----------------------- | ---------------------------------- |
+| Gyroscope  | Tap "Gyro" button       | Tilt phone to control view         |
+| Front View | Tap "Front View" button | Lock to front view, tap again free |
+| Reset      | Tap "Reset" button      | Restore initial view               |
+| Fullscreen | Tap "Fullscreen" button | Immersive preview                  |
+| VR Preview | Tap "VR" button         | Enter VR mode (requires VR device) |
 
 ### Export & Share
 

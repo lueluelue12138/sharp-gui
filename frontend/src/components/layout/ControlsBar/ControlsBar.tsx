@@ -160,6 +160,17 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
                         <span>{t("controls_fullscreen")}</span>
                     </button>
 
+                    {/* VR Button - Only show if VR is supported */}
+                    {viewerHook.vr.isVRSupported && (
+                        <button 
+                            className={`${styles.controlBtn} ${styles.vrBtn} ${viewerHook.vr.isInVR ? styles.active : ''}`}
+                            onClick={viewerHook.vr.toggleVR}
+                        >
+                            <Icons.VRIcon />
+                            <span>{viewerHook.vr.isInVR ? t("controls_exit_vr") : t("controls_vr")}</span>
+                        </button>
+                    )}
+
                     {/* Share/Export */}
                      <button 
                         className={styles.controlBtn}

@@ -244,3 +244,15 @@ export function View360Icon(props: IconProps) {
     </svg>
   );
 }
+
+// VR Headset Icon
+export function VRIcon(props: IconProps) {
+  return (
+    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V9a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2z" />
+      <circle cx="8" cy="11" r="1.5" fill="currentColor" />
+      <circle cx="16" cy="11" r="1.5" fill="currentColor" />
+    </svg>
+  );
+}
+

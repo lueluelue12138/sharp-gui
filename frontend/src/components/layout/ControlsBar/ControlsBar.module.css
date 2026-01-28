@@ -138,6 +138,30 @@
     }
 }
 
+/* VR Button - always visible when VR is supported (detection in JS) */
+.vrBtn {
+    /* Inherit standard btn style */
+    transition: all var(--transition-normal);
+}
+
+/* VR Button active state - consistent with other buttons */
+.vrBtn.active {
+    background: white;
+    color: var(--accent-blue);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    font-weight: 600;
+}
+
+/* Hide the built-in VR button from GaussianSplats3D library */
+:global(#VRButton),
+:global(.VRButton),
+:global(button[id*="VR"]),
+:global(button[id*="xr"]),
+:global([class*="xr-button"]),
+:global([class*="vr-button"]) {
+    display: none !important;
+}
+
 /* Tooltip */
 .tooltip {
     position: fixed;

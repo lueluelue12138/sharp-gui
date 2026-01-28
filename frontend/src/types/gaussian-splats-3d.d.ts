@@ -1,6 +1,13 @@
 declare module '@mkkellogg/gaussian-splats-3d' {
     import * as THREE from 'three';
 
+    // WebXR Mode enum
+    export enum WebXRMode {
+        None = 0,
+        VR = 1,
+        AR = 2
+    }
+
     export interface ViewerOptions {
         cameraUp?: [number, number, number];
         initialCameraPosition?: [number, number, number];
@@ -11,6 +18,7 @@ declare module '@mkkellogg/gaussian-splats-3d' {
         selfDrivenMode?: boolean;
         ignoreDevicePixelRatio?: boolean;
         dynamicLoading?: boolean;
+        webXRMode?: WebXRMode;
         [key: string]: any;
     }
 
@@ -75,5 +83,6 @@ declare module '@mkkellogg/gaussian-splats-3d' {
         cameraControls: Controls; // It might be cameraControls OR controls depending on version/config
         controls: Controls;       // Fallback
         content: THREE.Group;
+        renderer: THREE.WebGLRenderer;
     }
 }

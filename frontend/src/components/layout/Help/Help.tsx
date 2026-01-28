@@ -90,6 +90,21 @@ export const Help: React.FC = () => {
                     </div>
                     <div><b>{t("helpJoystick")}</b> - {t("helpJoystickDesc")}</div>
                 </div>
+
+                {/* VR Mode */}
+                <div className={styles.helpItem}>
+                    <div className={styles.helpIcon}>
+                        <Icons.VRIcon />
+                    </div>
+                    <div><b>{t("helpVR")}</b> - {t("helpVRDesc")}</div>
+                </div>
+
+                <div className={styles.helpItem}>
+                    <div className={styles.helpIcon}>
+                        <Icons.JoystickIcon />
+                    </div>
+                    <div><b>{t("helpVRJoystick")}</b> - {t("helpVRJoystickDesc")}</div>
+                </div>
             </div>
         </>
     );

@@ -17,6 +17,8 @@
   "controls_reset": "重置",
   "controls_fullscreen": "全屏",
   "controls_share": "分享",
+  "controls_vr": "VR 预览",
+  "controls_exit_vr": "退出 VR",
   "controls_help": "帮助",
 
   "helpTitle": "操作指南",
@@ -41,6 +43,10 @@
   "helpJoystick": "虚拟摇杆",
   "helpJoystickDesc": "移动端触摸平移 (Move按钮)",
   "helpSpeedMode": "<kbd>Shift</kbd> 加速 / <kbd>Alt</kbd> 精细 - 控制移动和缩放速度",
+  "helpVR": "VR 模式",
+  "helpVRDesc": "点击 VR 按钮进入沉浸式预览，移动头显转动视角",
+  "helpVRJoystick": "VR 摇杆",
+  "helpVRJoystickDesc": "左摇杆移动画面，右摇杆旋转视角",
 
   "zoomTooltip": "按住 Shift + 滚轮进行精细缩放",
   "gyroHint": "倾斜探索",

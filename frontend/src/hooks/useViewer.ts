@@ -6,6 +6,7 @@ import { DEFAULT_CAMERA_CONFIG } from '@/utils/camera';
 import { useKeyboard } from './useKeyboard';
 import { useGyroscope } from './useGyroscope';
 import { useJoystick } from './useJoystick';
+import { useVR } from './useVR';
 
 export const useViewer = (containerRef: React.RefObject<HTMLDivElement | null>) => {
   const viewerRef = useRef<any>(null);
@@ -22,6 +23,7 @@ export const useViewer = (containerRef: React.RefObject<HTMLDivElement | null>) 
   const { speedMode } = useKeyboard(viewerRef);
   const { handleToggle: toggleGyro, isSupported: isGyroSupported, indicatorBallRef } = useGyroscope({ viewerRef });
   const joystick = useJoystick({ viewerRef });
+  const vr = useVR({ viewerRef });
 
   // Initialize Viewer
   useEffect(() => {
@@ -37,13 +39,12 @@ export const useViewer = (containerRef: React.RefObject<HTMLDivElement | null>) 
           sharedMemoryForWorkers: false,
           useBuiltInControls: true,
           selfDrivenMode: true,
-          // ignoreDevicePixelRatio: false,
-          // dynamicLoading: true,
         });
 
         viewerRef.current = viewer;
         applyCameraSettings(viewer);
         setIsViewerReady(true);
+        
       } catch (error) {
         console.error("Failed to initialize viewer:", error);
       }
@@ -74,8 +75,8 @@ export const useViewer = (containerRef: React.RefObject<HTMLDivElement | null>) 
       if (viewerRef.current) {
         try {
           viewerRef.current.dispose();
-        } catch (e) {
-          console.warn("Error disposing viewer:", e);
+        } catch {
+          // Ignore dispose errors
         }
         viewerRef.current = null;
         setIsViewerReady(false);
@@ -304,6 +305,7 @@ export const useViewer = (containerRef: React.RefObject<HTMLDivElement | null>) 
     toggleGyro,
     isGyroSupported,
     indicatorBallRef,
-    joystick
+    joystick,
+    vr
   };
 };
