@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { SparkRenderer, SplatMesh, SplatFileType } from '@sparkjsdev/spark';
+import type { SplatMeshOptions } from '@sparkjsdev/spark';
 import { useAppStore } from '@/store/useAppStore';
 import { DEFAULT_CAMERA_CONFIG } from '@/utils/camera';
 import { useKeyboard } from './useKeyboard';
@@ -194,10 +195,8 @@ export const useViewer = (containerRef: React.RefObject<HTMLDivElement | null>) 
 
         // SparkRenderer — must be explicitly added to scene (Spark 2.0)
         // When High Fidelity is ON, set blurAmount and preBlurAmount to 0 to remove forced anti-aliasing
-        // coneFoveate helps optimize WebXR/VR peripheral rendering drastically
         const sparkRenderer = new SparkRenderer({
           renderer,
-          coneFoveate: 0.1,
           ...(isHighFidelity ? { blurAmount: 0, preBlurAmount: 0 } : {})
         });
         scene.add(sparkRenderer);
@@ -366,13 +365,10 @@ export const useViewer = (containerRef: React.RefObject<HTMLDivElement | null>) 
         const splatMesh = new SplatMesh({
           url: currentModelUrl,
           fileType,
-          lod: isLodEnabled,
-          onProgress: (event: ProgressEvent) => {
-            if (event.lengthComputable && !cancelled) {
-              setLoadingProgress(Math.round((event.loaded / event.total) * 100));
-            }
-          },
-        });
+          // Forward to Spark — currently silently ignored in v2.0.0-preview,
+          // but reserved for future LOD support in the stable release.
+          ...(isLodEnabled ? { lod: true } : {}),
+        } as SplatMeshOptions & { lod?: boolean });
         await splatMesh.initialized;
 
         if (cancelled) {

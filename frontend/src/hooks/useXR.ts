@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, type RefObject } from 'react';
 import * as THREE from 'three';
 import type { ViewerContext } from './useViewer';
+import { useAppStore } from '@/store/useAppStore';
 import { DEFAULT_CAMERA_CONFIG } from '@/utils/camera';
 
 type XRMode = 'vr' | 'ar';
@@ -171,6 +172,19 @@ export const useXR = ({ viewerRef }: UseXRProps): UseXRReturn => {
       console.log(`[XR] Entering ${mode.toUpperCase()} session...`);
 
       renderer.xr.enabled = true;
+
+      // ── Freeze Spark's deferred GPU-readback sort during XR ─────────
+      // SparkRenderer.autoUpdate=true triggers a setTimeout(1ms) sort pipeline
+      // that runs OUTSIDE the XR frame callback. The async GPU readback in that
+      // pipeline can produce corrupted sort data (activeSplats=0) when the GL
+      // context is in XR compositor state, causing the model to vanish after
+      // the first sort completes (~2-3 s). Disabling autoUpdate keeps the
+      // pre-XR sort order frozen — minor alpha-blend artifacts but stable.
+      ctx.sparkRenderer.autoUpdate = false;
+
+      // Use native headset resolution — avoids rendering at desktop DPR which
+      // causes severe frame drops and possible session termination.
+      renderer.setPixelRatio(1);
 
       // ── AR-specific: save background, make scene transparent ────────
       if (mode === 'ar') {
@@ -362,6 +376,9 @@ export const useXR = ({ viewerRef }: UseXRProps): UseXRReturn => {
           }
         }
 
+        // ── Re-enable Spark's auto-update & sort pipeline ──────────
+        ctx.sparkRenderer.autoUpdate = true;
+
         // ── Fully restore camera & renderer to pre-XR state ───────────
         camera.position.set(...DEFAULT_CAMERA_CONFIG.initialPosition);
         camera.up.set(...DEFAULT_CAMERA_CONFIG.cameraUp);
@@ -370,7 +387,7 @@ export const useXR = ({ viewerRef }: UseXRProps): UseXRReturn => {
         camera.near = DEFAULT_CAMERA_CONFIG.near;
         camera.far = DEFAULT_CAMERA_CONFIG.far;
 
-        // Restore viewport size and pixel ratio
+        // Restore viewport size and pixel ratio — respect High Fidelity setting
         const container = renderer.domElement.parentElement;
         if (container) {
           const w = container.clientWidth;
@@ -378,7 +395,8 @@ export const useXR = ({ viewerRef }: UseXRProps): UseXRReturn => {
           camera.aspect = w / h;
           renderer.setSize(w, h);
         }
-        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        const { isHighFidelity } = useAppStore.getState();
+        renderer.setPixelRatio(isHighFidelity ? window.devicePixelRatio : Math.min(window.devicePixelRatio, 2));
         camera.updateProjectionMatrix();
 
         // Reset OrbitControls — orbit around origin with default state
