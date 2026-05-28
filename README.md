@@ -154,7 +154,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | **📱 移动端优化**   | 完美适配手机/平板，陀螺仪体感控制（iOS 风格指示球反馈）、虚拟摇杆、触摸手势、抽屉式侧边栏                                                        |
 | **🥽 VR/AR 预览**   | WebXR VR 模式 + AR 透视模式 (Passthrough)，Quest 3/Pro 等头显沉浸式体验，手柄摇杆 + AR 触摸手势                                                   |
 | **📤 零门槛分享**   | 一键导出为 Spark 2.0 版独立 HTML 文件，默认嵌入 SPZ 紧凑模型，双击即可在任何浏览器打开                                                            |
-| **🎮 GPU 加速**     | 自动检测 NVIDIA GPU，智能匹配 CUDA 版本的 PyTorch（cu118 / cu126 / cu128），显著加速推理                                                          |
+| **🎮 GPU 加速**     | 自动检测 NVIDIA CUDA 与受支持的 AMD ROCm/RDNA GPU（含 RX 9070 XT / RDNA4），显著加速推理                                                          |
 | **🔄 自动更新**     | 一键检测最新版本并更新，支持 pre-release 通道，保留 `inputs/` `outputs/` `config.json` 等用户数据                                                |
 | **🔐 安全与隐私**   | 数据完全本地化、自签名 SSL 一键生成、可选局域网门禁（HttpOnly Cookie + 访问码 + 抗暴力猜测）                                                      |
 | **🚀 一键部署运行** | 自动配置 Python/Git 环境、下载依赖、预下载模型、生成 HTTPS 证书、骨架屏加载进度，开箱即用                                                        |
@@ -260,15 +260,21 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | **macOS Apple Silicon**     | ✅ MPS    | ✅ 已验证 |
 | **Windows x86_64**          | ✅ CPU    | ✅ 已验证 |
 | **Windows x86_64 + NVIDIA** | ✅ CUDA   | ✅ 已验证 |
+| **Windows x86_64 + AMD RDNA4** | ✅ ROCm/HIP | ❓ 未验证 |
 | **Linux x86_64**            | ✅ CPU    | ✅ 已验证 |
 | **Linux x86_64 + NVIDIA**   | ✅ CUDA   | ❓ 未验证 |
+| **Linux x86_64 + AMD RDNA4** | ✅ ROCm/HIP | ❓ 未验证 |
 | **macOS Intel**             | ✅ CPU    | ❓ 未验证 |
 
-> 🚀 **推荐使用 NVIDIA GPU**：3D 高斯溅射推理是计算密集型任务，CUDA 加速通常比纯 CPU 快 **数倍到十数倍**，体验差距明显。
+> 🚀 **推荐使用独立 GPU**：3D 高斯溅射推理是计算密集型任务，CUDA 与 ROCm/HIP 加速通常比纯 CPU 快 **数倍到十数倍**，体验差距明显。
 >
 > 💡 **没有 GPU 也能跑**：纯 CPU 环境下推理也能完成，只是单张图片生成耗时更长；Apple Silicon 用户可享受 MPS 后端的近 GPU 体验。
 >
-> 🛠️ **零手动配置**：有 NVIDIA GPU 时，安装脚本会自动检测驱动并匹配对应的 PyTorch CUDA 版本（cu118 / cu126 / cu128）。
+> 🛠️ **零手动配置**：有 NVIDIA GPU 时，安装脚本会自动检测驱动并匹配对应的 PyTorch CUDA 版本（cu126 / cu128）；检测到受支持的 AMD Radeon RDNA GPU 时，会安装 ROCm/HIP PyTorch。由于 PyTorch ROCm 也通过 `torch.cuda` 命名空间暴露 AMD GPU，Sharp GUI 仍会向 ml-sharp 传入 `--device cuda`。
+>
+> 🧩 **AMD RDNA4 目标**：RX 9070 XT / Radeon AI PRO R9700 级别 RDNA4 显卡会被视为 ROCm 候选。Windows 下 ROCm PyTorch 当前要求 Python 3.12；如果自动检测漏掉显卡，可设置 `SHARP_TORCH_BACKEND=rocm` 强制尝试 ROCm 安装，设置 `SHARP_DEVICE=rocm` 可在启动时强制要求 HIP 运行时可用。
+>
+> 🌏 **国内网络环境**：安装脚本默认使用清华 PyPI 镜像安装普通 Python 依赖，并优先尝试 `hf-mirror.com` 下载模型；如需关闭可设置 `SHARP_USE_CHINA_MIRROR=0`，如需自定义 PyPI 镜像可设置 `SHARP_PIP_INDEX_URL`。
 >
 > 👉 未验证平台理论上可正常工作，如遇问题欢迎在 [Issues](https://github.com/lueluelue12138/sharp-gui/issues) 反馈。
 
@@ -322,7 +328,7 @@ install.bat       # Windows
 
 - 🐍 **检测/安装 Python** - 自动查找兼容版本 (3.10~3.13)，缺失时自动安装 (Windows)
 - 📦 **检测/安装 Git** - 缺失时自动安装 (Windows)
-- 🎮 **检测 NVIDIA GPU** - 有 GPU 时自动安装匹配驱动的 CUDA 版 PyTorch（cu118 / cu126 / cu128）
+- 🎮 **检测 GPU 后端** - 为 NVIDIA GPU 自动安装 CUDA PyTorch，为受支持的 AMD RDNA GPU 自动安装 ROCm/HIP PyTorch
 - 🧩 **安装依赖** - 创建虚拟环境，安装 ml-sharp 核心和 GUI 依赖
 - 📥 **预下载模型** - 安装阶段即下载推理模型 (~500MB)，避免首次运行等待
 - 🔐 **生成 HTTPS 证书** - 自动生成自签名证书，支持局域网安全访问
@@ -524,7 +530,7 @@ sharp-gui/
 │   ├── 📄 generate_cert.py   # SSL 证书生成工具
 │   ├── 📄 download_model.py  # 模型下载工具
 │   ├── 📄 detect_cuda.py     # CUDA 版本检测
-│   ├── 📄 install_torch.py   # PyTorch + CUDA 智能安装与校验
+│   ├── 📄 install_torch.py   # PyTorch + CUDA / ROCm 智能安装与校验
 │   └── 📄 update.py          # 自动更新核心逻辑
 ├── 📁 frontend/              # React 现代前端 (v1.0.0+)
 ├── 📁 templates/             # 原始单文件前端 (Legacy)

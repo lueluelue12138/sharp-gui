@@ -153,7 +153,7 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | **📱 Mobile Optimized**    | Phones / tablets get gyroscope controls (iOS-style indicator ball), virtual joystick, touch gestures, and a drawer-style sidebar.                                        |
 | **🥽 VR/AR Preview**       | WebXR VR mode + AR Passthrough on Quest 3/Pro and similar headsets, with controller / touch input.                                                                       |
 | **📤 One-Click Share**     | Export a standalone HTML file powered by Spark 2.0; the compact SPZ payload is embedded by default, double-click to open anywhere.                                       |
-| **🎮 GPU Acceleration**    | Auto-detects NVIDIA GPUs and matches a CUDA-enabled PyTorch (cu118 / cu126 / cu128) for noticeably faster inference.                                                     |
+| **🎮 GPU Acceleration**    | Auto-detects NVIDIA CUDA and supported AMD ROCm/RDNA GPUs (including RX 9070 XT / RDNA4) for noticeably faster inference.                                                 |
 | **🔄 Auto-Update**         | One-click update to the latest release with a pre-release channel; preserves `inputs/` `outputs/` `config.json` and other user data.                                     |
 | **🔐 Security & Privacy**  | Fully local data, one-click self-signed SSL, optional LAN access gate (HttpOnly cookie + access code + brute-force backoff).                                             |
 | **🚀 One-Click Deploy**    | Auto-configures Python / Git, installs deps, pre-downloads models, generates HTTPS certs, and shows skeleton progress. Ready out of the box.                             |
@@ -259,15 +259,21 @@ Built with Apple Human Interface Guidelines for a premium feel:
 | **macOS Apple Silicon**     | ✅ MPS            | ✅ Verified   |
 | **Windows x86_64**          | ✅ CPU            | ✅ Verified   |
 | **Windows x86_64 + NVIDIA** | ✅ CUDA           | ✅ Verified   |
+| **Windows x86_64 + AMD RDNA4** | ✅ ROCm/HIP    | ❓ Unverified |
 | **Linux x86_64**            | ✅ CPU            | ✅ Verified   |
 | **Linux x86_64 + NVIDIA**   | ✅ CUDA           | ❓ Unverified |
+| **Linux x86_64 + AMD RDNA4** | ✅ ROCm/HIP     | ❓ Unverified |
 | **macOS Intel**             | ✅ CPU            | ❓ Unverified |
 
-> 🚀 **NVIDIA GPU recommended**: 3D Gaussian Splatting inference is compute-heavy. CUDA typically delivers **multiple-x to ~10x** speedups over pure CPU, with a noticeably better experience.
+> 🚀 **Dedicated GPU recommended**: 3D Gaussian Splatting inference is compute-heavy. CUDA and ROCm/HIP typically deliver **multiple-x to ~10x** speedups over pure CPU, with a noticeably better experience.
 >
 > 💡 **CPU-only still works**: inference runs fine without a GPU, just slower per image. Apple Silicon users get a near-GPU experience via the MPS backend.
 >
-> 🛠️ **Zero manual setup**: when an NVIDIA GPU is present, the install script detects your driver and installs the matching CUDA-enabled PyTorch (cu118 / cu126 / cu128).
+> 🛠️ **Zero manual setup**: when an NVIDIA GPU is present, the install script detects your driver and installs the matching CUDA-enabled PyTorch (cu126 / cu128). When a supported AMD Radeon RDNA GPU is detected, it installs ROCm/HIP PyTorch and still passes `--device cuda` to ml-sharp because PyTorch ROCm exposes AMD GPUs through the `torch.cuda` namespace.
+>
+> 🧩 **AMD RDNA4 target**: RX 9070 XT / Radeon AI PRO R9700-class RDNA4 cards are treated as ROCm candidates. On Windows, ROCm PyTorch currently requires Python 3.12; set `SHARP_TORCH_BACKEND=rocm` to force a ROCm install attempt if auto-detection misses your card, and `SHARP_DEVICE=rocm` to require a HIP runtime at launch.
+>
+> 🌏 **Mainland network environments**: install scripts default to the Tsinghua PyPI mirror for normal Python dependencies and prefer `hf-mirror.com` for the model download. Set `SHARP_USE_CHINA_MIRROR=0` to disable this, or set `SHARP_PIP_INDEX_URL` to use another PyPI-compatible mirror.
 >
 > 👉 Unverified platforms should theoretically work. Report issues on [GitHub Issues](https://github.com/lueluelue12138/sharp-gui/issues).
 
@@ -321,7 +327,7 @@ The install script automatically handles all setup steps, no manual configuratio
 
 - 🐍 **Detect/Install Python** - Auto-finds compatible version (3.10~3.13), auto-installs if missing (Windows)
 - 📦 **Detect/Install Git** - Auto-installs if missing (Windows)
-- 🎮 **Detect NVIDIA GPU** - Auto-installs the CUDA-enabled PyTorch that matches your driver (cu118 / cu126 / cu128)
+- 🎮 **Detect GPU backend** - Auto-installs CUDA PyTorch for NVIDIA GPUs or ROCm/HIP PyTorch for supported AMD RDNA GPUs
 - 🧩 **Install Dependencies** - Creates virtual environment, installs ml-sharp core and GUI deps
 - 📥 **Pre-download Model** - Downloads inference model (~500MB) during install, no wait on first run
 - 🔐 **Generate HTTPS Certificate** - Auto-generates self-signed certificate for secure LAN access
@@ -523,7 +529,7 @@ sharp-gui/
 │   ├── 📄 generate_cert.py   # SSL certificate generator
 │   ├── 📄 download_model.py  # Model downloader
 │   ├── 📄 detect_cuda.py     # CUDA version detection
-│   ├── 📄 install_torch.py   # Smart PyTorch + CUDA installer / verifier
+│   ├── 📄 install_torch.py   # Smart PyTorch + CUDA / ROCm installer / verifier
 │   └── 📄 update.py          # Auto-update core logic
 ├── 📁 frontend/              # React modern frontend (v1.0.0+)
 ├── 📁 templates/             # Original single-file frontend (Legacy)

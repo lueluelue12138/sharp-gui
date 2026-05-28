@@ -1234,11 +1234,48 @@ TASK_RETENTION_SECONDS = 3600  # 已完成任务保留1小时
 CLEANUP_INTERVAL = 300  # 每5分钟清理一次
 
 
+def verify_torch_cuda_device(require_hip=False):
+    """Verify the torch CUDA namespace can execute CUDA or ROCm kernels."""
+    try:
+        import torch
+    except Exception as exc:
+        return False, f"Unable to import torch: {exc}"
+
+    torch_version = getattr(torch, "version", None)
+    torch_hip = getattr(torch_version, "hip", None)
+    backend = "ROCm" if torch_hip else "CUDA"
+
+    if require_hip and not torch_hip:
+        return False, "SHARP_DEVICE=rocm requested but this PyTorch build has no HIP runtime"
+
+    if not torch.cuda.is_available():
+        return False, f"{backend} is not available through torch.cuda"
+
+    try:
+        x = torch.ones((4, 4), device="cuda")
+        _ = (x @ x).sum().cpu()
+        torch.cuda.synchronize()
+    except Exception as exc:
+        msg = str(exc).splitlines()[0] if str(exc) else repr(exc)
+        return False, f"{backend} is visible but unusable: {msg}"
+
+    return True, f"{backend} via torch.cuda"
+
+
 def select_sharp_device():
     """Return a device that can actually execute kernels."""
     configured = os.environ.get("SHARP_DEVICE", "").strip().lower()
-    if configured in {"cpu", "cuda", "mps"}:
+    if configured in {"cpu", "mps"}:
         return configured
+
+    if configured in {"cuda", "rocm"}:
+        ok, detail = verify_torch_cuda_device(require_hip=(configured == "rocm"))
+        if ok:
+            if configured == "rocm":
+                print("[INFO] SHARP_DEVICE=rocm maps to ml-sharp --device cuda (ROCm/HIP)")
+            return "cuda"
+        print(f"[WARN] {detail}, falling back to CPU")
+        return "cpu"
 
     try:
         import torch
@@ -1246,16 +1283,12 @@ def select_sharp_device():
         print(f"[WARN] Unable to import torch, falling back to CPU: {exc}")
         return "cpu"
 
-    if torch.cuda.is_available():
-        try:
-            x = torch.ones((4, 4), device="cuda")
-            _ = (x @ x).sum().cpu()
-            torch.cuda.synchronize()
-            return "cuda"
-        except Exception as exc:
-            msg = str(exc).splitlines()[0] if str(exc) else repr(exc)
-            print(f"[WARN] CUDA is visible but unusable, falling back to CPU: {msg}")
-            return "cpu"
+    ok, detail = verify_torch_cuda_device()
+    if ok:
+        print(f"[INFO] Using {detail}")
+        return "cuda"
+    if "not available" not in detail:
+        print(f"[WARN] {detail}, falling back to CPU")
 
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "mps"
