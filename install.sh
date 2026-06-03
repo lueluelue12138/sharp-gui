@@ -23,6 +23,15 @@ print_error() { echo -e "${RED}✗${NC} $1"; }
 SHARP_REPO="https://github.com/apple/ml-sharp.git"
 SHARP_DIR="ml-sharp"
 
+if [ "${SHARP_USE_CHINA_MIRROR:-1}" != "0" ]; then
+    export SHARP_PIP_INDEX_URL="${SHARP_PIP_INDEX_URL:-https://pypi.tuna.tsinghua.edu.cn/simple}"
+    export PIP_INDEX_URL="$SHARP_PIP_INDEX_URL"
+    export PIP_TRUSTED_HOST="${PIP_TRUSTED_HOST:-pypi.tuna.tsinghua.edu.cn mirrors.aliyun.com pypi.org files.pythonhosted.org}"
+    export PIP_DISABLE_PIP_VERSION_CHECK=1
+    export SHARP_MODEL_SOURCE="${SHARP_MODEL_SOURCE:-china}"
+    echo "Using PyPI mirror: $PIP_INDEX_URL"
+fi
+
 # 获取脚本目录
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -269,6 +278,12 @@ install_dependencies() {
             fi
         fi
     fi
+
+    print_step "检查 PyTorch CUDA / ROCm 运行环境..."
+    if ! python "$SCRIPT_DIR/tools/install_torch.py"; then
+        print_error "PyTorch CUDA / ROCm 运行环境验证失败"
+        exit 1
+    fi
     
     # 安装 GUI 依赖
     print_step "安装 GUI 依赖..."
@@ -357,7 +372,7 @@ test_installation() {
     }
     
     # 显示 GPU 状态
-    python -c "import torch; cuda=torch.cuda.is_available(); mps=hasattr(torch.backends,'mps') and torch.backends.mps.is_available(); device='CUDA (NVIDIA GPU)' if cuda else ('MPS (Apple GPU)' if mps else 'CPU'); print(f'推理设备: {device}')"
+    python -c "import torch; cuda=torch.cuda.is_available(); hip=getattr(torch.version,'hip',None); mps=hasattr(torch.backends,'mps') and torch.backends.mps.is_available(); device='ROCm (AMD GPU)' if cuda and hip else ('CUDA (NVIDIA GPU)' if cuda else ('MPS (Apple GPU)' if mps else 'CPU')); print(f'推理设备: {device}')"
     
     print_success "安装测试通过"
 }

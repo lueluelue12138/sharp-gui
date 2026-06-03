@@ -22,11 +22,31 @@ set GIT_INSTALL_VERSION=2.47.1
 REM PYTHON_CMD will hold the final python command to use
 set "PYTHON_CMD=python"
 
+REM Mainland-friendly mirrors. Set SHARP_USE_CHINA_MIRROR=0 to disable, or
+REM set SHARP_PIP_INDEX_URL to your preferred PyPI-compatible mirror.
+if not defined SHARP_USE_CHINA_MIRROR set SHARP_USE_CHINA_MIRROR=1
+if "%SHARP_USE_CHINA_MIRROR%"=="1" (
+    if not defined SHARP_PIP_INDEX_URL set "SHARP_PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple"
+    set "PIP_INDEX_URL=%SHARP_PIP_INDEX_URL%"
+    set "PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn mirrors.aliyun.com pypi.org files.pythonhosted.org"
+    set "PIP_DISABLE_PIP_VERSION_CHECK=1"
+    if not defined SHARP_MODEL_SOURCE set "SHARP_MODEL_SOURCE=china"
+    echo [INFO] Using PyPI mirror: %PIP_INDEX_URL%
+)
+
 REM Check if winget is available
 set HAS_WINGET=false
 where winget >nul 2>&1
 if %ERRORLEVEL% equ 0 (
     set HAS_WINGET=true
+)
+
+REM Detect AMD ROCm candidates before Python selection. Windows ROCm PyTorch
+REM wheels currently require Python 3.12, so RDNA GPUs should not use 3.13 venvs.
+set HAS_ROCM_CANDIDATE=false
+for /f "usebackq delims=" %%i in (`powershell -NoProfile -Command "$n=(Get-CimInstance Win32_VideoController).Name -join '; '; if ($n -match 'Radeon RX 90|Radeon AI PRO R9700|Radeon PRO AI R9700|Radeon RX 79|Radeon PRO W7') { $n }" 2^>nul`) do (
+    set HAS_ROCM_CANDIDATE=true
+    echo [OK] Found AMD ROCm candidate GPU: %%i
 )
 
 REM ============================================================
@@ -180,6 +200,21 @@ for /f "tokens=1,2 delims=." %%a in ("%PYTHON_VERSION%") do (
     set PYTHON_MINOR=%%b
 )
 
+if "!HAS_ROCM_CANDIDATE!"=="true" if not "!PYTHON_MINOR!"=="12" (
+    echo.
+    echo [提示] 检测到 AMD ROCm 候选 GPU，Windows ROCm PyTorch 需要 Python 3.12
+    where py >nul 2>&1
+    if !ERRORLEVEL! equ 0 (
+        py -3.12 --version >nul 2>&1
+        if !ERRORLEVEL! equ 0 (
+            set "PYTHON_CMD=py -3.12"
+            for /f "tokens=2" %%i in ('py -3.12 --version 2^>^&1') do echo [OK] ROCm 路径将使用 Python %%i
+            goto :python_version_ok
+        )
+    )
+    goto :need_python_312
+)
+
 REM Check: Python version must be 3.10 ~ 3.13
 set VERSION_OK=false
 if %PYTHON_MAJOR% EQU 3 (
@@ -220,6 +255,7 @@ if !ERRORLEVEL! equ 0 (
 )
 
 REM No compatible version found, need to install 3.12
+:need_python_312
 echo [警告] 未找到兼容的 Python 版本
 echo.
 echo   当前系统的 Python %PYTHON_VERSION% 版本过新，部分依赖不支持
@@ -557,7 +593,7 @@ call "%VENV_DIR%\Scripts\activate.bat"
 python -m pip install --upgrade pip
 
 REM Install ml-sharp requirements first. Its requirements.txt pins torch,
-REM so the final CUDA/CPU PyTorch build is selected and verified afterward.
+REM so the final CUDA/ROCm/CPU PyTorch build is selected and verified afterward.
 
 :install_sharp_core_deps
 echo 安装 Sharp 核心 (这可能需要几分钟)...
@@ -576,11 +612,11 @@ if !ERRORLEVEL! neq 0 (
 cd /d "%SCRIPT_DIR%"
 
 echo.
-echo 检查并修复 PyTorch / CUDA 运行环境...
+echo 检查并修复 PyTorch / CUDA / ROCm 运行环境...
 python "%SCRIPT_DIR%tools\install_torch.py"
 if !ERRORLEVEL! neq 0 (
     echo.
-    echo [错误] PyTorch 安装或 CUDA kernel 验证失败
+    echo [错误] PyTorch 安装或 CUDA/ROCm kernel 验证失败
     pause
     exit /b 1
 )
@@ -643,7 +679,7 @@ python -c "import torch; print(f'PyTorch: {torch.__version__}')"
 python -c "import flask; print(f'Flask: {flask.__version__}')"
 
 REM 显示 GPU 状态
-python -c "import torch; cuda=torch.cuda.is_available(); mps=hasattr(torch.backends,'mps') and torch.backends.mps.is_available(); device='CUDA (NVIDIA GPU)' if cuda else ('MPS (Apple GPU)' if mps else 'CPU'); print(f'推理设备: {device}')"
+python -c "import torch; cuda=torch.cuda.is_available(); hip=getattr(torch.version,'hip',None); mps=hasattr(torch.backends,'mps') and torch.backends.mps.is_available(); device='ROCm (AMD GPU)' if cuda and hip else ('CUDA (NVIDIA GPU)' if cuda else ('MPS (Apple GPU)' if mps else 'CPU')); print(f'推理设备: {device}')"
 
 echo [OK] 安装测试通过
 

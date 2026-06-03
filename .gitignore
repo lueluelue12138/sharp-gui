@@ -14,6 +14,10 @@ ENV/
 # ml-sharp (auto-cloned)
 ml-sharp/
 
+# Local ROCm wheel/download cache
+.rocm-wheels/
+.tmp-rocm-pip/
+
 # User data - DO NOT UPLOAD
 inputs/
 inputs*/

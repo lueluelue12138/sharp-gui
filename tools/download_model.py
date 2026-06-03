@@ -22,6 +22,24 @@ SOURCES = [
 ]
 
 
+def ordered_sources():
+    """Return model sources, optionally preferring mainland-friendly mirrors."""
+    preferred = os.environ.get("SHARP_MODEL_SOURCE", "").strip().lower()
+    use_china = os.environ.get("SHARP_USE_CHINA_MIRROR", "").strip() == "1"
+    if preferred not in {"china", "mirror", "hf-mirror"} and not use_china:
+        return SOURCES
+
+    def source_rank(source):
+        url = source[1]
+        if "hf-mirror.com" in url:
+            return 0
+        if "ml-site.cdn-apple.com" in url:
+            return 1
+        return 2
+
+    return sorted(SOURCES, key=source_rank)
+
+
 def get_model_path():
     cache_dir = os.path.join(
         os.path.expanduser("~"), ".cache", "torch", "hub", "checkpoints"
@@ -120,7 +138,7 @@ def main():
 
     tmp_path = model_path + ".downloading"
 
-    for name, url in SOURCES:
+    for name, url in ordered_sources():
         print(f"[{name}] {url}")
         try:
             # Clean up any previous partial download
