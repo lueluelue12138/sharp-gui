@@ -44,6 +44,86 @@ Sharp GUI Docker 容器 MUST 将可变运行状态保存在镜像层之外，并
 - **THEN** 镜像层 MUST NOT 要求内置 Sharp checkpoint
 - **AND** 镜像 MUST 支持从挂载数据卷缓存下载或复用 checkpoint
 
+### Requirement: Docker 部署必须支持正式的 owner 引导权限
+
+Sharp GUI Docker 部署 MUST 提供不依赖 host network、不依赖 Docker 网桥 IP 信任的 owner 引导流程。
+
+#### Scenario: Docker bridge 下完成首次 owner 配置
+
+- **WHEN** 用户以默认 Docker bridge 端口映射启动容器
+- **AND** 宿主机浏览器访问 `http://127.0.0.1:5050`
+- **THEN** 用户 MUST 能通过 Docker owner bootstrap token 获取 owner 权限
+- **AND** 用户 MUST 能完成首次访问码设置和门禁配置
+- **AND** 用户 MUST NOT 被要求改用 `--network host` 或手工编辑 `config.json`
+
+#### Scenario: 容器生成或接收 owner bootstrap token
+
+- **WHEN** 容器启动时提供 `SHARP_OWNER_TOKEN`
+- **THEN** 后端 MUST 使用该 token 作为 Docker owner bootstrap secret
+- **WHEN** 容器启动时未提供 `SHARP_OWNER_TOKEN`
+- **THEN** 容器 MUST 生成高强度随机 token
+- **AND** token MUST 保存到挂载的 `/data` volume 中，便于容器重建后继续使用
+- **AND** 启动日志 MAY 提示 token 文件路径，但 API 响应 MUST NOT 回显完整 token
+
+#### Scenario: owner bootstrap 授予独立 owner session
+
+- **WHEN** 用户提交正确的 Docker owner bootstrap token
+- **THEN** 后端 MUST 返回成功认证状态
+- **AND** 后端 MUST 设置 HttpOnly owner session cookie
+- **AND** 后续同源请求 MUST 能使用该 owner session 访问 owner-only API
+- **AND** 普通访问码 session MUST NOT 被提升为 owner session
+
+#### Scenario: 错误 owner bootstrap 不放宽权限
+
+- **WHEN** 用户未提供 token 或提交错误 token
+- **THEN** 后端 MUST 拒绝 owner bootstrap 请求
+- **AND** 后端 MUST NOT 设置 owner session cookie
+- **AND** owner-only API MUST 继续返回 owner 权限错误
+- **AND** 失败验证 SHOULD 受到与登录类似的延迟或限速保护
+
+#### Scenario: owner 权限不得来自不可信网络头或网段
+
+- **WHEN** 请求带有 `X-Forwarded-For`、`Forwarded`、`X-Real-IP` 或其他客户端可控转发头
+- **THEN** 后端 MUST NOT 仅凭这些头授予 owner 权限
+- **WHEN** 请求来源是 Docker bridge、私有网段、反向代理或 NAS 网关地址
+- **THEN** 后端 MUST NOT 默认将该来源视为 owner
+- **AND** owner 权限 MUST 来自真实 loopback 判断或有效 owner session
+
+### Requirement: Docker 模式必须清楚呈现管理员验证与路径配置体验
+
+Sharp GUI 前端 MUST 在 Docker 模式下提供可用、清晰且符合现有 Apple 玻璃态风格的管理员验证与路径配置提示。
+
+#### Scenario: 门禁页显示 Docker 管理员验证入口
+
+- **WHEN** 访问码尚未配置
+- **AND** 后端状态显示 Docker owner bootstrap 可用
+- **THEN** 门禁页 MUST 显示 Docker 管理员验证入口
+- **AND** 入口 MUST 包含 token 密码输入、提交按钮、简短说明和错误反馈
+- **AND** 验证成功后 MUST 刷新认证状态并允许 owner 执行首次设置
+
+#### Scenario: Docker UI 遵循现有视觉规范
+
+- **WHEN** 前端新增 Docker 管理员验证或路径提示 UI
+- **THEN** UI MUST 使用现有 CSS Modules、CSS Variables、lucide 图标和 Apple 玻璃态层级
+- **AND** UI MUST NOT 使用浏览器原生 `alert()`、`prompt()`、`confirm()` 作为主要交互
+- **AND** 新增用户可见文案 MUST 同步维护 `frontend/src/i18n/en.json` 与 `frontend/src/i18n/zh.json`
+- **AND** 新增 i18n key MUST 使用 camelCase
+
+#### Scenario: 设置页解释容器内路径
+
+- **WHEN** 应用运行在 Docker 模式
+- **AND** 用户查看 workspace 或本地媒体相册目录设置
+- **THEN** 前端 MUST 说明这些路径是容器内路径
+- **AND** 前端 MUST 提示用户先通过 Docker volume 或 Compose volumes 挂载宿主机/NAS 目录
+- **AND** 文档 MUST 给出宿主机路径到容器路径的示例映射
+
+#### Scenario: Docker 路径配置不依赖不适用的宿主机文件选择器
+
+- **WHEN** 应用运行在 Docker 模式
+- **THEN** 前端 SHOULD 避免把原生文件夹选择器呈现为主要路径配置方式
+- **AND** 用户 MUST 能手动输入容器内路径
+- **AND** 后端 MUST 仍按 owner 权限保护路径写入和本地相册目录管理
+
 ### Requirement: Docker 发布自动化必须通过 GitHub Actions 构建并推送镜像
 
 Sharp GUI Docker 镜像 MUST 由仓库自动化构建和发布，而不是依赖本地手动上传。
@@ -76,6 +156,7 @@ Sharp GUI MUST 在中文和英文用户文档中说明 Docker 使用方式。
 - **WHEN** 用户阅读 `README.md` 或 `README.en.md` 中的 Docker 章节
 - **THEN** 文档 MUST 提供 CPU 与 NVIDIA CUDA 用法的可复制命令
 - **AND** 命令 MUST 包含端口映射和持久化 volume 挂载
+- **AND** 文档 MUST 说明 owner bootstrap token 的获取和使用方式
 
 #### Scenario: 用户阅读 GPU 前置条件
 
@@ -88,3 +169,10 @@ Sharp GUI MUST 在中文和英文用户文档中说明 Docker 使用方式。
 - **WHEN** 某个 release 包含 Docker 镜像支持
 - **THEN** release note MUST 提到 GHCR 镜像可用性、CPU/CUDA 变体选择和持久化数据卷
 - **AND** 中文与英文 release 文案 MUST 保持同步
+
+#### Scenario: 用户配置宿主机或 NAS 目录
+
+- **WHEN** 用户阅读 Docker 路径配置说明
+- **THEN** 文档 MUST 说明 Sharp GUI 中填写的是容器内路径
+- **AND** 文档 MUST 展示至少一个 bind mount 示例，例如 `/host/photos:/media/photos`
+- **AND** 文档 MUST 说明不应期望容器直接浏览未挂载的宿主机文件系统

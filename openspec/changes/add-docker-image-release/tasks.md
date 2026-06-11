@@ -35,3 +35,30 @@
 - [x] 5.4 文档说明默认镜像不内置 Sharp checkpoint，首次使用可能会写入 `/data` 模型缓存。
 - [x] 5.5 更新 release note 规范或 release workflow 正文，使包含 Docker 支持的 release 提到 GHCR 镜像、变体选择和持久化数据卷。
 - [x] 5.6 准备一段简洁的 GitHub Issue #8 回复，引导用户使用已发布的 GHCR 镜像，并说明 CPU/CUDA 支持范围。
+
+## 6. Docker owner 引导权限
+
+- [ ] 6.1 在容器入口中支持 `SHARP_OWNER_TOKEN`，未提供时生成高强度随机 token 并持久化到 `/data` 下的 token 文件。
+- [ ] 6.2 后端增加 Docker 运行模式和 owner bootstrap 状态摘要，状态接口不得回显完整 token。
+- [ ] 6.3 新增 owner bootstrap API，使用 JSON body 提交 token，执行同源校验、固定时间比较和失败延迟/限速。
+- [ ] 6.4 新增独立 HttpOnly owner session cookie，owner session 与普通访问码 session 分离，并随 `session_version` 失效。
+- [ ] 6.5 更新 `is_owner_request()` 或等价权限判断，使 owner-only API 接受真实 localhost owner 或有效 owner session，但不信任 Docker 网桥 IP、私有网段或转发头。
+- [ ] 6.6 更新 logout / revoke 行为，确保当前设备退出和撤销会话不会留下意外的 owner 权限。
+
+## 7. Docker 管理员验证与路径 UI
+
+- [ ] 7.1 更新前端认证类型和 API 层，支持读取 Docker owner bootstrap 可用状态并提交 owner token。
+- [ ] 7.2 在 `AccessGate` 中增加 Docker 管理员验证入口，包含 token 密码输入、提交按钮、错误反馈和成功后状态刷新。
+- [ ] 7.3 保持新增门禁 UI 与现有 Apple 玻璃态风格一致：CSS Modules、CSS Variables、lucide 图标、hover/focus-visible 和移动端可达性。
+- [ ] 7.4 在设置页 workspace 与本地媒体相册路径区域增加 Docker 模式提示，说明填写容器内路径和 volume 挂载关系。
+- [ ] 7.5 Docker 模式下避免把原生文件夹选择器呈现为主要路径配置方式，保留手动输入容器内路径的清晰路径。
+- [ ] 7.6 同步维护 `frontend/src/i18n/en.json` 和 `frontend/src/i18n/zh.json`，新增 key 使用 camelCase。
+
+## 8. Docker owner 文档与验证
+
+- [ ] 8.1 更新 `README.md`，补充 Docker owner token 获取、首次管理员验证、容器内路径和宿主机/NAS 目录挂载示例。
+- [ ] 8.2 更新 `README.en.md`，补充对应英文说明。
+- [ ] 8.3 更新 release workflow 正文和 Issue #8 回复草稿，说明 Docker 镜像支持正式管理员引导，而不是要求 `--network host`。
+- [ ] 8.4 增加后端 pytest，覆盖正确 token 获取 owner session、错误 token 不授权、普通访问码 session 不能访问 owner-only API、转发头不授予 owner。
+- [ ] 8.5 增加或更新前端测试/构建验证，覆盖 Docker 管理员验证和 i18n key 同步。
+- [ ] 8.6 用默认 bridge 模式运行 CPU 镜像，验证宿主机浏览器路径可以通过 owner token 完成首次访问码设置和 settings owner-only API。
