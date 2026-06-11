@@ -1,0 +1,143 @@
+name: Build Docker Images
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      push:
+        description: "Push images to GHCR"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: cpu
+            runtime_base: python:3.12-slim-bookworm
+            torch_index_url: https://download.pytorch.org/whl/cpu
+            smoke_device: cpu
+          - variant: cuda12.8
+            runtime_base: python:3.12-slim-bookworm
+            torch_index_url: https://download.pytorch.org/whl/cu128
+            smoke_device: cuda
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name == 'push' || inputs.push
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ github.ref_name }}-${{ matrix.variant }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=${{ matrix.variant }},enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=dev-${{ matrix.variant }},enable=${{ !startsWith(github.ref, 'refs/tags/v') }}
+          labels: |
+            org.opencontainers.image.title=Sharp GUI
+            org.opencontainers.image.description=Browser UI for Apple ml-sharp 3D Gaussian Splatting inference
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.version=${{ github.ref_name }}
+
+      - name: Build image for smoke test
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          load: true
+          tags: sharp-gui-smoke:${{ matrix.variant }}
+          build-args: |
+            RUNTIME_BASE=${{ matrix.runtime_base }}
+            TARGET_VARIANT=${{ matrix.variant }}
+            TORCH_INDEX_URL=${{ matrix.torch_index_url }}
+
+      - name: Smoke test Python runtime
+        run: |
+          docker run --rm -i --entrypoint python sharp-gui-smoke:${{ matrix.variant }} - <<'PY'
+          import flask
+          import torch
+          import sharp
+
+          print("flask", flask.__version__)
+          print("torch", torch.__version__)
+          print("torch_cuda_version", torch.version.cuda)
+          print("sharp", sharp.__name__)
+          print("cuda_available", torch.cuda.is_available())
+          expected = "${{ matrix.variant }}"
+          if expected == "cpu" and torch.version.cuda is not None:
+              raise SystemExit("CPU image unexpectedly contains a CUDA-enabled torch build")
+          if expected.startswith("cuda") and torch.version.cuda is None:
+              raise SystemExit("CUDA image does not contain a CUDA-enabled torch build")
+          PY
+
+      - name: Smoke test web startup
+        run: |
+          docker run --rm -d \
+            --name sharp-gui-smoke-${{ matrix.variant }} \
+            -e SHARP_DEVICE=${{ matrix.smoke_device }} \
+            -p 5050:5050 \
+            sharp-gui-smoke:${{ matrix.variant }}
+
+          cleanup() {
+            docker logs sharp-gui-smoke-${{ matrix.variant }} || true
+            docker rm -f sharp-gui-smoke-${{ matrix.variant }} || true
+          }
+          trap cleanup EXIT
+
+          for attempt in $(seq 1 40); do
+            if python - <<'PY'
+          import urllib.request
+          urllib.request.urlopen("http://127.0.0.1:5050/", timeout=3).read(1)
+          PY
+            then
+              echo "Sharp GUI responded on http://127.0.0.1:5050"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Sharp GUI did not become ready in time"
+          exit 1
+
+      - name: Build and push GHCR image
+        if: github.event_name == 'push' || inputs.push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            RUNTIME_BASE=${{ matrix.runtime_base }}
+            TARGET_VARIANT=${{ matrix.variant }}
+            TORCH_INDEX_URL=${{ matrix.torch_index_url }}

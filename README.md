@@ -337,6 +337,65 @@ run.bat           # Windows
 
 > 💡 想尝鲜最新功能？可下载 [Pre-release](https://github.com/lueluelue12138/sharp-gui/releases) 版本（标记为 `Pre-release` 的版本）。
 
+### 方式四：Docker 镜像 (推荐 Linux / NAS / 家庭服务器)
+
+Docker 镜像发布在 GitHub Container Registry：
+
+```bash
+ghcr.io/lueluelue12138/sharp-gui
+```
+
+CPU 环境使用 `cpu` 标签，数据会持久化到挂载的 `/data` volume：
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  ghcr.io/lueluelue12138/sharp-gui:cpu
+```
+
+NVIDIA GPU 环境使用明确的 CUDA 标签，例如 `cuda12.8`：
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  --gpus all \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  ghcr.io/lueluelue12138/sharp-gui:cuda12.8
+```
+
+指定版本时使用不可变标签：
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  ghcr.io/lueluelue12138/sharp-gui:vX.Y.Z-cpu
+```
+
+Compose 示例：
+
+```yaml
+services:
+  sharp-gui:
+    image: ghcr.io/lueluelue12138/sharp-gui:cpu
+    ports:
+      - "5050:5050"
+    volumes:
+      - sharp-gui-data:/data
+    restart: unless-stopped
+
+volumes:
+  sharp-gui-data:
+```
+
+如果使用 CUDA 镜像，需要宿主机已安装兼容的 NVIDIA 驱动和 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，并通过 `--gpus all` 或 Compose 的 GPU 配置把显卡暴露给容器。镜像本身不包含 macOS/MPS 或 Windows 容器支持。
+
+Docker 镜像默认不内置 Sharp checkpoint。首次生成 3D 模型时，`sharp` 会把约 500MB 的模型下载到 `/data/.cache/torch/hub/checkpoints/`；后续重建或升级容器时，只要复用同一个 `/data` volume，配置、上传输入、生成输出、缩略图、本地媒体图库缓存和模型缓存都会保留。
+
 ### 安装脚本做了什么？
 
 安装脚本会自动完成以下步骤，无需手动配置：

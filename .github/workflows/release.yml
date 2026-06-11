@@ -83,6 +83,14 @@ jobs:
                - **Windows**: `install.bat` 然后 `run.bat`
             3. 浏览器访问 `https://127.0.0.1:5050`
 
+            ### 🐳 Docker / GHCR
+
+            - CPU 镜像 / CPU image: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}-cpu`
+            - NVIDIA CUDA 12.8 镜像 / NVIDIA CUDA 12.8 image: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}-cuda12.8`
+            - 持久化数据卷 / Persistent data volume: mount `/data`
+            - CUDA 镜像需要宿主机已安装 NVIDIA 驱动和 NVIDIA Container Toolkit。
+            - CUDA images require a compatible host NVIDIA driver and NVIDIA Container Toolkit.
+
             📖 **详细教程 (中文)**: [查看 README](https://github.com/${{ github.repository }})
 
             📖 **English Guide**: [View README](https://github.com/${{ github.repository }}/blob/main/README.en.md)

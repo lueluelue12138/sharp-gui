@@ -336,6 +336,65 @@ run.bat           # Windows
 
 > 💡 Want latest features? Download [Pre-release](https://github.com/lueluelue12138/sharp-gui/releases) versions (marked as `Pre-release`).
 
+### Option 4: Docker Image (Recommended for Linux / NAS / Home Servers)
+
+Docker images are published to GitHub Container Registry:
+
+```bash
+ghcr.io/lueluelue12138/sharp-gui
+```
+
+Use the `cpu` tag on CPU-only hosts. Runtime data is persisted under the mounted `/data` volume:
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  ghcr.io/lueluelue12138/sharp-gui:cpu
+```
+
+Use an explicit CUDA tag, such as `cuda12.8`, on NVIDIA GPU hosts:
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  --gpus all \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  ghcr.io/lueluelue12138/sharp-gui:cuda12.8
+```
+
+For a pinned release, use the immutable version tags:
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  ghcr.io/lueluelue12138/sharp-gui:vX.Y.Z-cpu
+```
+
+Compose example:
+
+```yaml
+services:
+  sharp-gui:
+    image: ghcr.io/lueluelue12138/sharp-gui:cpu
+    ports:
+      - "5050:5050"
+    volumes:
+      - sharp-gui-data:/data
+    restart: unless-stopped
+
+volumes:
+  sharp-gui-data:
+```
+
+The CUDA image requires a compatible host NVIDIA driver and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Expose the GPU with `--gpus all` or the equivalent Compose GPU configuration. The Docker image does not provide macOS/MPS or Windows container support.
+
+Default images do not bundle the Sharp checkpoint. On first 3D generation, `sharp` downloads the ~500MB model into `/data/.cache/torch/hub/checkpoints/`. Reuse the same `/data` volume when rebuilding or upgrading the container to keep configuration, uploaded inputs, generated outputs, thumbnails, local media gallery cache, and model cache.
+
 ### What Does the Install Script Do?
 
 The install script automatically handles all setup steps, no manual configuration needed:
