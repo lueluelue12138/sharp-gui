@@ -88,6 +88,9 @@ jobs:
             - CPU 镜像 / CPU image: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}-cpu`
             - NVIDIA CUDA 12.8 镜像 / NVIDIA CUDA 12.8 image: `ghcr.io/${{ github.repository }}:${{ github.ref_name }}-cuda12.8`
             - 持久化数据卷 / Persistent data volume: mount `/data`
+            - Docker 管理员 token / Docker owner token: set `SHARP_OWNER_TOKEN` or read `/data/owner-token.txt`
+            - 宿主机/NAS 目录需先挂载到容器，再在界面中填写容器内路径。
+            - Mount host/NAS folders into the container first, then enter the container path in the UI.
             - CUDA 镜像需要宿主机已安装 NVIDIA 驱动和 NVIDIA Container Toolkit。
             - CUDA images require a compatible host NVIDIA driver and NVIDIA Container Toolkit.
 

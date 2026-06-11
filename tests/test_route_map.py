@@ -6,6 +6,7 @@ EXPECTED_ROUTES = {
     ("/api/auth/access-code", ("POST",)),
     ("/api/auth/login", ("POST",)),
     ("/api/auth/logout", ("POST",)),
+    ("/api/auth/owner-bootstrap", ("POST",)),
     ("/api/auth/revoke", ("POST",)),
     ("/api/auth/settings", ("POST",)),
     ("/api/auth/status", ("GET",)),

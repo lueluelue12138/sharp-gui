@@ -63,6 +63,178 @@ def test_forwarded_headers_do_not_grant_owner(client):
     assert response.get_json()["code"] == "OWNER_REQUIRED"
 
 
+def test_owner_bootstrap_grants_owner_session(config_file, workspace, monkeypatch):
+    monkeypatch.setenv("SHARP_DOCKER_MODE", "1")
+    monkeypatch.setenv("SHARP_OWNER_TOKEN", "owner-token-123")
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+            allow_localhost_bypass=False,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        before = remote_post(client, "/api/settings", json={"model_format": "ply"})
+        assert before.status_code == 403
+        assert before.get_json()["code"] == "OWNER_REQUIRED"
+
+        login = remote_post(client, "/api/auth/owner-bootstrap", json={"token": "owner-token-123"})
+        assert login.status_code == 200
+        payload = login.get_json()
+        assert payload["authenticated"] is True
+        assert payload["is_owner"] is True
+        assert payload["is_docker"] is True
+        assert payload["owner_bootstrap_available"] is True
+        assert "owner-token-123" not in login.get_data(as_text=True)
+
+        response = remote_post(client, "/api/settings", json={"model_format": "ply"})
+        assert response.status_code == 200
+
+
+def test_owner_session_survives_first_access_code_setup(config_file, workspace, monkeypatch):
+    monkeypatch.setenv("SHARP_DOCKER_MODE", "1")
+    monkeypatch.setenv("SHARP_OWNER_TOKEN", "owner-token-123")
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            allow_localhost_bypass=False,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        login = remote_post(client, "/api/auth/owner-bootstrap", json={"token": "owner-token-123"})
+        assert login.status_code == 200
+        assert login.get_json()["is_owner"] is True
+
+        setup = remote_post(client, "/api/auth/access-code", json={"password": "password123"})
+        assert setup.status_code == 200
+        assert setup.get_json()["is_owner"] is True
+
+        response = remote_post(client, "/api/settings", json={"model_format": "ply"})
+        assert response.status_code == 200
+
+
+def test_wrong_owner_bootstrap_token_does_not_grant_owner(config_file, workspace, monkeypatch):
+    monkeypatch.setenv("SHARP_DOCKER_MODE", "1")
+    monkeypatch.setenv("SHARP_OWNER_TOKEN", "owner-token-123")
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+            allow_localhost_bypass=False,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        login = remote_post(client, "/api/auth/owner-bootstrap", json={"token": "wrong"})
+        assert login.status_code == 401
+        assert login.get_json()["code"] == "INVALID_OWNER_TOKEN"
+
+        response = remote_post(client, "/api/settings", json={"model_format": "ply"})
+        assert response.status_code == 403
+        assert response.get_json()["code"] == "OWNER_REQUIRED"
+
+
+def test_owner_bootstrap_is_disabled_outside_docker_mode(config_file, workspace, monkeypatch):
+    monkeypatch.delenv("SHARP_DOCKER_MODE", raising=False)
+    monkeypatch.delenv("SHARP_DOCKER_VARIANT", raising=False)
+    monkeypatch.setenv("SHARP_OWNER_TOKEN", "owner-token-123")
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+            allow_localhost_bypass=False,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        status = remote_get(client, "/api/auth/status")
+        assert status.status_code == 200
+        assert status.get_json()["is_docker"] is False
+        assert status.get_json()["owner_bootstrap_available"] is False
+
+        login = remote_post(client, "/api/auth/owner-bootstrap", json={"token": "owner-token-123"})
+        assert login.status_code == 401
+        assert login.get_json()["code"] == "INVALID_OWNER_TOKEN"
+
+
+def test_access_code_session_does_not_grant_owner(config_file, workspace):
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+            allow_localhost_bypass=False,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        login = remote_post(client, "/api/auth/login", json={"password": "password123"})
+        assert login.status_code == 200
+        payload = login.get_json()
+        assert payload["authenticated"] is True
+        assert payload["is_owner"] is False
+
+        response = remote_post(client, "/api/settings", json={"model_format": "ply"})
+        assert response.status_code == 403
+        assert response.get_json()["code"] == "OWNER_REQUIRED"
+
+
+def test_forwarded_headers_do_not_grant_owner_with_docker_token_available(config_file, workspace, monkeypatch):
+    monkeypatch.setenv("SHARP_DOCKER_MODE", "1")
+    monkeypatch.setenv("SHARP_OWNER_TOKEN", "owner-token-123")
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=False,
+            allow_localhost_bypass=False,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        response = remote_post(
+            client,
+            "/api/settings",
+            json={"model_format": "ply"},
+            headers={
+                "X-Forwarded-For": "127.0.0.1",
+                "X-Real-IP": "127.0.0.1",
+                "Forwarded": "for=127.0.0.1",
+            },
+        )
+        assert response.status_code == 403
+        assert response.get_json()["code"] == "OWNER_REQUIRED"
+
+
 def test_remote_generate_requires_explicit_gate_setting(config_file, workspace):
     config = {
         "workspace_folder": str(workspace),

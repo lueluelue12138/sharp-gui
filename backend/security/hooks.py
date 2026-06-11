@@ -31,7 +31,11 @@ def register_security_hooks(app):
         if required_access != ACCESS_PUBLIC and not is_request_origin_allowed():
             return make_auth_error("Cross-origin private request is not allowed", 403, "ORIGIN_FORBIDDEN")
 
-        if request.path == "/api/auth/login" and request.method.upper() != "OPTIONS" and not is_request_origin_allowed():
+        if (
+            request.path in {"/api/auth/login", "/api/auth/owner-bootstrap"}
+            and request.method.upper() != "OPTIONS"
+            and not is_request_origin_allowed()
+        ):
             return make_auth_error("Cross-origin login request is not allowed", 403, "ORIGIN_FORBIDDEN")
 
         if required_access == ACCESS_PUBLIC:

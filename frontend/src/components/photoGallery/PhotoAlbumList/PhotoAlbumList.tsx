@@ -38,6 +38,7 @@ export function PhotoAlbumList() {
     photoAlbumsLoading,
     currentPhotoAlbumId,
     isLocalAccess,
+    authStatus,
     setPhotoAlbums,
     setPhotoAlbumsLoading,
     setCurrentPhotoAlbum,
@@ -48,11 +49,13 @@ export function PhotoAlbumList() {
       photoAlbumsLoading: state.photoAlbumsLoading,
       currentPhotoAlbumId: state.currentPhotoAlbumId,
       isLocalAccess: state.isLocalAccess,
+      authStatus: state.authStatus,
       setPhotoAlbums: state.setPhotoAlbums,
       setPhotoAlbumsLoading: state.setPhotoAlbumsLoading,
       setCurrentPhotoAlbum: state.setCurrentPhotoAlbum,
     })),
   );
+  const isDockerMode = Boolean(authStatus?.is_docker);
 
   const refreshAlbums = useCallback(async () => {
     setPhotoAlbumsLoading(true);
@@ -103,6 +106,11 @@ export function PhotoAlbumList() {
       return;
     }
 
+    if (isDockerMode) {
+      setPathDialogOpen(true);
+      return;
+    }
+
     try {
       setIsBusy(true);
       setMessage(null);
@@ -129,7 +137,7 @@ export function PhotoAlbumList() {
     } finally {
       setIsBusy(false);
     }
-  }, [isBusy, isLocalAccess, submitAlbumPath, t]);
+  }, [isBusy, isLocalAccess, isDockerMode, submitAlbumPath, t]);
 
   const handleDeleteAlbum = useCallback(async (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -221,6 +229,13 @@ export function PhotoAlbumList() {
         </div>
       ) : null}
 
+      {isLocalAccess && isDockerMode ? (
+        <div className={styles.dockerNotice}>
+          <strong>{t('dockerPhotoPathTitle')}</strong>
+          <p>{t('dockerPhotoPathDescription')}</p>
+        </div>
+      ) : null}
+
       {photoAlbums.length === 0 ? (
         <div className={styles.empty}>
           <FolderIcon width={28} height={28} />
@@ -301,8 +316,8 @@ export function PhotoAlbumList() {
       <TextInputDialog
         isOpen={pathDialogOpen}
         title={t('photoAddAlbum')}
-        label={t('photoPathPrompt')}
-        placeholder={t('photoPathPlaceholder')}
+        label={isDockerMode ? t('dockerPhotoPathPrompt') : t('photoPathPrompt')}
+        placeholder={isDockerMode ? '/media/photos' : t('photoPathPlaceholder')}
         confirmLabel={t('photoAddAlbum')}
         isBusy={isBusy}
         onSubmit={submitAlbumPath}

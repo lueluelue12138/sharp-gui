@@ -2,6 +2,9 @@ export interface AuthStatusResponse {
   authenticated: boolean;
   is_owner: boolean;
   is_local: boolean;
+  is_docker: boolean;
+  owner_bootstrap_available: boolean;
+  owner_authenticated: boolean;
   access_control_enabled: boolean;
   setup_required: boolean;
   setup_recommended: boolean;
@@ -14,6 +17,10 @@ export interface AuthStatusResponse {
 
 export interface LoginRequest {
   password: string;
+}
+
+export interface OwnerBootstrapRequest {
+  token: string;
 }
 
 export interface AccessCodeRequest {

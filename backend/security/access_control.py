@@ -11,6 +11,7 @@ from urllib.parse import urlparse
 
 from flask import jsonify, request
 
+from backend import runtime
 from backend.config import (
     coerce_bool,
     coerce_int,
@@ -20,6 +21,7 @@ from backend.config import (
 )
 
 ACCESS_COOKIE_NAME = "sharp_gui_access"
+OWNER_COOKIE_NAME = "sharp_gui_owner"
 ACCESS_PUBLIC = "public"
 ACCESS_UNLOCKED = "unlocked"
 ACCESS_OWNER = "owner"
@@ -109,6 +111,13 @@ def is_request_origin_allowed():
 
 def is_owner_request(access_config=None):
     access_config = access_config or get_access_control_config(persist_missing=False)
+    if verify_owner_session_token(request.cookies.get(OWNER_COOKIE_NAME), access_config):
+        return True
+    return is_local_owner_request(access_config)
+
+
+def is_local_owner_request(access_config=None):
+    access_config = access_config or get_access_control_config(persist_missing=False)
     if not coerce_bool(access_config.get("allow_localhost_bypass"), True):
         return False
     return is_local_request() and is_allowed_request_host()
@@ -180,6 +189,21 @@ def create_access_session_token(access_config):
     return f"{encoded}.{signature}", payload["exp"]
 
 
+def create_owner_session_token(access_config):
+    now = int(time.time())
+    session_days = coerce_int(access_config.get("session_days"), 30, 1, 365)
+    payload = {
+        "scope": "owner",
+        "v": coerce_int(access_config.get("session_version"), 1, 1),
+        "iat": now,
+        "exp": now + session_days * 86400,
+        "nonce": secrets.token_urlsafe(8),
+    }
+    encoded = encode_session_payload(payload)
+    signature = sign_session_payload(encoded, access_config["session_secret"])
+    return f"{encoded}.{signature}", payload["exp"]
+
+
 def verify_access_session_token(token, access_config):
     if not token or not isinstance(token, str) or "." not in token:
         return False
@@ -196,6 +220,35 @@ def verify_access_session_token(token, access_config):
     if coerce_int(payload.get("exp"), 0) < int(time.time()):
         return False
     return True
+
+
+def verify_owner_session_token(token, access_config):
+    if not token or not isinstance(token, str) or "." not in token:
+        return False
+    encoded, signature = token.rsplit(".", 1)
+    expected_signature = sign_session_payload(encoded, access_config.get("session_secret", ""))
+    if not hmac.compare_digest(signature, expected_signature):
+        return False
+    try:
+        payload = decode_session_payload(encoded)
+    except Exception:
+        return False
+    if payload.get("scope") != "owner":
+        return False
+    if coerce_int(payload.get("v"), 0) != coerce_int(access_config.get("session_version"), 1, 1):
+        return False
+    if coerce_int(payload.get("exp"), 0) < int(time.time()):
+        return False
+    return True
+
+
+def verify_owner_bootstrap_token(token):
+    if not runtime.is_docker_mode():
+        return False
+    expected_token = runtime.ensure_owner_token()
+    if not expected_token or not token or not isinstance(token, str):
+        return False
+    return hmac.compare_digest(token, expected_token)
 
 
 def is_authenticated_request(access_config=None):
@@ -252,7 +305,7 @@ def get_required_access_level(access_config=None):
     if method == "OPTIONS":
         return ACCESS_PUBLIC
 
-    if path in {"/", "/api/auth/status", "/api/auth/login"}:
+    if path in {"/", "/api/auth/status", "/api/auth/login", "/api/auth/owner-bootstrap"}:
         return ACCESS_PUBLIC
     if path.startswith("/assets/"):
         return ACCESS_PUBLIC
@@ -321,9 +374,11 @@ def make_auth_error(message, status_code, code, **extra):
     return jsonify(payload), status_code
 
 
-def build_auth_status(access_config=None, authenticated_override=None):
+def build_auth_status(access_config=None, authenticated_override=None, owner_override=None):
     access_config = access_config or get_access_control_config(persist_missing=False)
     owner = is_owner_request(access_config)
+    if owner_override is not None:
+        owner = owner_override
     authenticated = owner or verify_access_session_token(request.cookies.get(ACCESS_COOKIE_NAME), access_config)
     if authenticated_override is not None:
         authenticated = authenticated_override
@@ -335,6 +390,9 @@ def build_auth_status(access_config=None, authenticated_override=None):
         "authenticated": authenticated,
         "is_owner": owner,
         "is_local": owner,
+        "is_docker": runtime.is_docker_mode(),
+        "owner_bootstrap_available": runtime.is_docker_mode() and runtime.has_owner_bootstrap_token(),
+        "owner_authenticated": owner,
         "access_control_enabled": access_control_enabled,
         "setup_required": access_control_enabled and not access_code_configured,
         "setup_recommended": (not access_control_enabled) or (not access_code_configured),

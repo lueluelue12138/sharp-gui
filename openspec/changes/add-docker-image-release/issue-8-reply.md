@@ -36,3 +36,9 @@ docker run --rm -it \
 ```
 
 The CUDA image still requires a compatible host NVIDIA driver and NVIDIA Container Toolkit. The default images do not bundle the Sharp checkpoint; the first run may download it into the mounted `/data` volume, so it is reused across container upgrades.
+
+For the first administrator setup in Docker, the image supports an owner token instead of requiring host networking:
+
+- Set `SHARP_OWNER_TOKEN` yourself, or read the generated token from `/data/owner-token.txt`.
+- Enter it in the Docker administrator verification screen to configure the access code, workspace and album folders.
+- Host/NAS folders should be mounted into the container first. For example, mount `/mnt/photos:/media/photos`, then add `/media/photos` in Sharp GUI.

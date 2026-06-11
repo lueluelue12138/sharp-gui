@@ -172,6 +172,41 @@
     margin: 8px 0 0 0;
 }
 
+.dockerPathNotice {
+    margin: 0 0 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(0, 113, 227, 0.18);
+    border-radius: var(--radius-lg);
+    background: rgba(0, 113, 227, 0.08);
+}
+
+.dockerPathNotice strong {
+    display: block;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.dockerPathNotice p {
+    margin: 6px 0 0;
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.dockerPathNotice code {
+    display: block;
+    margin-top: 8px;
+    padding: 7px 9px;
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.55);
+    color: var(--text-primary);
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: normal;
+    word-break: break-word;
+}
+
 .fieldHint {
     margin: 8px 2px 0;
     font-size: 11px;
@@ -319,6 +354,15 @@
     .toggleSwitchOn {
         border-color: rgba(77, 163, 255, 0.42);
         background: linear-gradient(135deg, var(--accent-blue), #4da3ff);
+    }
+
+    .dockerPathNotice {
+        border-color: rgba(77, 163, 255, 0.22);
+        background: rgba(0, 113, 227, 0.12);
+    }
+
+    .dockerPathNotice code {
+        background: rgba(255, 255, 255, 0.08);
     }
 }
 

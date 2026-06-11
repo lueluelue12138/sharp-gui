@@ -354,6 +354,18 @@ docker run --rm -it \
   ghcr.io/lueluelue12138/sharp-gui:cpu
 ```
 
+Initial access-code setup, workspace settings and photo album folders require owner permission. With Docker's default bridge network, opening `127.0.0.1:5050` in the host browser may not appear as localhost inside the container, so the image provides a Docker administrator token:
+
+- Set one explicitly with `-e SHARP_OWNER_TOKEN=your-long-random-token`
+- If omitted, the container generates one and stores it in `/data/owner-token.txt`
+- Enter that token in the Docker administrator verification screen to get an owner session for setup
+
+With the named volume example, read the generated token with:
+
+```bash
+docker exec sharp-gui cat /data/owner-token.txt
+```
+
 Use an explicit CUDA tag, such as `cuda12.8`, on NVIDIA GPU hosts:
 
 ```bash
@@ -390,6 +402,19 @@ services:
 volumes:
   sharp-gui-data:
 ```
+
+To let Sharp GUI access host or NAS photo folders, mount them into the container first, then enter the container path in the UI:
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  -v /mnt/photos:/media/photos \
+  ghcr.io/lueluelue12138/sharp-gui:cpu
+```
+
+With the command above, add `/media/photos` in the album UI, not the host path `/mnt/photos`. The container cannot browse host paths that are not mounted.
 
 The CUDA image requires a compatible host NVIDIA driver and [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html). Expose the GPU with `--gpus all` or the equivalent Compose GPU configuration. The Docker image does not provide macOS/MPS or Windows container support.
 

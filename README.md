@@ -355,6 +355,18 @@ docker run --rm -it \
   ghcr.io/lueluelue12138/sharp-gui:cpu
 ```
 
+首次配置门禁、工作目录或照片相册时，需要管理员权限。Docker 默认 bridge 网络下，浏览器访问 `127.0.0.1:5050` 可能不会被容器识别为本机访问，因此镜像提供 Docker 管理员 token：
+
+- 可显式指定：启动时添加 `-e SHARP_OWNER_TOKEN=your-long-random-token`
+- 未指定时：容器会自动生成 token，并保存到 `/data/owner-token.txt`
+- 打开页面后，在“Docker 管理员验证”中输入该 token，即可获得管理员会话并完成首次配置
+
+使用命名 volume 时，可以这样读取自动生成的 token：
+
+```bash
+docker exec sharp-gui cat /data/owner-token.txt
+```
+
 NVIDIA GPU 环境使用明确的 CUDA 标签，例如 `cuda12.8`：
 
 ```bash
@@ -391,6 +403,19 @@ services:
 volumes:
   sharp-gui-data:
 ```
+
+如果要让 Sharp GUI 访问宿主机或 NAS 上的照片目录，请先把目录挂载到容器，再在界面中填写容器内路径：
+
+```bash
+docker run --rm -it \
+  --name sharp-gui \
+  -p 5050:5050 \
+  -v sharp-gui-data:/data \
+  -v /mnt/photos:/media/photos \
+  ghcr.io/lueluelue12138/sharp-gui:cpu
+```
+
+例如上面的命令中，界面里的相册目录应填写 `/media/photos`，而不是宿主机上的 `/mnt/photos`。容器无法直接浏览未挂载的宿主机文件系统。
 
 如果使用 CUDA 镜像，需要宿主机已安装兼容的 NVIDIA 驱动和 [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)，并通过 `--gpus all` 或 Compose 的 GPU 配置把显卡暴露给容器。镜像本身不包含 macOS/MPS 或 Windows 容器支持。
 

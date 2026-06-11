@@ -31,6 +31,13 @@ const FolderIcon = () => (
     </svg>
 );
 
+const isDockerPath = (path: string) => (
+    path.startsWith('/data') ||
+    path.startsWith('/media') ||
+    path.startsWith('/mnt') ||
+    path.startsWith('/app')
+);
+
 export const Settings: React.FC = () => {
     const { t } = useTranslation();
     const {
@@ -95,6 +102,7 @@ export const Settings: React.FC = () => {
 
     // Track if workspace_folder changed (needs restart)
     const [originalWorkspace, setOriginalWorkspace] = useState('');
+    const isDockerMode = Boolean(authStatus?.is_docker);
 
     const reloadCurrentModel = () => {
         if (currentModelId && currentModelUrl) {
@@ -604,6 +612,13 @@ export const Settings: React.FC = () => {
                         <label className={styles.label}>
                             Workspace Folder ({t('workspaceFolder') || '工作目录'})
                         </label>
+                        {isDockerMode ? (
+                            <div className={styles.dockerPathNotice}>
+                                <strong>{t('dockerPathNoticeTitle')}</strong>
+                                <p>{t('dockerPathNoticeDescription')}</p>
+                                <code>{t('dockerPathNoticeExample')}</code>
+                            </div>
+                        ) : null}
                         <div className={styles.inputWrapper}>
                             <input
                                 type="text"
@@ -612,17 +627,22 @@ export const Settings: React.FC = () => {
                                 onChange={(e) => setWorkspaceFolder(e.target.value)}
                                 placeholder="/path/to/workspace"
                             />
-                            <button
-                                className={styles.browseBtn}
-                                onClick={handleBrowse}
-                                title="Browse"
-                            >
-                                <FolderIcon />
-                            </button>
+                            {!isDockerMode ? (
+                                <button
+                                    className={styles.browseBtn}
+                                    onClick={handleBrowse}
+                                    title="Browse"
+                                >
+                                    <FolderIcon />
+                                </button>
+                            ) : null}
                         </div>
                         <p className={styles.hint}>
                             📁 inputs/ ({t('images') || '图片'}) &nbsp;&nbsp; 📁 outputs/ ({t('models') || '模型'})
                         </p>
+                        {isDockerMode && workspaceFolder && !isDockerPath(workspaceFolder) ? (
+                            <p className={styles.warning}>{t('dockerPathWorkspaceWarning')}</p>
+                        ) : null}
                     </div>
                 )}
 

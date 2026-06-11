@@ -8,12 +8,16 @@ from backend.config import coerce_bool, coerce_int, load_config, normalize_acces
 from backend.config import has_access_code, is_access_control_enabled
 from backend.security.access_control import (
     ACCESS_COOKIE_NAME,
+    OWNER_COOKIE_NAME,
     build_auth_status,
     clear_login_failures,
     create_access_session_token,
+    create_owner_session_token,
     get_login_delay_seconds,
+    is_local_owner_request,
     make_auth_error,
     record_login_failure,
+    verify_owner_bootstrap_token,
 )
 
 bp = Blueprint("auth", __name__)
@@ -68,15 +72,52 @@ def auth_login():
     return response
 
 
+@bp.route("/api/auth/owner-bootstrap", methods=["POST"])
+def auth_owner_bootstrap():
+    delay_seconds = get_login_delay_seconds()
+    if delay_seconds:
+        time.sleep(delay_seconds)
+
+    data = request.get_json(silent=True) or {}
+    token_value = data.get("token") or data.get("owner_token") or data.get("ownerToken")
+    if not verify_owner_bootstrap_token(token_value):
+        record_login_failure()
+        return make_auth_error("Invalid owner token", 401, "INVALID_OWNER_TOKEN")
+
+    clear_login_failures()
+    access_config = g.access_control
+    token, expires_at = create_owner_session_token(access_config)
+    response = jsonify(build_auth_status(access_config, authenticated_override=True, owner_override=True))
+    response.set_cookie(
+        OWNER_COOKIE_NAME,
+        token,
+        max_age=coerce_int(access_config.get("session_days"), 30, 1, 365) * 86400,
+        expires=datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc),
+        httponly=True,
+        secure=request.is_secure,
+        samesite="Strict",
+        path="/",
+    )
+    return response
+
+
 @bp.route("/api/auth/logout", methods=["POST"])
 def auth_logout():
-    response = jsonify(build_auth_status(g.access_control, authenticated_override=g.is_owner))
+    local_owner = is_local_owner_request(g.access_control)
+    authenticated = local_owner or not is_access_control_enabled(g.access_control)
+    response = jsonify(build_auth_status(
+        g.access_control,
+        authenticated_override=authenticated,
+        owner_override=local_owner,
+    ))
     response.delete_cookie(ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(OWNER_COOKIE_NAME, path="/")
     return response
 
 
 @bp.route("/api/auth/access-code", methods=["POST"])
 def auth_set_access_code():
+    was_owner = g.is_owner
     data = request.get_json(silent=True) or {}
     password = data.get("password") or data.get("access_code") or data.get("accessCode")
     if not isinstance(password, str) or len(password) < 8:
@@ -99,7 +140,24 @@ def auth_set_access_code():
     current_config["access_control"] = access_config
     save_config(current_config)
 
-    return jsonify(build_auth_status(access_config, authenticated_override=True))
+    response = jsonify(build_auth_status(
+        access_config,
+        authenticated_override=True,
+        owner_override=was_owner,
+    ))
+    if was_owner and not is_local_owner_request(access_config):
+        token, expires_at = create_owner_session_token(access_config)
+        response.set_cookie(
+            OWNER_COOKIE_NAME,
+            token,
+            max_age=coerce_int(access_config.get("session_days"), 30, 1, 365) * 86400,
+            expires=datetime.datetime.fromtimestamp(expires_at, datetime.timezone.utc),
+            httponly=True,
+            secure=request.is_secure,
+            samesite="Strict",
+            path="/",
+        )
+    return response
 
 
 @bp.route("/api/auth/revoke", methods=["POST"])
@@ -109,7 +167,16 @@ def auth_revoke_sessions():
     access_config["session_version"] = coerce_int(access_config.get("session_version"), 1, 1) + 1
     current_config["access_control"] = access_config
     save_config(current_config)
-    return jsonify(build_auth_status(access_config, authenticated_override=True))
+    local_owner = is_local_owner_request(access_config)
+    authenticated = local_owner or not is_access_control_enabled(access_config)
+    response = jsonify(build_auth_status(
+        access_config,
+        authenticated_override=authenticated,
+        owner_override=local_owner,
+    ))
+    response.delete_cookie(ACCESS_COOKIE_NAME, path="/")
+    response.delete_cookie(OWNER_COOKIE_NAME, path="/")
+    return response
 
 
 @bp.route("/api/auth/settings", methods=["POST"])

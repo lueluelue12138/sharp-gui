@@ -3,6 +3,7 @@ import type {
   AuthSettingsRequest,
   AuthStatusResponse,
   LoginRequest,
+  OwnerBootstrapRequest,
 } from '@/types';
 
 import { apiGet, apiPost } from './client';
@@ -13,6 +14,10 @@ export async function fetchAuthStatus(): Promise<AuthStatusResponse> {
 
 export async function loginWithAccessCode(request: LoginRequest): Promise<AuthStatusResponse> {
   return apiPost<AuthStatusResponse>('/api/auth/login', request);
+}
+
+export async function loginWithOwnerToken(request: OwnerBootstrapRequest): Promise<AuthStatusResponse> {
+  return apiPost<AuthStatusResponse>('/api/auth/owner-bootstrap', request);
 }
 
 export async function logoutAccessSession(): Promise<AuthStatusResponse> {

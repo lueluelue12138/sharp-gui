@@ -126,6 +126,28 @@
   background: rgba(255, 255, 255, 0.46);
 }
 
+.dockerNotice {
+  margin: 0 4px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 113, 227, 0.18);
+  border-radius: var(--radius-lg);
+  background: rgba(0, 113, 227, 0.08);
+}
+
+.dockerNotice strong {
+  display: block;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.dockerNotice p {
+  margin: 5px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .list {
   flex: 1;
   min-height: 0;
@@ -256,6 +278,13 @@
 @media (hover: none) {
   .actions {
     opacity: 1;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .dockerNotice {
+    border-color: rgba(77, 163, 255, 0.22);
+    background: rgba(0, 113, 227, 0.12);
   }
 }
 

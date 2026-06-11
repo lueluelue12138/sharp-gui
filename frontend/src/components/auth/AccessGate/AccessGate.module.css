@@ -53,6 +53,34 @@
   margin-top: 24px;
 }
 
+.ownerCard {
+  padding: 14px;
+  border: 1px solid var(--glass-border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.42);
+}
+
+.ownerCardHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--accent-blue);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.ownerCard p {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ownerCard .ownerHint {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
 .label {
   font-size: 13px;
   font-weight: 600;
@@ -118,5 +146,9 @@
 @media (prefers-color-scheme: dark) {
   .input {
     background: rgba(20, 20, 24, 0.72);
+  }
+
+  .ownerCard {
+    background: rgba(255, 255, 255, 0.06);
   }
 }

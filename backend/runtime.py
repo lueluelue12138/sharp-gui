@@ -1,6 +1,7 @@
 import logging
 import os
 import platform
+import secrets
 import shutil
 import ssl
 import sys
@@ -36,9 +37,67 @@ SHARP_DEBUG = os.environ.get("SHARP_DEBUG", "").strip().lower() in {
 DEFAULT_WORKSPACE_FOLDER = BASE_DIR
 
 
+def coerce_env_bool(value, default=False):
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def get_config_file():
     """Return the active config file path, allowing tests to isolate config."""
     return os.environ.get("SHARP_CONFIG_FILE", CONFIG_FILE)
+
+
+def is_docker_mode():
+    """Return whether Docker-specific runtime UX should be enabled."""
+    if "SHARP_DOCKER_MODE" in os.environ:
+        return coerce_env_bool(os.environ.get("SHARP_DOCKER_MODE"), False)
+    return bool(os.environ.get("SHARP_DOCKER_VARIANT"))
+
+
+def get_owner_token_file():
+    path = os.environ.get("SHARP_OWNER_TOKEN_FILE", "").strip()
+    if path:
+        return path
+    data_dir = os.environ.get("SHARP_DATA_DIR", "").strip()
+    if data_dir:
+        return os.path.join(data_dir, "owner-token.txt")
+    return ""
+
+
+def ensure_owner_token():
+    """Return the Docker owner bootstrap token, creating a token file if needed."""
+    env_token = os.environ.get("SHARP_OWNER_TOKEN", "").strip()
+    if env_token:
+        return env_token
+
+    token_file = get_owner_token_file()
+    if not token_file:
+        return ""
+
+    if os.path.exists(token_file):
+        try:
+            with open(token_file, "r", encoding="utf-8") as file_obj:
+                return file_obj.read().strip()
+        except OSError:
+            return ""
+
+    try:
+        token_dir = os.path.dirname(token_file)
+        if token_dir:
+            os.makedirs(token_dir, exist_ok=True)
+        token = secrets.token_urlsafe(32)
+        with open(token_file, "w", encoding="utf-8") as file_obj:
+            file_obj.write(token)
+            file_obj.write("\n")
+        os.chmod(token_file, 0o600)
+        return token
+    except OSError:
+        return ""
+
+
+def has_owner_bootstrap_token():
+    return bool(ensure_owner_token())
 
 
 def resolve_sharp_command():
