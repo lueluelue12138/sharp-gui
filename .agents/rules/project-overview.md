@@ -111,6 +111,52 @@ sharp-gui/
 └── docs/                     # GitHub Pages 产品介绍页
 ```
 
+## 用户数据与运行时目录总表
+
+Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增目录前必须先归类：随 `workspace_folder` 切换的用户数据、项目根部署配置/密钥、依赖目录，或本地构建缓存。
+
+### Workspace 绑定数据
+
+以下路径必须由 `backend/paths.py` 的 `PathContext` 或明确基于 `PathContext.workspace_folder` 的 helper 派生；Settings 切换工作目录后需要重启服务重建路径上下文，切回旧 workspace 应恢复旧状态。
+
+| 路径 | 内容 | 备注 |
+|------|------|------|
+| `{workspace}/inputs/` | 上传图片、照片转 3D 队列输入副本 | 原始相册媒体不会直接搬进来，只有提交生成时复制 |
+| `{workspace}/inputs/.thumbnails/` | 历史/模型缩略图缓存 | 属于 `/files/*` 允许服务根之一 |
+| `{workspace}/outputs/` | 生成模型文件 | 当前主要包含 `.ply`、自动转换的 `.spz` 和同名 sidecar |
+| `{workspace}/outputs/*.meta.json` | 生成模型来源元数据 | 记录视频来源、质量、引擎、受控源引用；响应不得暴露绝对磁盘路径 |
+| `{workspace}/model-assets/imports/` | 导入的模型资产文件 | 只保存白名单格式，属于 `/files/*` 允许服务根之一 |
+| `{workspace}/model-assets/thumbnails/` | 模型资产封面缓存 | 属于 `/files/*` 允许服务根之一 |
+| `{workspace}/.model-asset-library/index.json` | 模型资产索引、默认格式、标签、备注、用户编辑信息 | 敏感状态文件，不得加入静态服务白名单 |
+| `{workspace}/.photo-gallery-cache/catalog.json` | 本地媒体图库相册摘要 | 进入图库后按需读写，可重建 |
+| `{workspace}/.photo-gallery-cache/albums/` | 单相册媒体索引 | 普通分页/筛选/排序只读对应相册索引 |
+| `{workspace}/.photo-gallery-cache/thumbnails/` | 照片缩略图缓存 | 可删除后重建，不影响原图 |
+| `{workspace}/.photo-gallery-cache/video-posters/` | 视频 poster 缓存 | 可删除后重建，不影响原视频 |
+| `{workspace}/.photo-gallery-cache/photo-gallery-*.zip` | 批量下载临时 ZIP | 响应结束后清理，启动/创建前可清理过期残留 |
+| `{workspace}/.photo-gallery-cache/index.json` | 旧版图库缓存索引 | 仅作为兼容迁移来源，不应新增依赖 |
+| `{workspace}/.video-reconstruction/jobs/` | 视频重建每任务工作目录 | 包含抽帧、位姿、训练、导出、中间日志；按保留策略清理 |
+| `{workspace}/.video-reconstruction/uploads/` | 拖入/上传视频的受控缓存 | 删除对应生成模型时可清理；本地相册源视频必须保持只读 |
+
+### 项目根状态与依赖
+
+以下路径位于项目根，不随 workspace 切换。它们也属于运行时或本机环境状态，必须保持 `.gitignore` 覆盖，并按敏感度控制访问。
+
+| 路径 | 内容 | 备注 |
+|------|------|------|
+| `config.json` | 当前 `workspace_folder`、门禁、默认格式、按 workspace 分桶的相册配置 | 包含 session secret / access-code hash，不得通过 `/files/*` 暴露 |
+| `cert.pem` / `key.pem` | 本地 HTTPS 证书与私钥 | 私钥敏感，不得服务、提交或打包进共享示例 |
+| `sharp-gui-verbose.log` / `*.log` | 本地诊断日志 | 可能包含路径和错误上下文，默认忽略 |
+| `venv/` | 主程序 Python 虚拟环境 | 依赖目录，不是用户 workspace 状态 |
+| `.video-reconstruction-env/` | 视频重建独立 Python 环境 | 可复用或重建，不跟 workspace 切换 |
+| `ml-sharp/` | Apple ML-Sharp 引擎目录 | 上游依赖目录，不要修改内部文件 |
+| `.portable-build/`、`.portable-smoke/`、`.portable-venvs/`、`portable-dist/` | 本地便携包构建缓存和产物 | 构建输出，不属于源码 |
+
+维护要求：
+
+- 新增持久化用户数据目录时，必须先判断是否应随 workspace 切换；如果应切换，统一从 `PathContext` 派生，并同步更新本表、`.gitignore`、README 和相关后端路径规则。
+- 新增项目根配置、密钥、日志、依赖或构建输出时，必须在本表说明“不随 workspace 切换”的原因，并确认 `.gitignore` 覆盖。
+- `/files/*` 白名单只表示允许浏览器读取的公开资源根，不等于用户数据目录清单；索引、配置、证书、源码和日志不得为了省事加入静态服务根。
+
 ## 关键依赖版本
 
 ### 前端 (package.json)
@@ -183,6 +229,7 @@ sharp-gui/
 - 生成完成后自动转换 `.spz` 紧凑模型；用户设置可在 PLY / SPZ 之间选择默认查看和下载格式。
 - 模型资产库通过 `/api/model-assets` 统一展示生成模型与导入的 PLY/SPZ/SPLAT/RAD；旧 `/api/gallery` 仍作为兼容模型列表保留，不应继续承载导入、详情面板、筛选排序等新主路径。
 - 模型资产导入文件写入 `{workspace}/model-assets/imports/`，模型封面写入 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息写入 `{workspace}/.model-asset-library/index.json`；这些路径必须由 `PathContext` 派生，不得在前端或路由层拼接绝对路径。
+- 模型资产库的运行时数据必须随 Settings 的 `workspace_folder` 切换；切换工作目录保存后需要重启服务以重建 `PathContext`，重启后读取新 workspace 的 `model-assets/` 与 `.model-asset-library/`，切回旧 workspace 应恢复旧 workspace 的资产状态。
 - 模型资产库主区域使用游标式滚动增量加载，不显示分页器或每页数量选择；网格密度只影响展示列数，筛选、排序或密度变化只重置游标并请求下一批，不触发全目录重扫。
 - 模型资产打开、下载和近期模型展示应通过 `resolveModelAssetSource` 或等价逻辑遵守 `model_format` 默认格式偏好，并在首选格式缺失时回退到资产可用文件。
 - 模型资产详情可从 PLY/SPLAT 解析部分点数或属性；SPZ/RAD 的包围盒、坐标系、LoD、chunk 等高级信息只有 sidecar 或源格式明确提供时才展示，不能为了填空伪造“计算结果”。

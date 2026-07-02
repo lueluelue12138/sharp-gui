@@ -532,14 +532,16 @@ Configure via UI settings or edit `config.json` (generated on first run):
 
 The system auto-creates:
 
-- `inputs/` - Uploaded images
-- `outputs/` - Generated models
-- `model-assets/` - Imported model files and cached model covers
-- `.model-asset-library/` - Model asset index and user-edited metadata
-- `.photo-gallery-cache/` - Local photo gallery index and cached thumbnails
-- `.video-reconstruction/` - Video reconstruction jobs, uploaded video cache, and intermediate files
+- `inputs/` - Uploaded images; `inputs/.thumbnails/` stores legacy/model thumbnail cache
+- `outputs/` - Generated models and sidecar metadata (`.ply` / `.spz` / `.meta.json`)
+- `model-assets/` - Controlled model asset file area: `imports/` stores imported models, `thumbnails/` stores cached covers
+- `.model-asset-library/` - Model asset index and user-edited metadata (`index.json`)
+- `.photo-gallery-cache/` - Local media gallery cache: `catalog.json`, `albums/`, `thumbnails/`, `video-posters/`, and temporary ZIP packages
+- `.video-reconstruction/` - Video reconstruction runtime data: `jobs/` and `uploads/`
 
-These workspace runtime folders are user data and are ignored by `.gitignore` by default; they should not be committed.
+These workspace runtime folders are user data and are ignored by `.gitignore` by default; they should not be committed. After changing the workspace in Settings and letting the app restart, `inputs/`, `outputs/`, `model-assets/`, `.model-asset-library/`, `.photo-gallery-cache/`, and `.video-reconstruction/` all switch to the new workspace. Switching back to an old workspace restores that workspace's model assets, recent-model index, gallery cache, and task-related state.
+
+Project-root `config.json`, `cert.pem` / `key.pem`, `sharp-gui-verbose.log`, `venv/`, `.video-reconstruction-env/`, and `ml-sharp/` are deployment config, certificates, logs, or dependency folders. They do not switch with the workspace; sensitive files are never exposed through `/files/*`.
 
 > 💡 Albums can be added from the UI and are remembered per workspace: `photo_gallery_roots_by_workspace` is keyed by the normalized workspace path, so switching workspaces shows each one's own albums and switching back restores them. When editing manually, use paths from the server machine. Windows, Linux, and macOS are supported; LAN clients browse folders on the host running Sharp GUI.
 >

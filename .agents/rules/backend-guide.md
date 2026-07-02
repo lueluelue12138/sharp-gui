@@ -169,19 +169,23 @@ model_asset_library_folder = os.path.join(workspace_folder, '.model-asset-librar
 model_asset_index_file = os.path.join(model_asset_library_folder, 'index.json')
 video_reconstruction_folder = os.path.join(workspace_folder, '.video-reconstruction')
 video_reconstruction_jobs_folder = os.path.join(video_reconstruction_folder, 'jobs')
+video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 'uploads')
 ```
 
 ### 规则
 
 - 使用 `os.path` 构造绝对路径，不使用字符串拼接
 - `secure_filename()` 处理用户上传的文件名
+- 新增持久化目录时，先归类为 workspace 绑定用户数据、项目根配置/密钥、依赖目录或构建缓存；workspace 绑定数据必须由 `PathContext` 或基于 `PathContext.workspace_folder` 的 helper 派生，不得硬编码在项目根
+- 新增运行时目录必须同步更新 `.agents/rules/project-overview.md` 的“用户数据与运行时目录总表”、README 工作目录说明和 `.gitignore`
 - 缩略图存储在 `{workspace}/inputs/.thumbnails/`
 - 模型资产导入文件存储在 `{workspace}/model-assets/imports/`，封面缓存存储在 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息存储在 `{workspace}/.model-asset-library/index.json`
+- 这些模型资产路径必须始终由当前 `PathContext.workspace_folder` 派生；Settings 切换工作目录后需要重启服务重建 `PathContext`，不得把模型资产索引或导入目录保存在项目根的全局位置
 - 本地媒体图库 catalog、每相册索引、照片缩略图、视频 poster 和批量下载临时 ZIP 存储在 `{workspace}/.photo-gallery-cache/`
-- 视频重建中间文件、Nerfstudio 数据、日志和拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/`
+- 视频重建中间文件、Nerfstudio 数据、日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
 - 输出目录同时保留 `.ply` 原始模型和自动生成的 `.spz` 紧凑模型
 - 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、引擎和受控源视频引用；JSON 响应不得暴露 `source_video_path`
-- 配置文件 `config.json` 位于项目根目录（`BASE_DIR`）
+- 配置文件 `config.json` 位于项目根目录（`BASE_DIR`），不随 workspace 切换；证书、私钥、日志和依赖目录同样是项目根运行时/部署状态，不得通过 `/files/*` 暴露
 - 本地媒体图库 API 只接受 photo/media/video id，不接受任意绝对路径；后端必须从索引反查原始文件并再次校验 root
 - 模型资产 API 只接受 asset id 与受支持扩展名，不接受前端传入的服务器绝对路径；导入、封面和下载路径必须从资产索引或受控目录反查并再次校验 root
 - 本地媒体图库正常读路径不得依赖全局可变索引文件：相册列表读 `catalog.json`，相册分页/筛选/排序读 `albums/<album_id>.json`，媒体解析通过可解析 media id 定位相册索引

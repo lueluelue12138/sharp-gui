@@ -6,7 +6,7 @@ from io import BytesIO
 from werkzeug.datastructures import FileStorage
 
 from backend.config import coerce_bool, coerce_int, normalize_access_control_config
-from backend.paths import build_path_context
+from backend.paths import build_path_context, ensure_runtime_directories
 from backend.services.photo_gallery import (
     MEDIA_TYPE_IMAGE,
     MEDIA_TYPE_VIDEO,
@@ -33,7 +33,7 @@ from backend.services.photo_gallery import (
     scan_photo_album,
     upload_photos_to_album,
 )
-from backend.services import model_gallery, video_reconstruction
+from backend.services import model_assets, model_gallery, video_reconstruction
 from backend.services.static_files import is_real_path_inside
 from backend.services.task_queue import TaskManager
 from tests.conftest import write_config
@@ -137,6 +137,60 @@ def test_video_process_env_prioritizes_portable_wrappers(tmp_path, monkeypatch):
     assert path_parts[:3] == [str(portable_bin), str(scripts_dir), str(colmap_bin)]
     assert path_parts.count(str(portable_bin)) == 1
     assert path_parts.count(str(scripts_dir)) == 1
+
+
+def test_model_asset_library_state_is_scoped_to_workspace(tmp_path):
+    workspace_a = tmp_path / "workspace-a"
+    workspace_b = tmp_path / "workspace-b"
+    paths_a = build_path_context({"workspace_folder": str(workspace_a)})
+    paths_b = build_path_context({"workspace_folder": str(workspace_b)})
+    ensure_runtime_directories(paths_a)
+    ensure_runtime_directories(paths_b)
+
+    with open(os.path.join(paths_a.output_folder, "demo.ply"), "wb") as file:
+        file.write(b"workspace-a-model")
+    with open(os.path.join(paths_b.output_folder, "demo.ply"), "wb") as file:
+        file.write(b"workspace-b-model")
+
+    edited_a = model_assets.update_model_asset_profile(
+        paths_a,
+        "demo",
+        {"display_name": "Workspace A Demo", "tags": ["a"], "note": "state a"},
+    )
+    edited_b = model_assets.update_model_asset_profile(
+        paths_b,
+        "demo",
+        {"display_name": "Workspace B Demo", "tags": ["b"], "note": "state b"},
+    )
+
+    assert edited_a["name"] == "Workspace A Demo"
+    assert edited_b["name"] == "Workspace B Demo"
+    assert paths_a.model_asset_index_file != paths_b.model_asset_index_file
+    assert os.path.isfile(paths_a.model_asset_index_file)
+    assert os.path.isfile(paths_b.model_asset_index_file)
+
+    imported_a = model_assets.import_model_assets(
+        paths_a,
+        [FileStorage(stream=BytesIO(b"imported-a"), filename="same-name.ply")],
+    )
+    imported_b = model_assets.import_model_assets(
+        paths_b,
+        [FileStorage(stream=BytesIO(b"imported-b"), filename="same-name.ply")],
+    )
+
+    imported_a_asset = imported_a["assets"][0]
+    imported_b_asset = imported_b["assets"][0]
+    assert imported_a_asset["id"] != imported_b_asset["id"]
+    assert os.path.isfile(os.path.join(paths_a.model_asset_import_folder, "same-name.ply"))
+    assert os.path.isfile(os.path.join(paths_b.model_asset_import_folder, "same-name.ply"))
+
+    names_a = {asset["name"] for asset in model_assets.list_model_assets(paths_a, {})["items"]}
+    names_b = {asset["name"] for asset in model_assets.list_model_assets(paths_b, {})["items"]}
+
+    assert "Workspace A Demo" in names_a
+    assert "Workspace B Demo" not in names_a
+    assert "Workspace B Demo" in names_b
+    assert "Workspace A Demo" not in names_b
 
 
 def test_real_path_inside_handles_escape(tmp_path):

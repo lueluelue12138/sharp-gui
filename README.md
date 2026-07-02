@@ -533,14 +533,16 @@ rm -rf sharp-gui/
 
 系统会自动在工作目录下创建：
 
-- `inputs/` - 上传的图片
-- `outputs/` - 生成的模型
-- `model-assets/` - 导入模型文件与模型资产封面缓存
-- `.model-asset-library/` - 模型资产索引与用户编辑信息
-- `.photo-gallery-cache/` - 本地照片图库索引与缩略图缓存
-- `.video-reconstruction/` - 视频重建中间文件、上传视频缓存和任务 job 目录
+- `inputs/` - 上传图片；`inputs/.thumbnails/` 保存历史/模型缩略图缓存
+- `outputs/` - 生成模型和 sidecar 元数据（`.ply` / `.spz` / `.meta.json`）
+- `model-assets/` - 模型资产受控文件区：`imports/` 保存导入模型，`thumbnails/` 保存封面缓存
+- `.model-asset-library/` - 模型资产索引与用户编辑信息（`index.json`）
+- `.photo-gallery-cache/` - 本地媒体图库缓存：`catalog.json`、`albums/`、`thumbnails/`、`video-posters/` 和临时打包 ZIP
+- `.video-reconstruction/` - 视频重建运行时数据：`jobs/` 和 `uploads/`
 
-这些工作区运行时目录属于用户数据，默认已在 `.gitignore` 中排除，不应提交到仓库。
+这些工作区运行时目录属于用户数据，默认已在 `.gitignore` 中排除，不应提交到仓库。切换 Settings 中的工作目录并自动重启后，`inputs/`、`outputs/`、`model-assets/`、`.model-asset-library/`、`.photo-gallery-cache/` 和 `.video-reconstruction/` 都会切到新工作目录；切回旧工作目录即可找回对应的模型资产、近期模型索引、相册缓存和任务相关状态。
+
+项目根目录下的 `config.json`、`cert.pem` / `key.pem`、`sharp-gui-verbose.log` 以及 `venv/`、`.video-reconstruction-env/`、`ml-sharp/` 是部署配置、证书、日志或依赖目录，不随 workspace 切换；其中敏感文件不会通过 `/files/*` 暴露。
 
 > 💡 相册可通过界面添加，并按工作目录分别记忆：`photo_gallery_roots_by_workspace` 以归一化后的工作目录路径为键，切换工作目录时各自展示对应相册，切回原目录即可恢复。手动编辑时请按部署端系统填写路径。Windows、Linux、macOS 均可使用，局域网设备访问时读取的是服务器所在机器的目录。
 >
