@@ -12,6 +12,29 @@ def test_model_file_under_allowed_root_is_served(client, app):
     assert response.data == b"ply-data"
 
 
+def test_imported_model_and_cover_roots_are_served_but_index_is_not(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    model_path = paths.model_asset_import_folder + "/imported.ply"
+    cover_path = paths.model_asset_thumbnail_folder + "/imported.jpg"
+    with open(model_path, "wb") as f:
+        f.write(b"imported-ply")
+    with open(cover_path, "wb") as f:
+        f.write(b"cover")
+
+    model_response = client.get(f"/files/{get_relative_files_path(model_path, paths)}")
+    assert model_response.status_code == 200
+    assert model_response.data == b"imported-ply"
+
+    cover_response = client.get(f"/files/{get_relative_files_path(cover_path, paths)}")
+    assert cover_response.status_code == 200
+    assert cover_response.data == b"cover"
+
+    with open(paths.model_asset_index_file, "wb") as f:
+        f.write(b"secret-index")
+    index_response = client.get(f"/files/{get_relative_files_path(paths.model_asset_index_file, paths)}")
+    assert index_response.status_code == 404
+
+
 def test_sensitive_files_are_not_served(client):
     response = client.get("/files/config.json")
     assert response.status_code == 404

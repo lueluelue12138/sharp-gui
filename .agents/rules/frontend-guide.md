@@ -81,6 +81,7 @@ const classes = [
 | `components/common/` | 通用 UI 组件，不含业务逻辑 | Button, Modal, Loading, Icons, ImageViewer, ConfirmDialog, SelectMenu, TextInputDialog |
 | `components/auth/` | 局域网门禁与启动安全提示 | AccessGate, AccessSetupPrompt |
 | `components/gallery/` | 模型图库相关组件 | GalleryItem, GalleryList |
+| `components/modelAssets/` | 模型资产库业务组件 | ModelAssetLibraryView, ModelAssetGrid, ModelAssetToolbar, ModelAssetDetailsPanel |
 | `components/photoGallery/` | 本地媒体图库业务组件（历史目录名保留） | PhotoAlbumList, PhotoGalleryView, PhotoMasonryGrid, PhotoSelectionBar, PhotoToolbar |
 | `components/layout/` | 页面布局与导航组件 | Sidebar, ControlsBar, Settings, Help |
 | `components/viewer/` | 3D 查看器相关组件 | ViewerCanvas, QuickControls, ViewerRevealEffectsRail, GyroIndicator, VirtualJoystick, SpeedTooltip |
@@ -128,7 +129,8 @@ export const useAppStore = create<AppState>((set) => ({
 当前 store 同时承载模型工作区与本地媒体图库工作区：
 
 - `activeView` 在 `models` / `photos` 间切换；UI 文案可显示为“图库”，但状态值保持历史兼容。
-- 模型图库仍使用 `galleryItems`、`selectedModel` 等字段。
+- 旧模型图库兼容路径仍使用 `galleryItems`、`selectedModel` 等字段。
+- 模型资产库使用 `modelAssets`、`modelAssetFilters`、`modelAssetSort`、`modelAssetDensity`、`modelAssetCursor`、`modelAssetHasMore`、`selectedModelAssetId`、`modelAssetSelectionMode`、`selectedModelAssetIds`、`modelAssetImporting` 等字段；不要把资产库列表再塞回旧 `galleryItems`。
 - 本地媒体图库使用 `photoAlbums`、`currentPhotoAlbumId`、`photoItems`、`photoNextCursor`、`photoMediaType`、`photoSelectionMode`、`selectedPhotoIds`、`previewPhoto` 等独立字段，避免影响 3D 查看器状态。
 - `PhotoItem.media_type` 支持 `image` / `video`，`photoMediaType` 支持 `all` / `image` / `video`；视频条目通过 `poster_url`、`playback_url`、`download_url` 和可选元数据驱动卡片与预览。
 - 视频 3DGS 重建状态放在同一个 store 中的必要字段：重建弹窗打开状态、目标视频、默认配置、依赖诊断状态和提交中状态；不要为视频重建单独新建全局 store。
@@ -156,6 +158,7 @@ api/
 ├── client.ts    # 底层 fetch 封装（apiGet, apiPost, apiPostFormData, apiDelete）
 ├── auth.ts      # 局域网门禁、访问码、会话与远程生成设置 API
 ├── gallery.ts   # 图库相关 API
+├── modelAssets.ts # 模型资产库列表、详情、导入、封面、下载、删除 API
 ├── photoGallery.ts # 本地媒体相册、媒体列表、扫描、转换/下载 API
 ├── videoReconstruction.ts # 视频重建创建、上传创建与依赖诊断 API
 ├── tasks.ts     # 任务相关 API
@@ -217,6 +220,7 @@ export const useMyHook = (param: ParamType) => {
 | Viewer 操作 | 接收 `viewerRef` 参数操作 3D viewer | `useKeyboard(viewerRef)` |
 | 动画循环 | 使用 `requestAnimationFrame` + `useRef` | `useGyroscope`, `useJoystick` |
 | 图库性能 | 组合虚拟滚动、缩略图/poster 预加载与稳定高度；媒体图库列表只加载缩略图或 poster，预览才加载原图/视频流 | `useGalleryVirtualizer`, `useGalleryThumbnail` |
+| 模型资产 | 组合封面队列、格式偏好和资产源选择；列表只加载当前批次和缩略图/封面，详情再请求完整字段 | `useModelAssetCoverQueue`, `resolveModelAssetSource` |
 | 任务轮询 | 根据队列状态调整刷新频率 | `useTaskQueue` |
 | 状态引用 | 使用 `useRef` 管理不触发重渲染的状态 | 各 3D 相关 hook |
 | 组合模式 | 主 hook 内部调用子 hook | `useViewer` 组合 `useKeyboard` + `useGyroscope` + `useJoystick` + `useXR` |
@@ -307,6 +311,15 @@ export type { CameraConfig } from './viewer';
 - 从模型视图、模型列表区域或「生成新模型」入口拖入单个视频时，应打开同一视频重建弹窗，不得绕过配置直接提交重建任务。
 - 视频重建弹窗必须延续 Settings 同一套玻璃态视觉、浅色/深色适配和分段控件层级；不要使用普通白底表单、浏览器原生 `alert` 或割裂的临时样式。
 - 视频重建模型列表缩略图优先使用源视频封面；没有可用缩略图时才展示克制 fallback。原视频预览入口应和单图模型下载/删除等操作一样遵循 hover/触控可达逻辑。
+
+### 模型资产库性能与交互
+
+- 模型资产库列表必须使用后端游标和固定批次增量加载，不显示分页器或“每页数量”控件；滚动接近底部时请求下一批，筛选/排序变化只重置游标。
+- 资产网格密度只改变 CSS 展示列数，不重新扫描模型目录，也不影响后端批次大小常量。
+- 卡片只加载缩略图、源媒体 poster 或缓存封面；完整详情和可解析元数据在打开详情面板时按需获取。
+- 桌面端点击卡片按钮之外区域应直接打开模型预览；hover/focus 操作按钮分别处理查看详情、下载、删除等动作，并阻止事件冒泡。
+- 触控端不能依赖 hover 才能触达操作。移动端点击卡片可打开详情卡片，再通过详情卡片执行打开、下载、导出、删除；缩略图本身可打开关联原图/视频。
+- 顶部工具栏复用照片图库的玻璃态浮动逻辑和移动端收缩/展开模式；不得用实心黑背景切断卡片滚动内容。
 
 ### 视频预览交互
 

@@ -15,8 +15,8 @@
     /* Let clicks pass through wrapper areas */
 }
 
-/* Offset to right when sidebar is open to maintain visual centering in the remaining space */
-@media (min-width: 769px) {
+/* Offset only on the desktop sidebar layout; mobile landscape uses the full viewport. */
+@media (min-width: 1101px) {
     .controlsWrapper.sidebarExpanded {
         left: calc(50% + (var(--sidebar-width) + 16px) / 2);
     }

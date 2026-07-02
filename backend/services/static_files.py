@@ -104,10 +104,13 @@ def resolve_files_route_path(paths, filename):
     if not resolved_path:
         return None, None, None
 
-    thumbnail_prefix = get_relative_files_path(paths.thumbnail_folder, paths) + "/"
+    thumbnail_prefixes = (
+        get_relative_files_path(paths.thumbnail_folder, paths) + "/",
+        get_relative_files_path(paths.model_asset_thumbnail_folder, paths) + "/",
+    )
     cache_timeout = (
         THUMBNAIL_CACHE_SECONDS
-        if normalized_filename.startswith(thumbnail_prefix)
+        if normalized_filename.startswith(thumbnail_prefixes)
         else DEFAULT_FILE_CACHE_SECONDS
     )
     return resolved_path, os.path.basename(resolved_path), cache_timeout

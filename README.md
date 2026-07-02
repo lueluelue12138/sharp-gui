@@ -27,7 +27,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ![Flask](https://img.shields.io/badge/Flask-Backend-000000?style=for-the-badge&logo=flask&logoColor=white)
 ![Three.js](https://img.shields.io/badge/Three.js-Viewer-000000?style=for-the-badge&logo=threedotjs&logoColor=white)
 
-基于 [Apple ml-sharp](https://github.com/apple/ml-sharp) 打造，无需上传云端，**本地部署，全屋访问**。除了生成和查看 3D 模型，也可以把本机、移动硬盘或 NAS 目录作为轻量照片图库来浏览。
+基于 [Apple ml-sharp](https://github.com/apple/ml-sharp) 打造，无需上传云端，**本地部署，全屋访问**。除了生成和查看 3D 模型，也可以把生成结果、导入模型和本机 / 移动硬盘 / NAS 媒体整理成轻量模型资产库与照片图库。
 
 [功能特性](#-功能特性) •
 [界面预览](#-界面预览) •
@@ -125,6 +125,8 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 **🗂️ 本地媒体图库**：把本机、移动硬盘或 NAS 目录配置为相册，支持照片/视频混合浏览、筛选、预览、下载；照片可单张或批量转 3D，视频可直接播放、拖动进度、全屏查看。
 
+**📦 模型资产库**：统一展示生成模型与导入的 `.ply/.spz/.splat/.rad`，支持筛选、排序、滚动增量加载、近期模型、详情面板、批量导入、下载和删除；默认打开/下载格式会跟随 Settings 中的默认模型格式并自动回退到可用文件。
+
 **🎥 视频 3DGS 重建**：在 Windows + NVIDIA RTX 5070 Ti Laptop GPU 环境中，已验证本地视频可通过 Nerfstudio/Splatfacto 稳定路线生成 `.ply/.spz` 模型；支持质量档、focused cleanup、视频封面缩略图、原视频回看和视频模型预览坐标适配。
 
 **📥 当前相册上传**：可直接把照片上传到当前相册目录，支持选择文件和拖拽上传，上传后自动刷新当前相册。
@@ -154,6 +156,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | **📸 空间影像生成** | 上传任意图片，基于 Apple ML-Sharp 自动生成 3D 高斯溅射模型，首次运行预下载 ~500MB 模型                                                          |
 | **🎥 视频 3DGS 重建** | 从本地相册视频或拖入视频创建静态 Gaussian Splat 模型，走 Nerfstudio/Splatfacto 稳定路线，支持质量档、focused cleanup、任务阶段、缩略图和原视频回看 |
 | **🖼️ 现代工作流**   | 多选/拖拽批量上传、虚拟滚动图库、站内原图对比、智能任务队列（活跃 2s / 空闲 10s 轮询），删除滑出动画、可取消的待处理任务                          |
+| **📦 模型资产库**   | 统一浏览生成与导入模型，支持 `.ply/.spz/.splat/.rad`、筛选排序、详情元数据、近期模型、批量导入和游标式滚动加载                              |
 | **🗂️ 本地媒体图库** | 配置多个本地/NAS 目录作为相册，支持照片与视频混合浏览、筛选、预览、下载；照片可一键转 3D，视频可播放并发起视频重建                          |
 | **👁️ 全能查看器**   | 基于 Three.js + Spark 2.0 的 WASM 加速查看器，鼠标 / 触摸 / 键盘 (WASD) / 陀螺仪全模态控制，点击模型聚焦 + GPU 聚焦光环，快捷姿态调参             |
 | **🎭 Reveal Effects** | Magic / Spread / Unroll / Twister / Rain 五种模型登场动画，可随时重放                                                                          |
@@ -199,7 +202,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
   <img src="docs/images/main.png" width="800" alt="主界面">
 </p>
 
-<p align="center"><i>侧边栏图库列表 + 3D 模型预览区域 + 底部毛玻璃控制栏</i></p>
+<p align="center"><i>模型资产库 / 近期模型 + 3D 模型预览区域 + 底部毛玻璃控制栏</i></p>
 
 ### 本地媒体图库
 
@@ -425,6 +428,15 @@ rm -rf sharp-gui/
 2. **等待处理** - 观察队列区域的实时进度（首次运行会下载 ~500MB 模型）
 3. **预览模型** - 点击图库中的项目即可查看 3D 效果
 
+### 管理模型资产库
+
+1. **浏览资产** - 生成结果和导入模型会统一进入模型资产库；主区域按游标滚动增量加载，不再使用分页器或每页数量选择。
+2. **打开与详情** - 点击模型卡片空白区域直接打开预览；桌面端 hover 后的详情按钮打开右侧详情面板，移动端点击卡片打开详情卡片。
+3. **导入模型** - 可通过「导入模型」选择或拖入 `.ply/.spz/.splat/.rad`；拖入单个模型会优先临时预览，拖入多个模型会批量导入资产库。
+4. **格式偏好** - Settings 中的「默认模型格式」会影响近期模型、资产库打开和下载时优先使用 SPZ 或 PLY；目标格式不存在时自动回退到资产可用文件。
+5. **详情元数据** - 文件名、格式、来源、时间和大小来自索引与文件系统；PLY/SPLAT 可解析部分点数或属性，SPZ/RAD 的包围盒、坐标系、LoD 等高级信息只有在源文件或 sidecar 元数据提供时才会显示，否则保持未知，避免伪造计算结果。
+6. **查看源媒体** - 详情面板顶部缩略图可打开关联的原图或视频；没有源媒体时只作为模型封面展示。
+
 ### 浏览本地媒体相册
 
 1. **切换到图库** - 在侧栏的「模型 / 照片」入口切换到本地媒体图库
@@ -523,8 +535,12 @@ rm -rf sharp-gui/
 
 - `inputs/` - 上传的图片
 - `outputs/` - 生成的模型
+- `model-assets/` - 导入模型文件与模型资产封面缓存
+- `.model-asset-library/` - 模型资产索引与用户编辑信息
 - `.photo-gallery-cache/` - 本地照片图库索引与缩略图缓存
 - `.video-reconstruction/` - 视频重建中间文件、上传视频缓存和任务 job 目录
+
+这些工作区运行时目录属于用户数据，默认已在 `.gitignore` 中排除，不应提交到仓库。
 
 > 💡 相册可通过界面添加，并按工作目录分别记忆：`photo_gallery_roots_by_workspace` 以归一化后的工作目录路径为键，切换工作目录时各自展示对应相册，切回原目录即可恢复。手动编辑时请按部署端系统填写路径。Windows、Linux、macOS 均可使用，局域网设备访问时读取的是服务器所在机器的目录。
 >
@@ -538,6 +554,12 @@ Settings 中的「视频重建」区域用于查看依赖诊断和保存默认�
 - **默认引擎**：自动 / 稳定；自动当前使用已验证的稳定 Nerfstudio/Splatfacto 路线
 - **显存预算**：自动 / 8GB / 12GB / 16GB / 24GB，用于收紧或放宽资源边界
 - **保留中间文件**：用于排查抽帧、位姿和 Nerfstudio 日志，关闭时完成/取消后会清理 job 目录
+
+Settings 中的「默认模型格式」用于控制模型资产库、近期模型、下载和打开模型时的格式优先级：
+
+- **SPZ（紧凑）**：优先使用压缩模型，适合浏览、分享和移动端访问
+- **PLY（原始）**：优先使用原始模型，适合需要保留完整原始数据的调试或后处理
+- 如果资产没有首选格式，系统会自动回退到该资产可用的 `.spz/.ply/.splat/.rad`
 
 后端进程启动后会异步预热一次视频重建依赖状态；普通打开首页或重建弹窗不会同步扫描外部工具。Settings 中点击刷新会触发后台重新检测。
 
@@ -706,7 +728,7 @@ Sharp GUI 提供**可选**的局域网门禁。首次启动或本机尚未完整
 
 ### 隐私与部署须知
 
-- **敏感文件不外泄**：`/files/*` 仅服务 `outputs/` 模型与历史缩略图，`config.json`（含会话密钥与访问码哈希）、`cert.pem`/`key.pem`（TLS 证书私钥）、`app.py` 源码等敏感文件**在门禁开启或关闭时都无法**通过该路由下载。
+- **敏感文件不外泄**：`/files/*` 仅服务 `outputs/` 模型、历史缩略图、`model-assets/imports/` 导入模型和 `model-assets/thumbnails/` 封面缓存；`config.json`（含会话密钥与访问码哈希）、`.model-asset-library/index.json`、`cert.pem`/`key.pem`（TLS 证书私钥）、`app.py` 源码等敏感文件**在门禁开启或关闭时都无法**通过该路由下载。
 - **局域网绑定开关真实生效**：Settings 的「局域网门禁」中可切换监听绑定。开启时服务监听 `0.0.0.0`（局域网共享）；关闭后仅监听 `127.0.0.1`（仅本机，其它设备无法连接）。修改后需重启服务生效，可用环境变量 `SHARP_BIND_HOST` 覆盖。
 - **调试模式默认关闭**：服务默认以非调试模式运行，异常不会向客户端返回堆栈，也不暴露交互式调试器。仅本机排障时可设 `SHARP_DEBUG=1` 临时开启，切勿在局域网/公网共享时开启。
 - **反向代理注意**：若在本机前置反向代理（nginx / frp 等），所有请求的来源地址会变成 `127.0.0.1`，导致**每个访问者都被判为 owner**。如需在反代后强制访问码，请在设置中关闭「本机免登录」(`allow_localhost_bypass`，需先设置访问码)。本项目不信任 `X-Forwarded-For` 等可被伪造的转发头。
@@ -730,8 +752,8 @@ sharp-gui/
 │   ├── 📄 config.py          # config.json 与 access-control normalize
 │   ├── 📄 paths.py           # workspace/inputs/outputs/cache 路径上下文
 │   ├── 📁 security/          # LAN 门禁、权限矩阵、request hooks
-│   ├── 📁 services/          # 模型/照片图库、视频重建、任务队列、导出、静态文件等服务
-│   └── 📁 routes/            # auth/gallery/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
+│   ├── 📁 services/          # 模型资产/照片图库、视频重建、任务队列、导出、静态文件等服务
+│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
 ├── 📄 install.sh/bat         # 一键安装脚本
 ├── 📄 run.sh/bat             # 启动脚本 (支持 --legacy 参数)
 ├── 📄 run_verbose.sh/bat     # Verbose 启动入口（生成 sharp-gui-verbose.log）
@@ -750,6 +772,8 @@ sharp-gui/
 ├── 📁 ml-sharp/              # (安装后) Apple ML-Sharp 核心
 ├── 📁 inputs/                # 输入图片
 ├── 📁 outputs/               # 输出模型 (.ply + .spz)
+├── 📁 model-assets/          # 导入模型与资产封面缓存（默认工作区内）
+├── 📁 .model-asset-library/  # 模型资产索引和用户编辑信息（默认工作区内）
 ├── 📁 .video-reconstruction/ # 视频重建 job、上传视频缓存和中间文件（默认工作区内）
 └── 📁 .photo-gallery-cache/  # 照片图库索引与缩略图缓存（默认工作区内）
 ```
@@ -759,10 +783,11 @@ sharp-gui/
 ```
 frontend/
 ├── 📁 src/
-│   ├── 📁 api/               # API 客户端 (gallery, photoGallery, tasks, settings, auth)
+│   ├── 📁 api/               # API 客户端 (gallery, modelAssets, photoGallery, tasks, settings, auth)
 │   ├── 📁 components/
 │   │   ├── 📁 common/        # 通用组件 (Button, Modal, Loading, ImageViewer, ParticleBackground)
 │   │   ├── 📁 gallery/       # 图库组件 (GalleryList, GalleryItem)
+│   │   ├── 📁 modelAssets/   # 模型资产库组件 (LibraryView, Grid, Toolbar, DetailsPanel)
 │   │   ├── 📁 photoGallery/  # 本地照片图库组件 (AlbumList, MasonryGrid, Toolbar)
 │   │   ├── 📁 layout/        # 布局组件 (Sidebar, ControlsBar, TaskQueue, Settings, AccessGate)
 │   │   └── 📁 viewer/        # 查看器组件 (ViewerCanvas, QuickControls, ViewerRevealEffectsRail, VirtualJoystick, GyroIndicator)
@@ -793,7 +818,8 @@ frontend/
 | 优化项         | 说明                                                                                |
 | -------------- | ----------------------------------------------------------------------------------- |
 | **代码分割**   | Vite manualChunks: three.js (~493KB), spark (~487KB), react-vendor (4KB)            |
-| **缩略图系统** | 模型图库自动生成 200px JPEG 缩略图；照片图库按需生成缓存缩略图，预览/下载才读取原图 |
+| **缩略图系统** | 模型资产库复用源媒体缩略图或缓存封面；照片图库按需生成缓存缩略图，预览/下载才读取原图 |
+| **资产库浏览** | 模型资产库使用游标式滚动增量加载，网格密度只影响展示列数，不重新扫描模型目录          |
 | **视频重建缓存** | 后端启动后异步检测视频重建依赖并缓存结果，Settings 可手动刷新；视频生成结果写入 sidecar 元数据并复用模型图库 |
 | **智能轮询**   | 有任务时 2s 轮询，空闲时 10s，节省资源                                              |
 | **格式转换**   | 生成后自动转换 SPZ 紧凑模型；分享导出默认嵌入 SPZ，历史 PLY 导出路径保留 Splat 兼容  |

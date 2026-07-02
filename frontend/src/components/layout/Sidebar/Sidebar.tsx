@@ -155,13 +155,13 @@ export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, chil
             aria-disabled={!canGenerateModels}
             data-tooltip={!canGenerateModels ? t('ownerOnlyAction') : undefined}
           >
-            {t('generateNew')}
+            {activeView === 'models' ? t('modelAssetGenerateImport') : t('generateNew')}
           </Button>
 
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm"
+            accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm,.ply,.spz,.splat,.rad"
             multiple
             hidden
             onChange={handleFileChange}

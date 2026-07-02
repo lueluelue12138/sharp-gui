@@ -22,8 +22,8 @@
     pointer-events: auto;
 }
 
-/* Offset to right when sidebar is open to avoid being covered */
-@media (min-width: 769px) {
+/* Offset only on the desktop sidebar layout; mobile landscape uses the full viewport. */
+@media (min-width: 1101px) {
     .joystickWrapper.sidebarExpanded {
         left: calc(60px + var(--sidebar-width) + 16px);
     }

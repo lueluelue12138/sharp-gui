@@ -7,17 +7,19 @@ import {
   ApiError,
   fetchAuthStatus,
   fetchGallery,
+  fetchModelAssets,
   fetchSettings,
   fetchTasks,
   generateFromImages,
+  importModelAssets,
 } from '@/api';
 import { AccessGate, AccessSetupPrompt } from '@/components/auth';
-import { GalleryList } from '@/components/gallery';
 import { ImageViewer, Loading } from '@/components/common';
 import { ParticleBackground } from '@/components/common/ParticleBackground';
 import { GlobalTooltip } from '@/components/common/Tooltip';
 import { Settings, Sidebar } from '@/components/layout';
 import { Help } from '@/components/layout/Help/Help';
+import { ModelAssetLibraryView, ModelAssetSidebarPanel } from '@/components/modelAssets';
 import {
   PhotoAlbumList,
   PhotoGalleryView,
@@ -26,6 +28,7 @@ import {
 } from '@/components/photoGallery';
 import { useTaskQueue } from '@/hooks/useTaskQueue';
 import { useAppStore } from '@/store';
+import { resolveModelAssetSource } from '@/utils';
 import { ViewerCanvas } from '@/components/viewer/ViewerCanvas/ViewerCanvas';
 
 import './App.css';
@@ -72,6 +75,7 @@ function shouldShowAccessSetupPrompt(status: {
 function App() {
   const { t } = useTranslation();
   const [showAccessSetupPrompt, setShowAccessSetupPrompt] = useState(false);
+  const [modelAssetLibraryOpen, setModelAssetLibraryOpen] = useState(false);
   const { 
     isBooting, 
     bootError,
@@ -87,11 +91,13 @@ function App() {
     setBootError,
     setAuthStatus,
     setGalleryItems,
+    setModelAssets,
     setTasks,
     upsertTasks,
     setLocalAccess,
     setLoading,
     currentModelUrl,
+    setSidebarOpen,
     toggleSidebar,
     setServerModelFormat,
     setCurrentModel,
@@ -99,6 +105,8 @@ function App() {
     setSettingsModalOpen,
     setVideoReconstructionStatus,
     setLoadingProgress,
+    modelAssetBatchSize,
+    preferredModelFormat,
     openVideoReconstructionFileDialog,
   } = useAppStore(
     useShallow((state) => ({
@@ -116,11 +124,13 @@ function App() {
       setBootError: state.setBootError,
       setAuthStatus: state.setAuthStatus,
       setGalleryItems: state.setGalleryItems,
+      setModelAssets: state.setModelAssets,
       setTasks: state.setTasks,
       upsertTasks: state.upsertTasks,
       setLocalAccess: state.setLocalAccess,
       setLoading: state.setLoading,
       currentModelUrl: state.currentModelUrl,
+      setSidebarOpen: state.setSidebarOpen,
       toggleSidebar: state.toggleSidebar,
       setServerModelFormat: state.setServerModelFormat,
       setCurrentModel: state.setCurrentModel,
@@ -128,6 +138,8 @@ function App() {
       setSettingsModalOpen: state.setSettingsModalOpen,
       setVideoReconstructionStatus: state.setVideoReconstructionStatus,
       setLoadingProgress: state.setLoadingProgress,
+      modelAssetBatchSize: state.modelAssetBatchSize,
+      preferredModelFormat: state.localModelFormat ?? state.serverModelFormat,
       openVideoReconstructionFileDialog: state.openVideoReconstructionFileDialog,
     })),
   );
@@ -141,9 +153,23 @@ function App() {
     return () => URL.revokeObjectURL(currentModelUrl);
   }, [currentModelUrl]);
 
+  const openModelAssetLibrary = useCallback(() => {
+    setCurrentModel(null, null);
+    setModelAssetLibraryOpen(true);
+    setSidebarOpen(false);
+  }, [setCurrentModel, setSidebarOpen]);
+
+  const closeModelAssetLibrary = useCallback(() => {
+    setModelAssetLibraryOpen(false);
+    setSidebarOpen(false);
+  }, [setSidebarOpen]);
+
   const loadPrivateData = useCallback(async () => {
     const gallery = await fetchGallery();
     setGalleryItems(gallery);
+
+    const modelAssets = await fetchModelAssets({ limit: modelAssetBatchSize });
+    setModelAssets(modelAssets);
 
     const tasksData = await fetchTasks();
     setTasks(tasksData.tasks, tasksData.has_active);
@@ -154,7 +180,15 @@ function App() {
       setServerModelFormat(settings.model_format);
     }
     setVideoReconstructionStatus(null, settings.video_reconstruction);
-  }, [setGalleryItems, setTasks, setLocalAccess, setServerModelFormat, setVideoReconstructionStatus]);
+  }, [
+    modelAssetBatchSize,
+    setGalleryItems,
+    setLocalAccess,
+    setModelAssets,
+    setServerModelFormat,
+    setTasks,
+    setVideoReconstructionStatus,
+  ]);
 
   useEffect(() => {
     async function init() {
@@ -205,6 +239,7 @@ function App() {
   const handlePreviewModelFile = useCallback((file: File, format: DroppedModelFormat) => {
     console.log('📦 Loading dropped model:', file.name, 'format:', format);
     const blobUrl = URL.createObjectURL(file);
+    setModelAssetLibraryOpen(false);
     setCurrentModel(file.name, blobUrl, format, file.size);
   }, [setCurrentModel]);
 
@@ -213,6 +248,53 @@ function App() {
     setAuthPermissionError(message);
     alert(message);
   }, [t, setAuthPermissionError]);
+
+  const importModelFileArray = useCallback(async (files: File[]) => {
+    if (!canGenerateModels) {
+      showGenerationPermissionError();
+      return;
+    }
+
+    try {
+      setLoading(true, t('modelAssetImportingCount', { count: files.length }));
+      const result = await importModelAssets(files, {
+        onUploadProgress: ({ percent }) => setLoadingProgress(percent),
+      });
+      const modelAssets = await fetchModelAssets({ limit: modelAssetBatchSize });
+      setModelAssets(modelAssets);
+      const firstAsset = result.assets[0];
+      const firstModelSource = firstAsset ? resolveModelAssetSource(firstAsset, preferredModelFormat) : null;
+      if (firstAsset && firstModelSource?.url && firstModelSource.format) {
+        setModelAssetLibraryOpen(false);
+        setCurrentModel(firstAsset.id, firstModelSource.url, firstModelSource.format);
+      }
+      if (result.failed.length > 0) {
+        alert(t('modelAssetImportComplete', {
+          count: result.assets.length,
+          failed: result.failed.length,
+        }));
+      }
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 403) {
+        showGenerationPermissionError();
+        return;
+      }
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      alert(`${t('modelAssetImportFailed')}: ${message}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [
+    canGenerateModels,
+    modelAssetBatchSize,
+    preferredModelFormat,
+    setCurrentModel,
+    setLoading,
+    setLoadingProgress,
+    setModelAssets,
+    showGenerationPermissionError,
+    t,
+  ]);
 
   // Handle image/video upload or direct model preview
   const handleUpload = useCallback(async (files: FileList | File[]) => {
@@ -227,8 +309,16 @@ function App() {
     const imageFiles = fileArray.filter(isImageUpload);
     const videoFiles = fileArray.filter(isVideoUpload);
 
-    if (fileArray.length === 1 && modelFiles.length === 1) {
-      handlePreviewModelFile(modelFiles[0].file, modelFiles[0].format);
+    if (modelFiles.length > 0) {
+      if (modelFiles.length !== fileArray.length) {
+        alert(t('unsupportedFormat'));
+        return;
+      }
+      if (modelFiles.length === 1) {
+        handlePreviewModelFile(modelFiles[0].file, modelFiles[0].format);
+        return;
+      }
+      await importModelFileArray(modelFiles.map((entry) => entry.file));
       return;
     }
 
@@ -277,6 +367,7 @@ function App() {
   }, [
     canGenerateModels,
     handlePreviewModelFile,
+    importModelFileArray,
     openVideoReconstructionFileDialog,
     showGenerationPermissionError,
     t,
@@ -343,7 +434,14 @@ function App() {
         onGenerationBlocked={showGenerationPermissionError}
         onUpload={handleUpload}
       >
-        {activeView === 'photos' ? <PhotoAlbumList /> : <GalleryList />}
+        {activeView === 'photos' ? (
+          <PhotoAlbumList />
+        ) : (
+          <ModelAssetSidebarPanel
+            onOpenLibrary={openModelAssetLibrary}
+            onOpenModel={closeModelAssetLibrary}
+          />
+        )}
       </Sidebar>
       
       {/* Main content */}
@@ -355,36 +453,50 @@ function App() {
         {activeView === 'models' ? <ParticleBackground /> : null}
         
         {activeView === 'photos' ? <PhotoGalleryView /> : (
-        <div className="viewer-container">
-          {/* Empty state - shown when no model selected */}
-          {!currentModelUrl && (
-            <>
-              <div className="empty-state">
-                <svg className="empty-icon" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
-                </svg>
-                <h3>{t('emptyStateTitle')}</h3>
-                <p>{t('emptyStateHint')}</p>
-              </div>
+          modelAssetLibraryOpen && !currentModelUrl ? (
+            <ModelAssetLibraryView
+              canImportAssets={canGenerateModels}
+              onImportBlocked={showGenerationPermissionError}
+            />
+          ) : (
+            <div className="viewer-container">
+              {currentModelUrl && modelAssetLibraryOpen ? (
+                <button
+                  className="viewer-library-back"
+                  type="button"
+                  onClick={() => setCurrentModel(null, null)}
+                >
+                  {t('modelAssetBackToLibrary')}
+                </button>
+              ) : null}
 
-              {/* PC Desktop Hint for drag & drop model generation */}
-              {!sidebarCollapsed && (
-                <div className="drag-to-sidebar-hint">
-                  <svg className="hint-arrow" viewBox="0 0 60 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M 58 12 L 12 12" strokeDasharray="4 4" />
-                    <path d="M 20 4 L 12 12 L 20 20" />
-                  </svg>
-                  <div className="hint-text">
-                    {t('dragToSidebarHint')}
+              {!currentModelUrl ? (
+                <>
+                  <div className="empty-state">
+                    <svg className="empty-icon" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                    </svg>
+                    <h3>{t('emptyStateTitle')}</h3>
+                    <p>{t('emptyStateHint')}</p>
                   </div>
-                </div>
-              )}
-            </>
-          )}
 
-          {/* Viewer with internal empty state handling */}
-          <ViewerCanvas />
-        </div>
+                  {!sidebarCollapsed ? (
+                    <div className="drag-to-sidebar-hint">
+                      <svg className="hint-arrow" viewBox="0 0 60 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M 58 12 L 12 12" strokeDasharray="4 4" />
+                        <path d="M 20 4 L 12 12 L 20 20" />
+                      </svg>
+                      <div className="hint-text">
+                        {t('dragToSidebarHint')}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              <ViewerCanvas />
+            </div>
+          )
         )}
 
         {/* Loading overlay */}

@@ -28,7 +28,7 @@ As a Web enthusiast, I built Sharp GUI to bridge this gap. My goal is to let any
 ![Flask](https://img.shields.io/badge/Flask-Backend-000000?style=for-the-badge&logo=flask&logoColor=white)
 ![Three.js](https://img.shields.io/badge/Three.js-Viewer-000000?style=for-the-badge&logo=threedotjs&logoColor=white)
 
-Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads needed. **Host Locally, Access Everywhere.** Beyond generating and viewing 3D models, Sharp GUI can also browse local, external-drive, or NAS photo folders as a lightweight LAN photo gallery.
+Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads needed. **Host Locally, Access Everywhere.** Beyond generating and viewing 3D models, Sharp GUI can organize generated results, imported models, and local / external-drive / NAS media into a lightweight model asset library and LAN photo gallery.
 
 [Features](#-features) •
 [Preview](#-preview) •
@@ -124,6 +124,8 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 **🗂️ Local Media Gallery** — Configure local, external-drive, or NAS folders as albums. Browse, filter, preview, and download photos and videos together; photos can be converted to 3D one by one or in batches, while videos can be played, scrubbed, and viewed fullscreen.
 
+**📦 Model Asset Library** — Browse generated models and imported `.ply/.spz/.splat/.rad` assets together with filters, sorting, cursor-based incremental loading, recent models, a details panel, batch import, download, and delete. The preferred open/download format follows Settings and falls back to available files.
+
 **🎥 Video 3DGS Reconstruction (Stable Route)** — On Windows with an NVIDIA RTX 5070 Ti Laptop GPU, local videos have been verified end-to-end through the Nerfstudio/Splatfacto stable route, producing `.ply/.spz` models with quality presets, focused cleanup, video-poster thumbnails, source-video replay, and viewer orientation adaptation.
 
 **📥 Upload Into Current Album** — Add photos directly to the current album with file picker or drag-and-drop; the album refreshes automatically after upload.
@@ -153,6 +155,7 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | **📸 Image to 3D**         | Upload any image; Apple ML-Sharp generates a 3D Gaussian Splatting model. The ~500MB model is pre-downloaded during install.                                             |
 | **🎥 Video 3DGS Reconstruction** | Create static Gaussian Splat models from local album videos or dropped video files through the Nerfstudio/Splatfacto stable route, with quality presets, focused cleanup, task stages, thumbnails, and source-video replay. |
 | **🖼️ Modern Workflow**     | Multi-select / drag-and-drop upload, virtualized gallery, in-app original viewer, smart task queue (2s while active, 10s idle), slide-out delete, cancellable jobs.      |
+| **📦 Model Asset Library** | Browse generated and imported models together, with `.ply/.spz/.splat/.rad`, filters, sorting, details metadata, recent models, batch import, and cursor-based incremental loading. |
 | **🗂️ Local Media Gallery** | Configure multiple local/NAS folders as albums, browse and filter photos/videos together, preview and download media, convert photos to 3D, play videos, and start video reconstruction. |
 | **👁️ Real-time Viewer**    | Three.js + Spark 2.0 WASM-accelerated viewer with mouse / touch / keyboard (WASD) / gyroscope controls, click-to-focus with a GPU focus ring, quick transform panel.     |
 | **🎭 Reveal Effects**      | Magic / Spread / Unroll / Twister / Rain entrance animations with replay support.                                                                                        |
@@ -198,7 +201,7 @@ Built with Apple Human Interface Guidelines for a premium feel:
   <img src="docs/images/main.png" width="800" alt="Main Interface">
 </p>
 
-<p align="center"><i>Sidebar gallery + 3D model preview + glassmorphism control bar</i></p>
+<p align="center"><i>Model asset library / recent models + 3D model preview + glassmorphism control bar</i></p>
 
 ### Local Media Gallery
 
@@ -424,6 +427,15 @@ rm -rf sharp-gui/
 2. **Wait for Processing** - Watch queue progress (first run downloads ~500MB model)
 3. **Preview Model** - Click gallery items to view 3D
 
+### Manage the Model Asset Library
+
+1. **Browse assets** - Generated results and imported models appear in one asset library. The main grid uses cursor-based incremental scroll loading, not a paginator or per-page selector.
+2. **Open and inspect** - Click the non-button area of a model card to open the viewer. On desktop, the hover details button opens the right details panel; on mobile, tapping a card opens the details card.
+3. **Import models** - Use "Import Model" or drop `.ply/.spz/.splat/.rad` files. Dropping one model opens a temporary preview first; dropping multiple models imports them into the asset library.
+4. **Format preference** - Settings > Default Model Format controls whether SPZ or PLY is preferred for recent models, asset opening, and downloads. If the preferred file is unavailable, Sharp GUI falls back to an available model file.
+5. **Details metadata** - File name, format, source, timestamps, and size come from the index and filesystem. PLY/SPLAT can expose some point count or property data; SPZ/RAD bounding boxes, coordinate systems, LoD, and similar advanced fields only appear when the source file or sidecar metadata provides them, so unknown fields are not fabricated.
+6. **View source media** - The details-panel thumbnail opens the linked source image or video when one exists. Without a linked source, it only acts as the model cover.
+
 ### Browse Local Media Albums
 
 1. **Switch to Gallery** - Use the sidebar `Models / Photos` entry to open the local media gallery
@@ -522,8 +534,12 @@ The system auto-creates:
 
 - `inputs/` - Uploaded images
 - `outputs/` - Generated models
+- `model-assets/` - Imported model files and cached model covers
+- `.model-asset-library/` - Model asset index and user-edited metadata
 - `.photo-gallery-cache/` - Local photo gallery index and cached thumbnails
 - `.video-reconstruction/` - Video reconstruction jobs, uploaded video cache, and intermediate files
+
+These workspace runtime folders are user data and are ignored by `.gitignore` by default; they should not be committed.
 
 > 💡 Albums can be added from the UI and are remembered per workspace: `photo_gallery_roots_by_workspace` is keyed by the normalized workspace path, so switching workspaces shows each one's own albums and switching back restores them. When editing manually, use paths from the server machine. Windows, Linux, and macOS are supported; LAN clients browse folders on the host running Sharp GUI.
 >
@@ -537,6 +553,12 @@ The Settings > Video Reconstruction area is for dependency diagnostics and defau
 - **Default engine**: Auto / Stable; Auto currently uses the verified stable Nerfstudio/Splatfacto route
 - **VRAM budget**: Auto / 8GB / 12GB / 16GB / 24GB, used to tighten or relax resource boundaries
 - **Keep intermediate files**: Useful for inspecting frames, poses, and Nerfstudio logs; when off, completed/cancelled jobs clean their job folders
+
+Settings > Default Model Format controls the format priority used by the model asset library, recent models, downloads, and model opening:
+
+- **SPZ (compact)**: Prefer compressed models for browsing, sharing, and mobile access
+- **PLY (original)**: Prefer original models for debugging or downstream processing that needs raw data
+- If an asset does not have the preferred format, Sharp GUI falls back to an available `.spz/.ply/.splat/.rad` file
 
 The backend starts an asynchronous dependency warmup once per process. Opening the home page or reconstruction dialog does not synchronously scan external tools. Pressing refresh in Settings triggers a background re-check.
 
@@ -705,7 +727,7 @@ The table below shows the permission boundaries for each role:
 
 ### Privacy & Deployment Notes
 
-- **Sensitive files stay private**: `/files/*` serves only `outputs/` models and legacy thumbnails. `config.json` (session secret and access-code hash), `cert.pem`/`key.pem` (TLS private key), and `app.py` source **can never** be downloaded through that route, whether the gate is on or off.
+- **Sensitive files stay private**: `/files/*` serves only `outputs/` models, legacy thumbnails, `model-assets/imports/` imported models, and `model-assets/thumbnails/` cover caches. `config.json` (session secret and access-code hash), `.model-asset-library/index.json`, `cert.pem`/`key.pem` (TLS private key), and `app.py` source **can never** be downloaded through that route, whether the gate is on or off.
 - **LAN bind toggle is real**: Settings > LAN Access Control lets you switch the listening bind. On listens on `0.0.0.0` (LAN sharing); off listens on `127.0.0.1` only (localhost-only, other devices cannot connect). A restart is required after changing it; `SHARP_BIND_HOST` can override.
 - **Debug mode off by default**: the server runs without the framework debugger, so errors never leak stack traces and no interactive debugger is exposed. Set `SHARP_DEBUG=1` only for local troubleshooting, never when sharing on a LAN or the internet.
 - **Reverse proxy caveat**: if you front the server with a local reverse proxy (nginx / frp, etc.), every request appears to come from `127.0.0.1`, so **every visitor is treated as owner**. To force the access code behind a proxy, disable localhost bypass (`allow_localhost_bypass`, requires an access code first) in Settings. The project never trusts spoofable forwarding headers such as `X-Forwarded-For`.
@@ -727,8 +749,8 @@ sharp-gui/
 │   ├── 📄 config.py          # config.json and access-control normalization
 │   ├── 📄 paths.py           # workspace/inputs/outputs/cache path context
 │   ├── 📁 security/          # LAN access gate, permission matrix, request hooks
-│   ├── 📁 services/          # Model/photo gallery, video reconstruction, task queue, export, static-file services
-│   └── 📁 routes/            # auth/gallery/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
+│   ├── 📁 services/          # Model asset/photo gallery, video reconstruction, task queue, export, static-file services
+│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
 ├── 📄 install.sh/bat         # One-click install scripts
 ├── 📄 run.sh/bat             # Startup scripts (supports --legacy flag)
 ├── 📄 run_verbose.sh/bat     # Verbose entry (writes sharp-gui-verbose.log)
@@ -747,6 +769,8 @@ sharp-gui/
 ├── 📁 ml-sharp/              # (after install) Apple ML-Sharp core
 ├── 📁 inputs/                # Input images
 ├── 📁 outputs/               # Output models (.ply + .spz)
+├── 📁 model-assets/          # Imported models and asset cover cache (inside workspace by default)
+├── 📁 .model-asset-library/  # Model asset index and user-edited metadata (inside workspace by default)
 ├── 📁 .video-reconstruction/ # Video reconstruction jobs, uploaded video cache, and intermediates (inside workspace by default)
 └── 📁 .photo-gallery-cache/  # Photo gallery index and thumbnail cache (inside workspace by default)
 ```
@@ -756,10 +780,11 @@ sharp-gui/
 ```
 frontend/
 ├── 📁 src/
-│   ├── 📁 api/               # API client (gallery, photoGallery, tasks, settings, auth)
+│   ├── 📁 api/               # API client (gallery, modelAssets, photoGallery, tasks, settings, auth)
 │   ├── 📁 components/
 │   │   ├── 📁 common/        # Common components (Button, Modal, Loading, ImageViewer, ParticleBackground)
 │   │   ├── 📁 gallery/       # Gallery components (GalleryList, GalleryItem)
+│   │   ├── 📁 modelAssets/   # Model asset library components (LibraryView, Grid, Toolbar, DetailsPanel)
 │   │   ├── 📁 photoGallery/  # Local photo gallery components (AlbumList, MasonryGrid, Toolbar)
 │   │   ├── 📁 layout/        # Layout components (Sidebar, ControlsBar, TaskQueue, Settings, AccessGate)
 │   │   └── 📁 viewer/        # Viewer components (ViewerCanvas, QuickControls, ViewerRevealEffectsRail, VirtualJoystick, GyroIndicator)
@@ -790,7 +815,8 @@ frontend/
 | Optimization              | Description                                                                                                                              |
 | ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
 | **Code Splitting**        | Vite manualChunks: three.js (~493KB), spark (~487KB), react-vendor (4KB)                                                                 |
-| **Thumbnail System**      | Model gallery uses 200px JPEG thumbnails; photo gallery creates cached thumbnails on demand and only loads originals for preview/download |
+| **Thumbnail System**      | The model asset library reuses source-media thumbnails or cached covers; photo gallery creates cached thumbnails on demand and only loads originals for preview/download |
+| **Asset Library Browsing** | The model asset library uses cursor-based incremental scrolling; grid density only changes the displayed columns and does not rescan model folders |
 | **Video Reconstruction Cache** | Backend warms and caches video reconstruction dependency status once per process; Settings can refresh it, and video outputs use sidecar metadata in the existing model gallery |
 | **Smart Polling**         | Active 2s polling, idle 10s, saves resources                                                                                             |
 | **Format Conversion**     | Auto-converts generated models to compact SPZ; share export embeds SPZ by default while preserving the legacy PLY/Splat path             |

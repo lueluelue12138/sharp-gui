@@ -57,8 +57,8 @@ sharp-gui/
 │   ├── config.py             #   config.json 读写与 access_control normalize
 │   ├── paths.py              #   PathContext：workspace/inputs/outputs/cache 派生
 │   ├── security/             #   LAN 门禁、权限矩阵、request hooks
-│   ├── services/             #   模型/本地媒体图库、视频重建、任务队列、导出、静态文件、文件夹选择
-│   └── routes/               #   auth/gallery/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
+│   ├── services/             #   模型资产/本地媒体图库、视频重建、任务队列、导出、静态文件、文件夹选择
+│   └── routes/               #   auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
 ├── config.json               # 运行时配置（workspace_folder, photo_gallery_roots_by_workspace, access_control）
 ├── install.sh / install.bat  # 一键安装脚本（Python/Git/CUDA/依赖/模型/证书）
 ├── run.sh / run.bat          # 启动脚本（支持 --legacy）
@@ -68,11 +68,12 @@ sharp-gui/
 │
 ├── frontend/                 # React 前端
 │   ├── src/
-│   │   ├── api/              #   API 层（client.ts + 功能模块，含 photoGallery.ts）
-│   │   ├── components/       #   组件（auth/common/gallery/photoGallery/layout/viewer）
+│   │   ├── api/              #   API 层（client.ts + 功能模块，含 modelAssets.ts/photoGallery.ts）
+│   │   ├── components/       #   组件（auth/common/gallery/modelAssets/photoGallery/layout/viewer）
 │   │   │   ├── common/       #     通用 UI：Button, Icons, ImageViewer, Loading, Modal, ConfirmDialog, SelectMenu, TextInputDialog
 │   │   │   ├── auth/         #     局域网门禁：AccessGate, AccessSetupPrompt
 │   │   │   ├── gallery/      #     模型图库：GalleryItem, GalleryList
+│   │   │   ├── modelAssets/  #     模型资产库：LibraryView, Grid, Toolbar, DetailsPanel
 │   │   │   ├── photoGallery/ #     本地媒体图库：PhotoAlbumList, PhotoGalleryView, PhotoMasonryGrid, PhotoToolbar
 │   │   │   ├── layout/       #     布局：Sidebar, ControlsBar, Help, Settings, TaskQueue
 │   │   │   └── viewer/       #     查看器：ViewerCanvas, QuickControls, ViewerRevealEffectsRail, GyroIndicator, VirtualJoystick, SpeedTooltip
@@ -82,7 +83,7 @@ sharp-gui/
 │   │   ├── store/            #   Zustand 状态管理（useAppStore.ts）
 │   │   ├── styles/           #   全局样式（variables.css, animations.css, global.css）
 │   │   ├── types/            #   TypeScript 类型定义
-│   │   └── utils/            #   工具函数（camera.ts, format.ts, gallery.ts, viewerRevealEffects.ts）
+│   │   └── utils/            #   工具函数（camera.ts, format.ts, gallery.ts, modelAssets.ts, viewerRevealEffects.ts）
 │   ├── vite.config.ts        #   Vite 配置（代理、分包、HTTPS）
 │   ├── tsconfig.json         #   TypeScript 配置（strict mode）
 │   └── eslint.config.js      #   ESLint flat config
@@ -102,6 +103,8 @@ sharp-gui/
 ├── ml-sharp/                 # Apple ML-Sharp 引擎（⚠️ 不可修改）
 ├── inputs/                   # 用户上传的图片
 ├── outputs/                  # 生成的 3D 模型（.ply + 自动转换 .spz）
+├── model-assets/             # 导入模型与模型资产封面缓存（位于 workspace_folder）
+├── .model-asset-library/     # 模型资产索引与用户编辑信息（位于 workspace_folder）
 ├── .video-reconstruction/    # 视频重建上传缓存、jobs 与中间文件（位于 workspace_folder）
 ├── .photo-gallery-cache/     # 本地媒体图库 catalog、每相册索引、照片缩略图、视频 poster 与临时 ZIP（位于 workspace_folder）
 ├── openspec/                 # OpenSpec 变更与能力规格
@@ -164,7 +167,7 @@ sharp-gui/
 - 开发代理：Vite dev server 将 `/api` 和 `/files` 代理到 `localhost:5050`
 - 监听地址由 `access_control.lan_bind_enabled` 决定：`true` → `0.0.0.0`（局域网可达），`false` → `127.0.0.1`（仅本机）；`SHARP_BIND_HOST` 可覆盖。
 - 可选局域网门禁由 `access_control.enabled` 控制。HTTPS 负责传输加密，访问码负责浏览资格；owner-only 写操作仍只接受 localhost。
-- `/files/*` 静态服务仅限白名单根（`outputs/` 与历史缩略图），敏感文件（`config.json`、证书私钥、`app.py`）一律拒绝，且不随门禁开关放宽。
+- `/files/*` 静态服务仅限白名单根（`outputs/`、历史缩略图、`model-assets/imports/` 与 `model-assets/thumbnails/`），敏感文件（`config.json`、`.model-asset-library/index.json`、证书私钥、`app.py`）一律拒绝，且不随门禁开关放宽。
 
 ## 3D 渲染引擎迁移说明
 
@@ -178,6 +181,12 @@ sharp-gui/
 
 - 后端推理仍生成 `.ply` 原始模型。
 - 生成完成后自动转换 `.spz` 紧凑模型；用户设置可在 PLY / SPZ 之间选择默认查看和下载格式。
+- 模型资产库通过 `/api/model-assets` 统一展示生成模型与导入的 PLY/SPZ/SPLAT/RAD；旧 `/api/gallery` 仍作为兼容模型列表保留，不应继续承载导入、详情面板、筛选排序等新主路径。
+- 模型资产导入文件写入 `{workspace}/model-assets/imports/`，模型封面写入 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息写入 `{workspace}/.model-asset-library/index.json`；这些路径必须由 `PathContext` 派生，不得在前端或路由层拼接绝对路径。
+- 模型资产库主区域使用游标式滚动增量加载，不显示分页器或每页数量选择；网格密度只影响展示列数，筛选、排序或密度变化只重置游标并请求下一批，不触发全目录重扫。
+- 模型资产打开、下载和近期模型展示应通过 `resolveModelAssetSource` 或等价逻辑遵守 `model_format` 默认格式偏好，并在首选格式缺失时回退到资产可用文件。
+- 模型资产详情可从 PLY/SPLAT 解析部分点数或属性；SPZ/RAD 的包围盒、坐标系、LoD、chunk 等高级信息只有 sidecar 或源格式明确提供时才展示，不能为了填空伪造“计算结果”。
+- 近期模型侧栏是资产库的辅助入口：可独立滚动增量查询，同时保持“近期模型/查看全部”和底部“储存占用”区域固定；按钮样式复用现有 hover/focus 图标按钮，不做共享胶囊背景。
 - 视频重建生成的模型也写入 `outputs/`，并额外写入同名 `.meta.json` 记录来源视频、模式、质量、引擎和受控源视频引用；前端不得看到绝对磁盘路径。
 - 视频生成模型应复用现有模型图库：缩略图优先使用源视频封面帧；hover 操作中可提供原视频预览入口；删除拖入视频生成的模型时可清理受控上传缓存，但不得删除本地相册原视频。
 - 视频 3DGS 重建稳定路线已在 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB 验证；其他平台或显卡需要单独验证后再写入已支持矩阵。

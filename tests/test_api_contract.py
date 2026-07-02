@@ -1,6 +1,7 @@
 import os
 from io import BytesIO
 
+from tests.conftest import make_png_bytes
 from backend.services.photo_gallery import photo_meta_from_path, save_photo_index
 from tests.conftest import write_config
 
@@ -45,6 +46,79 @@ def test_core_read_apis_return_expected_shapes(client, app):
     video_status = client.get("/api/video-reconstructions/status")
     assert video_status.status_code == 200
     assert "dependencies" in video_status.get_json()
+
+
+def test_model_assets_api_lists_imports_edits_covers_and_downloads(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    model_path = os.path.join(paths.output_folder, "demo.ply")
+    spz_path = os.path.join(paths.output_folder, "demo.spz")
+    with open(model_path, "wb") as f:
+        f.write(b"fake-ply")
+    with open(spz_path, "wb") as f:
+        f.write(b"fake-spz")
+
+    list_response = client.get("/api/model-assets")
+    assert list_response.status_code == 200
+    payload = list_response.get_json()
+    assert payload["total"] == 1
+    assert payload["total_size"] == len(b"fake-ply") + len(b"fake-spz")
+    assert payload["items"][0]["id"] == "demo"
+    assert payload["items"][0]["formats"] == ["spz", "ply"]
+    assert payload["items"][0]["default_open_url"].startswith("/files/")
+    assert payload["counts"]["generated"] == 1
+
+    detail = client.get("/api/model-assets/demo")
+    assert detail.status_code == 200
+    detail_payload = detail.get_json()
+    assert detail_payload["files"][0]["format"] == "spz"
+
+    imported = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"imported-ply"), "../Imported Model.ply")},
+        content_type="multipart/form-data",
+    )
+    assert imported.status_code == 200
+    imported_payload = imported.get_json()
+    assert imported_payload["success"] is True
+    imported_asset = imported_payload["assets"][0]
+    assert imported_asset["source_type"] == "imported"
+    assert imported_asset["default_open_url"].startswith("/files/workspace/model-assets/imports/")
+    assert ".." not in imported_asset["default_open_url"]
+
+    asset_id = imported_asset["id"]
+    edited = client.post(
+        f"/api/model-assets/{asset_id}",
+        json={"display_name": "Imported Meadow", "tags": ["scan", "spz"], "note": "Ready"},
+    )
+    assert edited.status_code == 200
+    edited_payload = edited.get_json()
+    assert edited_payload["name"] == "Imported Meadow"
+    assert edited_payload["tags"] == ["scan", "spz"]
+
+    cover = client.post(
+        f"/api/model-assets/{asset_id}/cover",
+        data={"cover": (make_png_bytes(), "cover.png")},
+        content_type="multipart/form-data",
+    )
+    assert cover.status_code == 200
+    cover_payload = cover.get_json()
+    assert cover_payload["thumbnail_state"] == "ready"
+    assert cover_payload["thumb_url"].startswith("/files/workspace/model-assets/thumbnails/")
+
+    refreshed_cover = client.post(f"/api/model-assets/{asset_id}/cover/refresh")
+    assert refreshed_cover.status_code == 200
+    refreshed_payload = refreshed_cover.get_json()
+    assert refreshed_payload["thumbnail_state"] == "pending"
+    assert refreshed_payload["thumbnail_kind"] == "system"
+    assert refreshed_payload["thumb_url"] is None
+
+    download = client.get(f"/api/model-assets/{asset_id}/download?format=ply")
+    assert download.status_code == 200
+    assert download.data == b"imported-ply"
+
+    legacy_gallery = client.get("/api/gallery")
+    assert legacy_gallery.status_code == 200
+    assert legacy_gallery.get_json()[0]["id"] == "demo"
 
 
 def test_export_missing_model_returns_json_error(client):

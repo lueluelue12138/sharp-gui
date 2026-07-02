@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { useAppStore } from '@/store/useAppStore';
 
-import { fetchTasks, fetchGallery } from '@/api';
+import { fetchTasks, fetchGallery, fetchModelAssets } from '@/api';
 import {
     createTaskStatusMap,
     hasActiveTask,
@@ -18,10 +18,12 @@ export const useTaskQueue = () => {
     const tasks = useAppStore((state) => state.tasks);
     const hasActiveTasks = useAppStore((state) => state.hasActiveTasks);
     const canUsePrivateApi = useAppStore((state) => state.isAuthenticated || state.isOwnerAccess);
-    const { setTasks, setGalleryItems } = useAppStore(
+    const { setTasks, setGalleryItems, setModelAssets, modelAssetBatchSize } = useAppStore(
         useShallow((state) => ({
             setTasks: state.setTasks,
             setGalleryItems: state.setGalleryItems,
+            setModelAssets: state.setModelAssets,
+            modelAssetBatchSize: state.modelAssetBatchSize,
         })),
     );
     
@@ -57,6 +59,8 @@ export const useTaskQueue = () => {
             if (shouldRefreshGallery) {
                 const gallery = await fetchGallery();
                 setGalleryItems(gallery);
+                const modelAssets = await fetchModelAssets({ limit: modelAssetBatchSize });
+                setModelAssets(modelAssets);
             }
 
             const nextTasks = reconcileTaskSnapshot(
@@ -71,7 +75,7 @@ export const useTaskQueue = () => {
         } finally {
             pollInFlightRef.current = false;
         }
-    }, [canUsePrivateApi, setTasks, setGalleryItems]);
+    }, [canUsePrivateApi, modelAssetBatchSize, setGalleryItems, setModelAssets, setTasks]);
 
     // Start/stop polling based on hasActiveTasks
     useEffect(() => {

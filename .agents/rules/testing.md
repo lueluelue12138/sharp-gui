@@ -215,3 +215,15 @@ def test_gallery_returns_json(client):
     data = response.get_json()
     assert 'items' in data
 ```
+
+### 模型资产库 smoke checklist
+
+模型资产库属于本次 `add-model-asset-library` 的主路径，修改相关逻辑时至少覆盖：
+
+- `GET /api/model-assets` 的游标加载、筛选、排序、格式计数、空结果和无更多结果；不得重新引入分页器或每页数量 UI。
+- `GET /api/model-assets/<asset_id>` 的详情字段、可用格式、默认格式回退、源媒体缩略图/视频 poster 和未知元数据降级。
+- `POST /api/model-assets/import` 的扩展名白名单、批次数量、文件大小、`secure_filename()`、唯一命名、失败清理和远程生成条件权限。
+- `PATCH /api/model-assets/<asset_id>`、封面上传/刷新、下载和删除的权限矩阵；删除导入资产不能误删 `outputs/`、相册原图或视频来源文件。
+- `/files/*` 只能服务 `outputs/`、历史缩略图、`model-assets/imports/` 和 `model-assets/thumbnails/`，必须拒绝 `.model-asset-library/index.json`、`config.json`、证书、源码、路径穿越和符号链接逃逸。
+- 前端手动烟测：桌面端卡片空白区域直接打开 viewer，详情按钮打开详情面板；移动端点击卡片打开详情卡片；顶部工具栏悬浮玻璃不切断卡片；近期模型列表独立滚动且“查看全部”和“储存占用”固定。
+- 默认模型格式烟测：Settings 切换 SPZ/PLY 后，资产库、近期模型、打开和下载都优先使用对应格式，缺失时自动回退到可用模型文件。

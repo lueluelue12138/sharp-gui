@@ -1,0 +1,1 @@
+export { ModelAssetCard } from './ModelAssetCard';
