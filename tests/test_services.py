@@ -193,6 +193,79 @@ def test_model_asset_library_state_is_scoped_to_workspace(tmp_path):
     assert "Workspace A Demo" not in names_b
 
 
+def test_model_asset_import_rejects_unsupported_and_too_many(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    paths = build_path_context({"workspace_folder": str(workspace)})
+    ensure_runtime_directories(paths)
+
+    # 不支持的扩展名逐项失败，且不写入受控目录。
+    unsupported = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"nope"), filename="notes.txt")],
+    )
+    assert unsupported["success"] is False
+    assert unsupported["assets"] == []
+    assert unsupported["failed"][0]["code"] == "unsupported_format"
+
+    # 超过单批数量上限整体拒绝。
+    monkeypatch.setattr(model_assets, "MAX_IMPORT_FILES", 2)
+    too_many = model_assets.import_model_assets(
+        paths,
+        [
+            FileStorage(stream=BytesIO(b"a"), filename="a.ply"),
+            FileStorage(stream=BytesIO(b"b"), filename="b.ply"),
+            FileStorage(stream=BytesIO(b"c"), filename="c.ply"),
+        ],
+    )
+    assert too_many["success"] is False
+    assert too_many["failed"][0]["code"] == "too_many_files"
+    # 整批拒绝时不应写入任何文件。
+    assert list(os.scandir(paths.model_asset_import_folder)) == []
+
+
+def test_model_asset_import_enforces_file_size_limit(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    paths = build_path_context({"workspace_folder": str(workspace)})
+    ensure_runtime_directories(paths)
+
+    monkeypatch.setattr(model_assets, "MAX_IMPORT_FILE_BYTES", 4)
+    result = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"way-too-large-model"), filename="big.ply")],
+    )
+
+    assert result["success"] is False
+    assert result["assets"] == []
+    assert result["failed"][0]["code"] == "file_too_large"
+    # 超限文件不得残留在受控导入目录。
+    assert list(os.scandir(paths.model_asset_import_folder)) == []
+
+
+def test_model_asset_download_resolves_controlled_path(tmp_path):
+    workspace = tmp_path / "workspace"
+    paths = build_path_context({"workspace_folder": str(workspace)})
+    ensure_runtime_directories(paths)
+
+    with open(os.path.join(paths.output_folder, "demo.ply"), "wb") as file:
+        file.write(b"generated-model")
+
+    resolved = model_assets.resolve_download_file(paths, "demo", "ply")
+    assert resolved is not None
+    path, filename = resolved
+    assert filename == "demo.ply"
+    assert is_real_path_inside(path, paths.output_folder)
+
+    imported = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"imported-model"), filename="scan.ply")],
+    )
+    asset_id = imported["assets"][0]["id"]
+    resolved_import = model_assets.resolve_download_file(paths, asset_id, "ply")
+    assert resolved_import is not None
+    import_path, _ = resolved_import
+    assert is_real_path_inside(import_path, paths.model_asset_import_folder)
+
+
 def test_real_path_inside_handles_escape(tmp_path):
     root = tmp_path / "root"
     root.mkdir()

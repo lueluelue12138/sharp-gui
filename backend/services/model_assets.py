@@ -2,6 +2,7 @@ import datetime
 import json
 import os
 import re
+import threading
 import uuid
 from urllib.parse import quote
 
@@ -10,6 +11,23 @@ from werkzeug.utils import secure_filename
 
 from backend.services import model_gallery
 from backend.services.static_files import get_relative_files_path, is_real_path_inside, to_url_path
+
+# 资产索引是单一 JSON 文件的 read-modify-write，局域网多设备可能并发导入/编辑，
+# 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
+_INDEX_LOCK = threading.RLock()
+
+# 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
+IMPORTED_IDENTITY_KEYS = ("model_path", "format", "original_name", "imported_at", "created_at")
+# 除身份字段外还需要保留的用户编辑字段（封面刷新/上传时不应清空资料）。
+IMPORTED_PROFILE_KEYS = IMPORTED_IDENTITY_KEYS + ("display_name", "tags", "note")
+
+
+def carry_imported_record_fields(existing, record, keys):
+    """把已存在导入记录中的指定字段回填到新记录，避免写操作丢失身份或资料。"""
+    for key in keys:
+        if key in existing:
+            record[key] = existing[key]
+    return record
 
 SUPPORTED_MODEL_EXTENSIONS = {
     ".ply": "ply",
@@ -637,22 +655,22 @@ def update_model_asset_profile(paths, asset_id, payload):
     if not asset:
         return None
 
-    index = read_asset_index(paths)
-    assets = index.setdefault("assets", {})
-    record = dict(get_user_record(index, asset_id))
-    record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
-    record["asset_id"] = asset_id
-    record["display_name"] = str(payload.get("display_name") or payload.get("name") or asset["name"]).strip()[:120]
-    record["tags"] = normalize_tags(payload.get("tags", asset.get("tags", [])))
-    record["note"] = str(payload.get("note") or "").strip()[:2000]
-    record["updated_at"] = utc_now_iso()
-    if asset.get("is_imported"):
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        assets = index.setdefault("assets", {})
         existing = get_user_record(index, asset_id)
-        for key in ("model_path", "format", "original_name", "imported_at", "created_at"):
-            if key in existing:
-                record[key] = existing[key]
-    assets[asset_id] = record
-    write_asset_index(paths, index)
+        record = dict(existing)
+        record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
+        record["asset_id"] = asset_id
+        record["display_name"] = str(payload.get("display_name") or payload.get("name") or asset["name"]).strip()[:120]
+        record["tags"] = normalize_tags(payload.get("tags", asset.get("tags", [])))
+        record["note"] = str(payload.get("note") or "").strip()[:2000]
+        record["updated_at"] = utc_now_iso()
+        # 编辑资料时只保留导入模型的身份字段，display_name/tags/note 以本次编辑为准。
+        if asset.get("is_imported"):
+            carry_imported_record_fields(existing, record, IMPORTED_IDENTITY_KEYS)
+        assets[asset_id] = record
+        write_asset_index(paths, index)
     return get_model_asset(paths, asset_id, include_details=True)
 
 
@@ -701,10 +719,9 @@ def import_model_assets(paths, files):
         }
 
     os.makedirs(paths.model_asset_import_folder, exist_ok=True)
-    index = read_asset_index(paths)
-    assets = index.setdefault("assets", {})
     imported = []
     failed = []
+    new_records = {}
     batch_bytes = 0
 
     for file_storage in files:
@@ -767,11 +784,15 @@ def import_model_assets(paths, files):
             "created_at": file_timestamp(target_path),
             "updated_at": file_timestamp(target_path),
         }
-        assets[asset_id] = record
+        new_records[asset_id] = record
         imported.append(build_imported_asset(paths, asset_id, record, include_details=True))
 
-    if imported:
-        write_asset_index(paths, index)
+    # 文件已经安全落盘，最后在锁内合并进索引，避免并发导入互相覆盖记录。
+    if new_records:
+        with _INDEX_LOCK:
+            index = read_asset_index(paths)
+            index.setdefault("assets", {}).update(new_records)
+            write_asset_index(paths, index)
 
     return {
         "success": bool(imported),
@@ -815,22 +836,21 @@ def save_model_asset_cover(paths, asset_id, file_storage, kind=THUMBNAIL_MANUAL)
             pass
         return None, {"error": "Invalid cover image", "code": "invalid_cover_image"}, 400
 
-    index = read_asset_index(paths)
-    assets = index.setdefault("assets", {})
-    record = dict(get_user_record(index, asset_id))
-    record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
-    if asset.get("is_imported"):
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        assets = index.setdefault("assets", {})
         existing = get_user_record(index, asset_id)
-        for key in ("model_path", "format", "original_name", "display_name", "tags", "note", "imported_at", "created_at"):
-            if key in existing:
-                record[key] = existing[key]
-    record["asset_id"] = asset_id
-    record["cover_path"] = workspace_relative_path(paths, target_path)
-    record["cover_kind"] = kind
-    record["cover_status"] = "ready"
-    record["updated_at"] = utc_now_iso()
-    assets[asset_id] = record
-    write_asset_index(paths, index)
+        record = dict(existing)
+        record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
+        if asset.get("is_imported"):
+            carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
+        record["asset_id"] = asset_id
+        record["cover_path"] = workspace_relative_path(paths, target_path)
+        record["cover_kind"] = kind
+        record["cover_status"] = "ready"
+        record["updated_at"] = utc_now_iso()
+        assets[asset_id] = record
+        write_asset_index(paths, index)
     return get_model_asset(paths, asset_id, include_details=True), None, 200
 
 
@@ -839,29 +859,28 @@ def refresh_model_asset_cover(paths, asset_id):
     if not asset:
         return None
 
-    index = read_asset_index(paths)
-    assets = index.setdefault("assets", {})
-    record = dict(get_user_record(index, asset_id))
-    cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
-    if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder):
-        try:
-            if os.path.isfile(cover_path):
-                os.remove(cover_path)
-        except OSError:
-            pass
-    record.pop("cover_path", None)
-    record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
-    if asset.get("is_imported"):
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        assets = index.setdefault("assets", {})
         existing = get_user_record(index, asset_id)
-        for key in ("model_path", "format", "original_name", "display_name", "tags", "note", "imported_at", "created_at"):
-            if key in existing:
-                record[key] = existing[key]
-    record["asset_id"] = asset_id
-    record["cover_status"] = THUMBNAIL_PENDING
-    record["cover_kind"] = THUMBNAIL_SYSTEM
-    record["updated_at"] = utc_now_iso()
-    assets[asset_id] = record
-    write_asset_index(paths, index)
+        record = dict(existing)
+        cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
+        if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder):
+            try:
+                if os.path.isfile(cover_path):
+                    os.remove(cover_path)
+            except OSError:
+                pass
+        record.pop("cover_path", None)
+        record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
+        if asset.get("is_imported"):
+            carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
+        record["asset_id"] = asset_id
+        record["cover_status"] = THUMBNAIL_PENDING
+        record["cover_kind"] = THUMBNAIL_SYSTEM
+        record["updated_at"] = utc_now_iso()
+        assets[asset_id] = record
+        write_asset_index(paths, index)
     return get_model_asset(paths, asset_id, include_details=True)
 
 
@@ -870,58 +889,70 @@ def delete_model_asset(paths, asset_id):
     if not asset:
         return False
 
-    index = read_asset_index(paths)
-    record = get_user_record(index, asset_id)
-    cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
-    if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder):
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        record = get_user_record(index, asset_id)
+        cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
+        if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder):
+            try:
+                if os.path.isfile(cover_path):
+                    os.remove(cover_path)
+            except OSError:
+                pass
+
+        generated_cover = os.path.join(paths.model_asset_thumbnail_folder, f"{safe_asset_filename(asset_id)}.jpg")
         try:
-            if os.path.isfile(cover_path):
-                os.remove(cover_path)
+            if os.path.isfile(generated_cover):
+                os.remove(generated_cover)
         except OSError:
             pass
 
-    generated_cover = os.path.join(paths.model_asset_thumbnail_folder, f"{safe_asset_filename(asset_id)}.jpg")
-    try:
-        if os.path.isfile(generated_cover):
-            os.remove(generated_cover)
-    except OSError:
-        pass
+        if asset.get("is_imported"):
+            model_path = resolve_workspace_relative_path(paths, record.get("model_path"))
+            if model_path and is_real_path_inside(model_path, paths.model_asset_import_folder):
+                try:
+                    if os.path.isfile(model_path):
+                        os.remove(model_path)
+                except OSError:
+                    pass
+            index.get("assets", {}).pop(asset_id, None)
+            write_asset_index(paths, index)
+            return True
 
-    if asset.get("is_imported"):
-        model_path = resolve_workspace_relative_path(paths, record.get("model_path"))
-        if model_path and is_real_path_inside(model_path, paths.model_asset_import_folder):
-            try:
-                if os.path.isfile(model_path):
-                    os.remove(model_path)
-            except OSError:
-                pass
-        index.get("assets", {}).pop(asset_id, None)
-        write_asset_index(paths, index)
-        return True
-
-    model_gallery.delete_gallery_item(paths, asset_id)
-    if asset_id in index.get("assets", {}):
-        index["assets"].pop(asset_id, None)
-        write_asset_index(paths, index)
+        model_gallery.delete_gallery_item(paths, asset_id)
+        if asset_id in index.get("assets", {}):
+            index["assets"].pop(asset_id, None)
+            write_asset_index(paths, index)
     return True
 
 
+def resolve_asset_source_files(paths, asset_id):
+    """从受控目录直接反查资产的真实模型文件，避免从对外 URL 逆向拼路径。"""
+    index = read_asset_index(paths)
+    record = get_user_record(index, asset_id)
+    if record.get("source_type") == SOURCE_IMPORTED:
+        model_path = resolve_workspace_relative_path(paths, record.get("model_path"))
+        asset_format = normalize_format(record.get("format")) or (
+            format_for_path(model_path) if model_path else None
+        )
+        if (
+            model_path
+            and asset_format
+            and is_real_path_inside(model_path, paths.model_asset_import_folder)
+            and os.path.isfile(model_path)
+        ):
+            return {asset_format: model_path}
+        return {}
+    return collect_supported_files(paths.output_folder, asset_id)
+
+
 def resolve_download_file(paths, asset_id, fmt=None):
-    asset = get_model_asset(paths, asset_id, include_details=True)
-    if not asset:
+    files = resolve_asset_source_files(paths, asset_id)
+    if not files:
         return None
 
-    requested_format = normalize_format(fmt) or asset.get("primary_format")
-    for descriptor in asset.get("files", []):
-        if descriptor.get("format") == requested_format:
-            url_path = descriptor.get("url", "")
-            relative = url_path.removeprefix("/files/")
-            if relative.startswith("workspace/"):
-                relative = relative[len("workspace/"):]
-                path = resolve_workspace_relative_path(paths, relative)
-            else:
-                path = os.path.realpath(os.path.join(os.path.dirname(paths.workspace_folder), relative))
-            if path and os.path.isfile(path):
-                return path, descriptor["filename"]
-
-    return None
+    requested_format = normalize_format(fmt) or select_primary_format(files)
+    path = files.get(requested_format) or files.get(select_primary_format(files))
+    if not path or not os.path.isfile(path):
+        return None
+    return path, os.path.basename(path)

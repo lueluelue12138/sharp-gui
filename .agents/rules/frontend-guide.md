@@ -173,9 +173,12 @@ api/
 ```typescript
 export async function apiGet<T>(url: string): Promise<T>;
 export async function apiPost<T>(url: string, data?: unknown, options?: FetchOptions): Promise<T>;
-export async function apiPostFormData<T>(url: string, formData: FormData): Promise<T>;
+export async function apiPostFormData<T>(url: string, formData: FormData, options?: FetchOptions): Promise<T>;
+export async function apiPostFormDataWithProgress<T>(url: string, formData: FormData, options?: ProgressFetchOptions): Promise<T>;
 export async function apiDelete<T>(url: string): Promise<T>;
 ```
+
+> `apiPostFormDataWithProgress` 基于 `XMLHttpRequest` 暴露上传进度回调，供模型资产导入这类大文件上传显示进度；普通请求继续用前四个基于 `fetch` 的函数。
 
 特性：
 - **原生 fetch**，不使用 axios
