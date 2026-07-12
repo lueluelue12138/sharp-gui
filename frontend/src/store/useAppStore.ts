@@ -438,6 +438,8 @@ interface AppState {
   modelAssetSort: ModelAssetSort;
   modelAssetDensity: ModelAssetDensity;
   modelAssetBatchSize: number;
+  modelAssetCacheReady: boolean;
+  modelAssetScrollTop: number;
   selectedModelAssetId: string | null;
   modelAssetSelectionMode: boolean;
   selectedModelAssetIds: string[];
@@ -539,6 +541,7 @@ interface AppState {
   ) => void;
   setPreviewImage: (item: GalleryItem | null) => void;
   setModelAssets: (response: ModelAssetListResponse, append?: boolean) => void;
+  mergeModelAssetRefresh: (response: ModelAssetListResponse) => void;
   setModelAssetLoading: (loading: boolean) => void;
   setModelAssetError: (message: string | null) => void;
   setModelAssetFilters: (filters: Partial<{
@@ -548,6 +551,7 @@ interface AppState {
     sort: ModelAssetSort;
   }>) => void;
   setModelAssetDensity: (density: ModelAssetDensity) => void;
+  setModelAssetScrollTop: (scrollTop: number) => void;
   setSelectedModelAsset: (id: string | null) => void;
   upsertModelAssets: (items: ModelAsset[]) => void;
   removeModelAsset: (id: string) => void;
@@ -660,6 +664,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelAssetSort: 'modified_desc',
   modelAssetDensity: 'comfortable',
   modelAssetBatchSize: DEFAULT_MODEL_ASSET_BATCH_SIZE,
+  modelAssetCacheReady: false,
+  modelAssetScrollTop: 0,
   selectedModelAssetId: null,
   modelAssetSelectionMode: false,
   selectedModelAssetIds: [],
@@ -886,7 +892,59 @@ export const useAppStore = create<AppState>((set, get) => ({
       modelAssetFormat: response.format,
       modelAssetTag: response.tag ?? null,
       modelAssetSort: response.sort,
+      modelAssetCacheReady: true,
       selectedModelAssetId: selectedStillExists
+        ? state.selectedModelAssetId
+        : nextItems[0]?.id ?? null,
+      selectedModelAssetIds: state.selectedModelAssetIds.filter((id) =>
+        nextItems.some((item) => item.id === id),
+      ),
+      modelAssetLoading: false,
+      modelAssetError: null,
+    };
+  }),
+  mergeModelAssetRefresh: (response) => set((state) => {
+    const queryMatches = response.source === state.modelAssetSource
+      && response.format === state.modelAssetFormat
+      && (response.tag ?? null) === state.modelAssetTag
+      && response.sort === state.modelAssetSort;
+    if (!queryMatches || !state.modelAssetCacheReady) {
+      return {
+        modelAssets: response.items,
+        modelAssetTotal: response.total,
+        modelAssetNextCursor: response.next_cursor,
+        modelAssetCounts: response.counts,
+        modelAssetAvailableTags: response.available_tags,
+        modelAssetSource: response.source,
+        modelAssetFormat: response.format,
+        modelAssetTag: response.tag ?? null,
+        modelAssetSort: response.sort,
+        modelAssetCacheReady: true,
+        selectedModelAssetId: response.items.some((item) => item.id === state.selectedModelAssetId)
+          ? state.selectedModelAssetId
+          : response.items[0]?.id ?? null,
+        selectedModelAssetIds: state.selectedModelAssetIds.filter((id) =>
+          response.items.some((item) => item.id === id),
+        ),
+        modelAssetLoading: false,
+        modelAssetError: null,
+      };
+    }
+
+    const refreshedIds = new Set(response.items.map((item) => item.id));
+    const nextItems = [
+      ...response.items,
+      ...state.modelAssets.filter((item) => !refreshedIds.has(item.id)),
+    ].slice(0, response.total);
+    return {
+      modelAssets: nextItems,
+      modelAssetTotal: response.total,
+      modelAssetNextCursor: nextItems.length < response.total ? String(nextItems.length) : null,
+      modelAssetCounts: response.counts,
+      modelAssetAvailableTags: response.available_tags,
+      modelAssetCacheReady: true,
+      selectedModelAssetId: state.selectedModelAssetId
+        && nextItems.some((item) => item.id === state.selectedModelAssetId)
         ? state.selectedModelAssetId
         : nextItems[0]?.id ?? null,
       selectedModelAssetIds: state.selectedModelAssetIds.filter((id) =>
@@ -908,10 +966,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     modelAssets: [],
     modelAssetTotal: 0,
     modelAssetNextCursor: null,
+    modelAssetCacheReady: false,
+    modelAssetScrollTop: 0,
     selectedModelAssetIds: [],
     modelAssetSelectionMode: false,
   })),
   setModelAssetDensity: (density) => set({ modelAssetDensity: density }),
+  setModelAssetScrollTop: (scrollTop) => set({
+    modelAssetScrollTop: Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0),
+  }),
   setSelectedModelAsset: (id) => set({ selectedModelAssetId: id }),
   upsertModelAssets: (items) => set((state) => {
     if (items.length === 0) {

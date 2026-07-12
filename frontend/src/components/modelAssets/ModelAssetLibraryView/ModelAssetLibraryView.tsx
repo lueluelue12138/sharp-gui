@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { DragEvent } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -10,12 +11,11 @@ import {
   fetchGallery,
   fetchModelAsset,
   fetchModelAssets,
-  importModelAssets,
   refreshModelAssetCover,
   updateModelAssetProfile,
   uploadModelAssetCover,
 } from '@/api';
-import { CloseIcon } from '@/components/common/Icons';
+import { CloseIcon, CloudUploadIcon } from '@/components/common/Icons';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ModelAssetDetailsPanel } from '@/components/modelAssets/ModelAssetDetailsPanel';
 import { ModelAssetGrid } from '@/components/modelAssets/ModelAssetGrid';
@@ -44,6 +44,7 @@ const MODEL_ASSET_LOAD_MORE_REMAINING_PX = 700;
 interface ModelAssetLibraryViewProps {
   canImportAssets: boolean;
   onImportBlocked: () => void;
+  onImportFiles: (files: File[]) => void;
 }
 
 function getErrorMessage(error: unknown): string {
@@ -56,13 +57,19 @@ function getErrorMessage(error: unknown): string {
 export function ModelAssetLibraryView({
   canImportAssets,
   onImportBlocked,
+  onImportFiles,
 }: ModelAssetLibraryViewProps) {
   const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const workbenchRef = useRef<HTMLDivElement | null>(null);
   const toolbarModeRef = useRef<ModelAssetToolbarMode>('expanded');
   const scrollFrameRef = useRef<number | null>(null);
+  const scrollSaveFrameRef = useRef<number | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
+  const dragDepthRef = useRef(0);
+  const lastScrollTopRef = useRef(useAppStore.getState().modelAssetScrollTop);
+  const restoredScrollKeyRef = useRef<string | null>(null);
   const assetScrollStateRef = useRef<{
     isLoading: boolean;
     loadAssets: (cursor: string | null, append: boolean) => void;
@@ -73,6 +80,7 @@ export function ModelAssetLibraryView({
   const [toolbarMode, setToolbarMode] = useState<ModelAssetToolbarMode>('expanded');
   const [openCardsDirectly, setOpenCardsDirectly] = useState(true);
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
+  const [dropActive, setDropActive] = useState(false);
   const {
     modelAssets,
     modelAssetTotal,
@@ -85,6 +93,7 @@ export function ModelAssetLibraryView({
     modelAssetSort,
     modelAssetDensity,
     modelAssetBatchSize,
+    modelAssetCacheReady,
     selectedModelAssetId,
     modelAssetSelectionMode,
     selectedModelAssetIds,
@@ -98,18 +107,16 @@ export function ModelAssetLibraryView({
     setModelAssetError,
     setModelAssetFilters,
     setModelAssetDensity,
+    setModelAssetScrollTop,
     setSelectedModelAsset,
     upsertModelAssets,
     removeModelAsset,
     setModelAssetSelectionMode,
     toggleSelectedModelAsset,
-    setModelAssetImporting,
     setModelAssetEditing,
     setCurrentModel,
     setPreviewImage,
     setGalleryItems,
-    setLoading,
-    setLoadingProgress,
   } = useAppStore(
     useShallow((state) => ({
       modelAssets: state.modelAssets,
@@ -123,6 +130,7 @@ export function ModelAssetLibraryView({
       modelAssetSort: state.modelAssetSort,
       modelAssetDensity: state.modelAssetDensity,
       modelAssetBatchSize: state.modelAssetBatchSize,
+      modelAssetCacheReady: state.modelAssetCacheReady,
       selectedModelAssetId: state.selectedModelAssetId,
       modelAssetSelectionMode: state.modelAssetSelectionMode,
       selectedModelAssetIds: state.selectedModelAssetIds,
@@ -136,18 +144,16 @@ export function ModelAssetLibraryView({
       setModelAssetError: state.setModelAssetError,
       setModelAssetFilters: state.setModelAssetFilters,
       setModelAssetDensity: state.setModelAssetDensity,
+      setModelAssetScrollTop: state.setModelAssetScrollTop,
       setSelectedModelAsset: state.setSelectedModelAsset,
       upsertModelAssets: state.upsertModelAssets,
       removeModelAsset: state.removeModelAsset,
       setModelAssetSelectionMode: state.setModelAssetSelectionMode,
       toggleSelectedModelAsset: state.toggleSelectedModelAsset,
-      setModelAssetImporting: state.setModelAssetImporting,
       setModelAssetEditing: state.setModelAssetEditing,
       setCurrentModel: state.setCurrentModel,
       setPreviewImage: state.setPreviewImage,
       setGalleryItems: state.setGalleryItems,
-      setLoading: state.setLoading,
-      setLoadingProgress: state.setLoadingProgress,
     })),
   );
 
@@ -178,6 +184,31 @@ export function ModelAssetLibraryView({
     }
   }, []);
 
+  const getAssetScrollElement = useCallback(() => (
+    window.innerWidth > MOBILE_TOOLBAR_BREAKPOINT
+      ? gridScrollRef.current
+      : workbenchRef.current
+  ), []);
+
+  const saveScrollPosition = useCallback((scrollTop: number) => {
+    lastScrollTopRef.current = scrollTop;
+    if (scrollSaveFrameRef.current !== null) {
+      return;
+    }
+    scrollSaveFrameRef.current = window.requestAnimationFrame(() => {
+      scrollSaveFrameRef.current = null;
+      setModelAssetScrollTop(lastScrollTopRef.current);
+    });
+  }, [setModelAssetScrollTop]);
+
+  const scrollContextKey = [
+    modelAssetSource,
+    modelAssetFormat,
+    modelAssetTag ?? '',
+    modelAssetSort,
+    modelAssetDensity,
+  ].join('|');
+
   useEffect(() => {
     const handleResize = () => {
       if (resizeFrameRef.current !== null) {
@@ -189,12 +220,16 @@ export function ModelAssetLibraryView({
         if (window.innerWidth > MOBILE_TOOLBAR_BREAKPOINT) {
           updateToolbarMode('expanded');
         }
+        const scrollElement = getAssetScrollElement();
+        if (scrollElement) {
+          maybeLoadMoreAssets(scrollElement);
+        }
       });
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
-  }, [updateToolbarMode]);
+  }, [getAssetScrollElement, maybeLoadMoreAssets, updateToolbarMode]);
 
   useEffect(() => {
     const pointerQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
@@ -218,7 +253,11 @@ export function ModelAssetLibraryView({
     if (resizeFrameRef.current !== null) {
       window.cancelAnimationFrame(resizeFrameRef.current);
     }
-  }, []);
+    if (scrollSaveFrameRef.current !== null) {
+      window.cancelAnimationFrame(scrollSaveFrameRef.current);
+    }
+    setModelAssetScrollTop(lastScrollTopRef.current);
+  }, [setModelAssetScrollTop]);
 
   const handleWorkbenchScroll = useCallback(() => {
     if (scrollFrameRef.current !== null) {
@@ -233,6 +272,7 @@ export function ModelAssetLibraryView({
       }
 
       const scrollTop = el.scrollTop;
+      saveScrollPosition(scrollTop);
       if (scrollTop <= MOBILE_TOOLBAR_EXPAND_SCROLL_TOP) {
         updateToolbarMode('expanded');
       } else if (toolbarModeRef.current === 'expanded' && scrollTop >= MOBILE_TOOLBAR_COMPACT_SCROLL_TOP) {
@@ -241,7 +281,7 @@ export function ModelAssetLibraryView({
 
       maybeLoadMoreAssets(el);
     });
-  }, [maybeLoadMoreAssets, updateToolbarMode]);
+  }, [maybeLoadMoreAssets, saveScrollPosition, updateToolbarMode]);
 
   useEffect(() => {
     const el = workbenchRef.current;
@@ -265,6 +305,9 @@ export function ModelAssetLibraryView({
 
   const loadAssets = useCallback(async (cursor: string | null = null, append = false) => {
     try {
+      if (assetScrollStateRef.current) {
+        assetScrollStateRef.current.isLoading = true;
+      }
       setModelAssetLoading(true);
       const response = await fetchModelAssets({
         source: modelAssetSource,
@@ -300,8 +343,47 @@ export function ModelAssetLibraryView({
   }, [loadAssets, modelAssetLoading, modelAssetNextCursor]);
 
   useEffect(() => {
+    if (modelAssetCacheReady || modelAssetLoading) {
+      return;
+    }
     void loadAssets(null, false);
-  }, [loadAssets]);
+  }, [loadAssets, modelAssetCacheReady, modelAssetLoading]);
+
+  useLayoutEffect(() => {
+    if (restoredScrollKeyRef.current === scrollContextKey) {
+      return;
+    }
+    const scrollElement = getAssetScrollElement();
+    if (!scrollElement) {
+      return;
+    }
+    const savedScrollTop = useAppStore.getState().modelAssetScrollTop;
+    scrollElement.scrollTop = savedScrollTop;
+    lastScrollTopRef.current = scrollElement.scrollTop;
+    restoredScrollKeyRef.current = scrollContextKey;
+  }, [
+    getAssetScrollElement,
+    modelAssets.length,
+    modelAssetLoading,
+    scrollContextKey,
+  ]);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      const scrollElement = getAssetScrollElement();
+      if (scrollElement) {
+        maybeLoadMoreAssets(scrollElement);
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    getAssetScrollElement,
+    maybeLoadMoreAssets,
+    modelAssets.length,
+    modelAssetDensity,
+    modelAssetLoading,
+    modelAssetNextCursor,
+  ]);
 
   const handleImportClick = useCallback(() => {
     if (!canImportAssets) {
@@ -338,7 +420,7 @@ export function ModelAssetLibraryView({
     void loadAssetDetails(asset.id);
   }, [loadAssetDetails, openCardsDirectly, setSelectedModelAsset, updateToolbarMode]);
 
-  const handleImportFiles = useCallback(async (files: FileList | null) => {
+  const handleImportFiles = useCallback((files: FileList | File[] | null) => {
     if (!files || files.length === 0) {
       return;
     }
@@ -347,41 +429,65 @@ export function ModelAssetLibraryView({
       return;
     }
 
-    const fileArray = Array.from(files);
-    try {
-      setModelAssetImporting(true);
-      setLoading(true, t('modelAssetImportingCount', { count: fileArray.length }));
-      setNotice(null);
-      const result = await importModelAssets(fileArray, {
-        onUploadProgress: ({ percent }) => setLoadingProgress(percent),
-      });
-      upsertModelAssets(result.assets);
-      await loadAssets(null, false);
-      setNotice(t('modelAssetImportComplete', {
-        count: result.assets.length,
-        failed: result.failed.length,
-      }));
-    } catch (error) {
-      if (error instanceof ApiError && error.status === 403) {
-        onImportBlocked();
-      } else {
-        setModelAssetError(getErrorMessage(error));
-      }
-    } finally {
-      setLoading(false);
-      setModelAssetImporting(false);
-    }
+    setNotice(null);
+    onImportFiles(Array.from(files));
   }, [
     canImportAssets,
-    loadAssets,
     onImportBlocked,
-    setLoading,
-    setLoadingProgress,
-    setModelAssetError,
-    setModelAssetImporting,
-    t,
-    upsertModelAssets,
+    onImportFiles,
   ]);
+
+  const handleLibraryDragEnter = useCallback((event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current += 1;
+    setDropActive(true);
+  }, []);
+
+  const handleLibraryDragOver = useCallback((event: DragEvent<HTMLElement>) => {
+    if (!event.dataTransfer.types.includes('Files')) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = canImportAssets ? 'copy' : 'none';
+  }, [canImportAssets]);
+
+  const handleLibraryDragLeave = useCallback((event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) {
+      setDropActive(false);
+    }
+  }, []);
+
+  const handleLibraryDrop = useCallback((event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepthRef.current = 0;
+    setDropActive(false);
+    handleImportFiles(event.dataTransfer.files);
+  }, [handleImportFiles]);
+
+  useEffect(() => {
+    if (!dropActive) {
+      return;
+    }
+    const resetDropState = () => {
+      dragDepthRef.current = 0;
+      setDropActive(false);
+    };
+    window.addEventListener('dragend', resetDropState);
+    window.addEventListener('drop', resetDropState);
+    return () => {
+      window.removeEventListener('dragend', resetDropState);
+      window.removeEventListener('drop', resetDropState);
+    };
+  }, [dropActive]);
 
   const handleOpen = useCallback((asset: ModelAsset) => {
     const modelSource = resolveModelAssetSource(asset, preferredModelFormat);
@@ -512,11 +618,19 @@ export function ModelAssetLibraryView({
   }, [setModelAssetDensity]);
 
   const handleGridScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
+    saveScrollPosition(event.currentTarget.scrollTop);
     maybeLoadMoreAssets(event.currentTarget);
-  }, [maybeLoadMoreAssets]);
+  }, [maybeLoadMoreAssets, saveScrollPosition]);
 
   return (
-    <section className={styles.library} aria-label={t('modelAssetLibraryTitle')}>
+    <section
+      className={styles.library}
+      aria-label={t('modelAssetLibraryTitle')}
+      onDragEnter={handleLibraryDragEnter}
+      onDragOver={handleLibraryDragOver}
+      onDragLeave={handleLibraryDragLeave}
+      onDrop={handleLibraryDrop}
+    >
       <input
         ref={fileInputRef}
         type="file"
@@ -524,10 +638,22 @@ export function ModelAssetLibraryView({
         multiple
         hidden
         onChange={(event) => {
-          void handleImportFiles(event.target.files);
+          handleImportFiles(event.target.files);
           event.target.value = '';
         }}
       />
+
+      {dropActive ? (
+        <div className={styles.dropOverlay} aria-hidden="true">
+          <div className={styles.dropCard}>
+            <span className={styles.dropIcon}>
+              <CloudUploadIcon width={30} height={30} />
+            </span>
+            <strong>{t('modelAssetDropImportTitle')}</strong>
+            <span>{t('modelAssetDropImportHint')}</span>
+          </div>
+        </div>
+      ) : null}
 
       <ModelAssetToolbar
         total={modelAssetTotal}
@@ -583,6 +709,7 @@ export function ModelAssetLibraryView({
           selectedIds={selectedModelAssetIds}
           openOnCardClick={openCardsDirectly}
           preferredFormat={preferredModelFormat}
+          scrollElementRef={gridScrollRef}
           onSelect={handleSelectAsset}
           onToggleChecked={(asset) => toggleSelectedModelAsset(asset.id)}
           onOpen={handleOpen}

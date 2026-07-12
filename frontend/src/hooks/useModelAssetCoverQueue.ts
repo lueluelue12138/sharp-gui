@@ -37,14 +37,21 @@ export function useModelAssetCoverQueue(
   }, [onCoverUpdated]);
 
   useEffect(() => {
+    const queue = queueRef.current;
+    const queuedIds = queuedIdsRef.current;
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      queue.length = 0;
+      queuedIds.clear();
     };
   }, []);
 
   useEffect(() => {
     const pump = () => {
+      if (!mountedRef.current) {
+        return;
+      }
       while (activeCountRef.current < MAX_CONCURRENT_COVERS) {
         const next = queueRef.current.shift();
         if (!next) {
@@ -58,9 +65,9 @@ export function useModelAssetCoverQueue(
         generateModelCoverFile(next.id, next.default_open_url ?? null, openFormat)
           .then((file) => uploadModelAssetCover(next.id, file, 'system'))
           .then((updated) => {
-            if (mountedRef.current) {
-              onCoverUpdatedRef.current(updated);
-            }
+            // 回调只更新全局资产摘要；即使视图刚卸载，也要接收已经完成的
+            // 最多两个在途任务，避免返回资产库后重复生成同一封面。
+            onCoverUpdatedRef.current(updated);
           })
           .catch(() => {
             failedIdsRef.current.add(next.id);
@@ -68,7 +75,9 @@ export function useModelAssetCoverQueue(
           .finally(() => {
             pendingIdsRef.current.delete(next.id);
             activeCountRef.current -= 1;
-            pump();
+            if (mountedRef.current) {
+              pump();
+            }
           });
       }
     };

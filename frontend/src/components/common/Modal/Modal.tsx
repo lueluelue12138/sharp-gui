@@ -1,6 +1,9 @@
 import type { ReactNode, MouseEvent } from 'react';
-import { useEffect } from 'react';
-import { CloseIcon } from '../Icons';
+import { useEffect, useId } from 'react';
+
+import { useTranslation } from 'react-i18next';
+
+import { CloseIcon } from '@/components/common/Icons';
 import styles from './Modal.module.css';
 
 interface ModalProps {
@@ -20,6 +23,8 @@ export function Modal({
   showCloseButton = true,
   size = 'md',
 }: ModalProps) {
+  const { t } = useTranslation();
+  const titleId = useId();
   // Handle escape key
   useEffect(() => {
     if (!isOpen) return;
@@ -56,12 +61,17 @@ export function Modal({
 
   return (
     <div className={styles.backdrop} onClick={handleBackdropClick}>
-      <div className={`${styles.modal} ${styles[size]}`}>
+      <div
+        className={`${styles.modal} ${styles[size]}`}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+      >
         {(title || showCloseButton) && (
           <div className={styles.header}>
-            {title && <h3 className={styles.title}>{title}</h3>}
+            {title && <h3 id={titleId} className={styles.title}>{title}</h3>}
             {showCloseButton && (
-              <button className={styles.closeButton} onClick={onClose} aria-label="Close">
+              <button className={styles.closeButton} onClick={onClose} aria-label={t('close')}>
                 <CloseIcon width={16} height={16} />
               </button>
             )}

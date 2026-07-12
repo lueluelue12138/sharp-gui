@@ -12,6 +12,59 @@
   transition: padding-left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.dropOverlay {
+  position: absolute;
+  inset: 12px 14px;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(0, 113, 227, 0.56);
+  border-radius: var(--radius-xl);
+  background: rgba(245, 248, 255, 0.68);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38), var(--glass-shadow);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  pointer-events: none;
+}
+
+.dropCard {
+  width: min(360px, calc(100% - 32px));
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  color: var(--text-primary);
+  text-align: center;
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+}
+
+.dropCard strong {
+  font-size: 16px;
+}
+
+.dropCard > span:last-child {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dropIcon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  color: var(--accent-blue);
+  background: rgba(0, 113, 227, 0.11);
+}
+
 :global(.main-content.sidebar-expanded) .library {
   padding-left: calc(var(--sidebar-width) + 32px);
 }
@@ -131,6 +184,10 @@
 }
 
 @media (prefers-color-scheme: dark) {
+  .dropOverlay {
+    background: rgba(5, 10, 20, 0.7);
+  }
+
   .notice button:hover,
   .notice button:focus-visible {
     background: rgba(255, 255, 255, 0.08);

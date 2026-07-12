@@ -71,8 +71,8 @@ async function throwApiError(response: Response): Promise<never> {
   );
 }
 
-export async function apiGet<T>(url: string): Promise<T> {
-  const response = await fetchWithTimeout(url);
+export async function apiGet<T>(url: string, options?: FetchOptions): Promise<T> {
+  const response = await fetchWithTimeout(url, options);
   
   if (!response.ok) {
     await throwApiError(response);

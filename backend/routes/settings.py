@@ -25,6 +25,7 @@ def settings():
         video_config, _ = normalize_video_reconstruction_config(config)
         return jsonify({
             "is_local": is_local,
+            "server_instance_id": current_app.config["SERVER_INSTANCE_ID"],
             "workspace_folder": paths.workspace_folder if is_local else None,
             "model_format": config.get("model_format", "spz"),
             "input_folder": paths.input_folder if is_local else None,
@@ -80,6 +81,7 @@ def restart_server():
 
     return jsonify({
         "success": True,
+        "server_instance_id": current_app.config["SERVER_INSTANCE_ID"],
         "message": "Server will restart in 1 second...",
     })
 

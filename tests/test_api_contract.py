@@ -40,12 +40,27 @@ def test_core_read_apis_return_expected_shapes(client, app):
     assert settings.status_code == 200
     settings_payload = settings.get_json()
     assert settings_payload["model_format"] == "spz"
+    assert settings_payload["server_instance_id"] == app.config["SERVER_INSTANCE_ID"]
     assert settings_payload["workspace_folder"] == paths.workspace_folder
     assert settings_payload["video_reconstruction"]["default_quality"] == "high"
 
     video_status = client.get("/api/video-reconstructions/status")
     assert video_status.status_code == 200
     assert "dependencies" in video_status.get_json()
+
+
+def test_restart_api_returns_current_instance_id(client, app, monkeypatch):
+    restart_calls = []
+    monkeypatch.setattr(
+        "backend.routes.settings.restart_process_later",
+        lambda: restart_calls.append(True),
+    )
+
+    response = client.post("/api/restart")
+
+    assert response.status_code == 200
+    assert response.get_json()["server_instance_id"] == app.config["SERVER_INSTANCE_ID"]
+    assert restart_calls == [True]
 
 
 def test_model_assets_api_lists_imports_edits_covers_and_downloads(client, app):

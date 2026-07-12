@@ -1,3 +1,5 @@
+import type { RefObject } from 'react';
+
 import { useTranslation } from 'react-i18next';
 
 import { ModelAssetCard } from '@/components/modelAssets/ModelAssetCard';
@@ -14,6 +16,7 @@ interface ModelAssetGridProps {
   selectedIds: string[];
   openOnCardClick: boolean;
   preferredFormat: ModelFormat;
+  scrollElementRef: RefObject<HTMLDivElement | null>;
   onSelect: (asset: ModelAsset) => void;
   onToggleChecked: (asset: ModelAsset) => void;
   onOpen: (asset: ModelAsset) => void;
@@ -33,6 +36,7 @@ export function ModelAssetGrid({
   selectedIds,
   openOnCardClick,
   preferredFormat,
+  scrollElementRef,
   onSelect,
   onToggleChecked,
   onOpen,
@@ -60,7 +64,7 @@ export function ModelAssetGrid({
   }
 
   return (
-    <div className={styles.root} onScroll={onScroll}>
+    <div ref={scrollElementRef} className={styles.root} onScroll={onScroll}>
       <div className={gridClasses} role="list" aria-label={t('modelAssetGrid')}>
         {assets.map((asset) => (
           <ModelAssetCard

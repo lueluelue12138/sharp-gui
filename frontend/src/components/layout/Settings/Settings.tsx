@@ -329,13 +329,13 @@ export const Settings: React.FC = () => {
                 handleClose();
                 setLoading(true, t('lanBindRestarting'));
                 try {
-                    await restartServer();
-                } catch {
-                    // 重启会断开连接，属预期行为
-                }
-                setTimeout(() => {
+                    await restartServer(workspaceChanged ? workspaceFolder : originalWorkspace);
                     window.location.reload();
-                }, 3000);
+                } catch (error) {
+                    console.error('Failed to restart server:', error);
+                    setLoading(false);
+                    alert(t('serverRestartFailed'));
+                }
             } else {
                 handleClose();
             }

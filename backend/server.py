@@ -1,5 +1,6 @@
 import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -7,6 +8,9 @@ import time
 from backend import runtime
 from backend.config import coerce_bool, get_access_control_config
 from backend.services.workspace_lock import WorkspaceInUseError
+
+WINDOWS_RESTART_EXIT_CODE = 75
+WINDOWS_SERVER_CHILD_ENV = "SHARP_WINDOWS_SERVER_CHILD"
 
 
 def get_local_ip():
@@ -36,28 +40,55 @@ def get_local_ip():
     return "127.0.0.1"
 
 
-def _max_open_fds():
-    """返回可安全关闭的最大文件描述符上限。"""
-    try:
-        import resource
+def _exec_current_process():
+    """以干净的 Werkzeug 环境替换当前进程，失败时保持现有服务可用。"""
+    exec_env = os.environ.copy()
+    werkzeug_fd = exec_env.pop("WERKZEUG_SERVER_FD", None)
+    exec_env.pop("WERKZEUG_RUN_MAIN", None)
 
-        soft, _ = resource.getrlimit(resource.RLIMIT_NOFILE)
-        if soft and soft != resource.RLIM_INFINITY:
-            return min(soft, 65536)
-    except Exception:
-        pass
-    return 4096
+    if werkzeug_fd is not None:
+        try:
+            os.set_inheritable(int(werkzeug_fd), False)
+        except (OSError, TypeError, ValueError):
+            pass
+
+    try:
+        os.execve(sys.executable, [sys.executable] + sys.argv, exec_env)
+    except OSError as exc:
+        print(f"❌ Server restart failed: {exc}", file=sys.stderr, flush=True)
+        return False
+
+    return True
+
+
+def _is_windows_supervised_child():
+    return os.name == "nt" and os.environ.get(WINDOWS_SERVER_CHILD_ENV) == "1"
+
+
+def _restart_current_process():
+    if _is_windows_supervised_child():
+        return os._exit(WINDOWS_RESTART_EXIT_CODE)
+    return _exec_current_process()
+
+
+def run_windows_server_supervisor(argv):
+    """在 Windows 上监督服务子进程，并用专用退出码完成可靠重启。"""
+    child_env = os.environ.copy()
+    child_env[WINDOWS_SERVER_CHILD_ENV] = "1"
+    child_command = [sys.executable] + list(argv)
+
+    while True:
+        exit_code = subprocess.call(child_command, env=child_env, cwd=os.getcwd())
+        if exit_code != WINDOWS_RESTART_EXIT_CODE:
+            return exit_code
+        print("🔄 Server stopped; starting a fresh process...", flush=True)
 
 
 def restart_process_later():
     def do_restart():
         time.sleep(1)
-        print("🔄 Restarting server...")
-        try:
-            os.closerange(3, _max_open_fds())
-        except Exception:
-            pass
-        os.execv(sys.executable, [sys.executable] + sys.argv)
+        print("🔄 Restarting server...", flush=True)
+        _restart_current_process()
 
     threading.Thread(target=do_restart, daemon=True).start()
 

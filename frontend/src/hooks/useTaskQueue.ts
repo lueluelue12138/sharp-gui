@@ -18,12 +18,25 @@ export const useTaskQueue = () => {
     const tasks = useAppStore((state) => state.tasks);
     const hasActiveTasks = useAppStore((state) => state.hasActiveTasks);
     const canUsePrivateApi = useAppStore((state) => state.isAuthenticated || state.isOwnerAccess);
-    const { setTasks, setGalleryItems, setModelAssets, modelAssetBatchSize } = useAppStore(
+    const {
+        setTasks,
+        setGalleryItems,
+        mergeModelAssetRefresh,
+        modelAssetBatchSize,
+        modelAssetSource,
+        modelAssetFormat,
+        modelAssetTag,
+        modelAssetSort,
+    } = useAppStore(
         useShallow((state) => ({
             setTasks: state.setTasks,
             setGalleryItems: state.setGalleryItems,
-            setModelAssets: state.setModelAssets,
+            mergeModelAssetRefresh: state.mergeModelAssetRefresh,
             modelAssetBatchSize: state.modelAssetBatchSize,
+            modelAssetSource: state.modelAssetSource,
+            modelAssetFormat: state.modelAssetFormat,
+            modelAssetTag: state.modelAssetTag,
+            modelAssetSort: state.modelAssetSort,
         })),
     );
     
@@ -59,8 +72,14 @@ export const useTaskQueue = () => {
             if (shouldRefreshGallery) {
                 const gallery = await fetchGallery();
                 setGalleryItems(gallery);
-                const modelAssets = await fetchModelAssets({ limit: modelAssetBatchSize });
-                setModelAssets(modelAssets);
+                const modelAssets = await fetchModelAssets({
+                    source: modelAssetSource,
+                    format: modelAssetFormat,
+                    tag: modelAssetTag,
+                    sort: modelAssetSort,
+                    limit: modelAssetBatchSize,
+                });
+                mergeModelAssetRefresh(modelAssets);
             }
 
             const nextTasks = reconcileTaskSnapshot(
@@ -75,7 +94,17 @@ export const useTaskQueue = () => {
         } finally {
             pollInFlightRef.current = false;
         }
-    }, [canUsePrivateApi, modelAssetBatchSize, setGalleryItems, setModelAssets, setTasks]);
+    }, [
+        canUsePrivateApi,
+        mergeModelAssetRefresh,
+        modelAssetBatchSize,
+        modelAssetFormat,
+        modelAssetSort,
+        modelAssetSource,
+        modelAssetTag,
+        setGalleryItems,
+        setTasks,
+    ]);
 
     // Start/stop polling based on hasActiveTasks
     useEffect(() => {
