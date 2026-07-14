@@ -111,6 +111,34 @@ def test_video_reconstruction_config_and_paths_are_normalized(workspace):
     assert video_config["default_quality"] == "extreme"
 
 
+def test_video_process_env_prioritizes_portable_wrappers(tmp_path, monkeypatch):
+    video_env = tmp_path / ".video-reconstruction-env"
+    portable_bin = video_env / "portable-bin"
+    scripts_dir = video_env / "Scripts"
+    colmap_bin = video_env / "colmap" / "bin"
+    for path in (portable_bin, scripts_dir, colmap_bin):
+        path.mkdir(parents=True, exist_ok=True)
+
+    monkeypatch.setattr(
+        video_reconstruction,
+        "_local_video_reconstruction_paths",
+        lambda: (portable_bin, scripts_dir, colmap_bin),
+    )
+    monkeypatch.setattr(video_reconstruction, "read_vcvars_environment", lambda: {})
+    monkeypatch.setattr(video_reconstruction, "find_cuda_home", lambda: None)
+    monkeypatch.setenv(
+        "PATH",
+        os.pathsep.join((str(scripts_dir), "system-bin", str(portable_bin))),
+    )
+
+    process_env = video_reconstruction.build_video_process_env()
+    path_parts = process_env["PATH"].split(os.pathsep)
+
+    assert path_parts[:3] == [str(portable_bin), str(scripts_dir), str(colmap_bin)]
+    assert path_parts.count(str(portable_bin)) == 1
+    assert path_parts.count(str(scripts_dir)) == 1
+
+
 def test_real_path_inside_handles_escape(tmp_path):
     root = tmp_path / "root"
     root.mkdir()

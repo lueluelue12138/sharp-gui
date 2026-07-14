@@ -230,9 +230,17 @@ function Write-PortableNerfstudioWrappers {
 @echo off
 setlocal
 set "ENV_DIR=%~dp0.."
+for %%I in ("%ENV_DIR%\..") do set "PACKAGE_DIR=%%~fI"
+set "PORTABLE_PYTHON=%PACKAGE_DIR%\python\python.exe"
 set "PYTHONUTF8=1"
 set "PYTHONIOENCODING=utf-8"
-"%ENV_DIR%\Scripts\python.exe" -c "from $module import entrypoint; entrypoint()" %*
+set "PYTHONNOUSERSITE=1"
+set "PYTHONPATH=%ENV_DIR%\src\Pi3;%ENV_DIR%\Lib\site-packages"
+if not exist "%PORTABLE_PYTHON%" (
+    echo [ERROR] Missing bundled Python: %PORTABLE_PYTHON%
+    exit /b 1
+)
+"%PORTABLE_PYTHON%" -c "from $module import entrypoint; entrypoint()" %*
 exit /b %ERRORLEVEL%
 "@
         Write-AsciiFile -Path (Join-Path $portableBin "$name.cmd") -Content $script
@@ -277,13 +285,16 @@ function Test-VideoReconstructionRuntime {
     param([string]$PackageRoot)
 
     $videoEnv = Join-Path $PackageRoot ".video-reconstruction-env"
-    $python = Join-Path $videoEnv "Scripts\python.exe"
+    $python = Join-Path $PackageRoot "python\python.exe"
     $portableBin = Join-Path $videoEnv "portable-bin"
     $scriptsDir = Join-Path $videoEnv "Scripts"
+    $sitePackages = Join-Path $videoEnv "Lib\site-packages"
+    $pi3Source = Join-Path $videoEnv "src\Pi3"
     $colmapBin = Join-Path $videoEnv "colmap\bin"
     $ffmpegBin = Join-Path $PackageRoot "tools\ffmpeg\bin"
+    $pyvenvCfg = Join-Path $videoEnv "pyvenv.cfg"
 
-    foreach ($required in @($python, $portableBin, $colmapBin, $ffmpegBin)) {
+    foreach ($required in @($python, $portableBin, $sitePackages, $colmapBin, $ffmpegBin)) {
         if (-not (Test-Path -LiteralPath $required)) {
             Fail "视频重建包缺少运行时路径: $required"
         }
@@ -295,17 +306,33 @@ function Test-VideoReconstructionRuntime {
     $oldTorchHome = $env:TORCH_HOME
     $oldPythonUtf8 = $env:PYTHONUTF8
     $oldPythonIoEncoding = $env:PYTHONIOENCODING
+    $oldPythonNoUserSite = $env:PYTHONNOUSERSITE
+    $originalPyvenvCfg = if (Test-Path -LiteralPath $pyvenvCfg) {
+        [System.IO.File]::ReadAllBytes($pyvenvCfg)
+    } else {
+        $null
+    }
 
     try {
+        if ($null -ne $originalPyvenvCfg) {
+            Write-AsciiFile -Path $pyvenvCfg -Content @'
+home = C:\__sharp_gui_portable_validation_no_base_python__
+include-system-site-packages = false
+version = 0.0.0
+executable = C:\__sharp_gui_portable_validation_no_base_python__\python.exe
+'@
+        }
+
         $env:PATH = @($portableBin, $scriptsDir, $colmapBin, $ffmpegBin, $oldPath) -join ";"
         $env:PYTHONHOME = ""
-        $env:PYTHONPATH = ""
+        $env:PYTHONPATH = @($pi3Source, $sitePackages) -join ";"
         $env:PYTHONUTF8 = "1"
         $env:PYTHONIOENCODING = "utf-8"
+        $env:PYTHONNOUSERSITE = "1"
         $env:TORCH_HOME = Join-Path $PackageRoot ".cache\torch"
 
         Write-Step "校验视频重建包运行时"
-        & $python -c "import torch; assert torch.cuda.is_available(), 'CUDA is not available'; x=torch.ones((4,4),device='cuda'); y=(x@x).sum(); torch.cuda.synchronize(); print('video runtime CUDA OK: torch=' + torch.__version__ + ', cuda=' + str(torch.version.cuda) + ', gpu=' + torch.cuda.get_device_name(0))" | Out-Host
+        & $python -c "import nerfstudio, torch; assert torch.cuda.is_available(), 'CUDA is not available'; x=torch.ones((4,4),device='cuda'); y=(x@x).sum(); torch.cuda.synchronize(); print('video runtime CUDA OK: python=' + __import__('sys').executable + ', torch=' + torch.__version__ + ', cuda=' + str(torch.version.cuda) + ', gpu=' + torch.cuda.get_device_name(0))" | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Fail "视频重建包 PyTorch CUDA 校验失败"
         }
@@ -331,6 +358,10 @@ function Test-VideoReconstructionRuntime {
         $env:TORCH_HOME = $oldTorchHome
         $env:PYTHONUTF8 = $oldPythonUtf8
         $env:PYTHONIOENCODING = $oldPythonIoEncoding
+        $env:PYTHONNOUSERSITE = $oldPythonNoUserSite
+        if ($null -ne $originalPyvenvCfg) {
+            [System.IO.File]::WriteAllBytes($pyvenvCfg, $originalPyvenvCfg)
+        }
     }
 }
 

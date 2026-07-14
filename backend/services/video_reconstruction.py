@@ -215,27 +215,46 @@ _DEPENDENCY_STATUS_CHECKED_AT = None
 _DEPENDENCY_STATUS_REFRESHING = False
 
 
-def ensure_local_video_reconstruction_path():
+def _local_video_reconstruction_paths():
     root = Path(__file__).resolve().parents[2]
     local_env = root / ".video-reconstruction-env"
-    candidates = [
+    return (
+        local_env / "portable-bin",
         local_env / "Scripts",
         local_env / "colmap" / "bin",
-    ]
-    path_parts = os.environ.get("PATH", "").split(os.pathsep)
-    normalized = {os.path.normcase(os.path.abspath(part)) for part in path_parts if part}
-    additions = []
+    )
+
+
+def _prepend_existing_path_entries(path_value, candidates):
+    path_parts = [part for part in (path_value or "").split(os.pathsep) if part]
+    preferred = []
+    preferred_keys = set()
 
     for candidate in candidates:
         if candidate.exists():
             candidate_text = str(candidate)
             key = os.path.normcase(os.path.abspath(candidate_text))
-            if key not in normalized:
-                additions.append(candidate_text)
-                normalized.add(key)
+            if key not in preferred_keys:
+                preferred.append(candidate_text)
+                preferred_keys.add(key)
 
-    if additions:
-        os.environ["PATH"] = os.pathsep.join([*path_parts, *additions])
+    remaining = [
+        part
+        for part in path_parts
+        if os.path.normcase(os.path.abspath(part)) not in preferred_keys
+    ]
+    return os.pathsep.join([*preferred, *remaining])
+
+
+def ensure_local_video_reconstruction_path():
+    current_path = os.environ.get("PATH", "")
+    preferred_path = _prepend_existing_path_entries(
+        current_path,
+        _local_video_reconstruction_paths(),
+    )
+
+    if preferred_path != current_path:
+        os.environ["PATH"] = preferred_path
 
 
 def find_existing_path(candidates):
@@ -326,14 +345,7 @@ def build_video_process_env():
                 process_env["PATH"] = vc_env[path_key]
                 break
 
-    path_parts = []
-    local_env = Path(__file__).resolve().parents[2] / ".video-reconstruction-env"
-    for candidate in (
-        local_env / "Scripts",
-        local_env / "colmap" / "bin",
-    ):
-        if candidate.exists():
-            path_parts.append(str(candidate))
+    path_candidates = list(_local_video_reconstruction_paths())
 
     cuda_home = find_cuda_home()
     if cuda_home:
@@ -341,11 +353,12 @@ def build_video_process_env():
         process_env["CUDA_PATH"] = cuda_home
         cuda_bin = os.path.join(cuda_home, "bin")
         if os.path.exists(cuda_bin):
-            path_parts.append(cuda_bin)
+            path_candidates.append(Path(cuda_bin))
 
-    path_parts.append(process_env.get("PATH", ""))
-
-    process_env["PATH"] = os.pathsep.join(part for part in path_parts if part)
+    process_env["PATH"] = _prepend_existing_path_entries(
+        process_env.get("PATH", ""),
+        path_candidates,
+    )
     if os.name == "nt":
         process_env["Path"] = process_env["PATH"]
     process_env.setdefault("PYTHONUTF8", "1")
