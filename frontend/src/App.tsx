@@ -88,6 +88,7 @@ function App() {
     setAuthStatus,
     setGalleryItems,
     setTasks,
+    upsertTasks,
     setLocalAccess,
     setLoading,
     currentModelUrl,
@@ -116,6 +117,7 @@ function App() {
       setAuthStatus: state.setAuthStatus,
       setGalleryItems: state.setGalleryItems,
       setTasks: state.setTasks,
+      upsertTasks: state.upsertTasks,
       setLocalAccess: state.setLocalAccess,
       setLoading: state.setLoading,
       currentModelUrl: state.currentModelUrl,
@@ -261,7 +263,7 @@ function App() {
       setLoading(false);
       
       if (result.success && result.tasks) {
-        setTasks(result.tasks, true);
+        upsertTasks(result.tasks);
       }
     } catch (error) {
       setLoading(false);
@@ -280,7 +282,7 @@ function App() {
     t,
     setLoading,
     setLoadingProgress,
-    setTasks,
+    upsertTasks,
   ]);
 
   const handleFileDrop = useCallback((e: React.DragEvent) => {

@@ -28,6 +28,8 @@ MODEL_METADATA_SUFFIX = ".meta.json"
 VIDEO_THUMBNAIL_WIDTH = 200
 MODEL_EXTENSIONS = (".ply", ".spz", ".splat", ".rad")
 MODEL_FORMAT_PRIORITY = ("ply", "spz", "splat", "rad")
+IMAGE_ASSET_ID_PREFIX = "img-"
+INTERRUPTED_IMAGE_TASK_STATUSES = {"pending", "processing", "cancelled"}
 
 
 def normalize_model_item_id(item_id):
@@ -64,6 +66,31 @@ def collect_model_variants(paths, item_id):
         if file_stem == stem and normalized_ext in MODEL_EXTENSIONS:
             variants[normalized_ext[1:]] = filename
     return variants
+
+
+def make_unique_image_input_filename(paths, filename):
+    """为 Sharp 推理分配不可复用的 UUID 输入文件名。"""
+    original_name = str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+    _, original_ext = os.path.splitext(original_name)
+    extension = original_ext.lower()
+    allowed_extensions = {ext.lower() for ext in ALLOWED_IMAGE_EXTENSIONS}
+    if extension not in allowed_extensions:
+        return None
+
+    for _ in range(1000):
+        candidate_stem = f"{IMAGE_ASSET_ID_PREFIX}{uuid.uuid4().hex}"
+        candidate = f"{candidate_stem}{extension}"
+        candidate_paths = (
+            os.path.join(paths.input_folder, candidate),
+            os.path.join(paths.thumbnail_folder, f"{candidate_stem}.jpg"),
+            os.path.join(paths.output_folder, f"{candidate_stem}.ply"),
+            os.path.join(paths.output_folder, f"{candidate_stem}.spz"),
+            get_model_metadata_path(paths, candidate_stem),
+        )
+        if not any(os.path.exists(path) for path in candidate_paths):
+            return candidate
+
+    raise RuntimeError("Could not allocate a unique image input name")
 
 
 def generate_thumbnail(paths, input_path, filename):
@@ -124,6 +151,46 @@ def write_model_metadata(paths, item_id, metadata):
         json.dump(payload, file, ensure_ascii=False, indent=2, sort_keys=True)
     os.replace(temp_path, metadata_path)
     return metadata_path
+
+
+def get_model_display_name(paths, item_id, metadata=None):
+    """返回模型的用户可见名称，旧模型回退到内部 ID。"""
+    metadata = metadata if isinstance(metadata, dict) else read_model_metadata(paths, item_id)
+    display_name = metadata.get("display_name")
+    if isinstance(display_name, str) and display_name.strip():
+        return display_name.strip()
+
+    if metadata.get("source_media_type") == "image":
+        source_name = metadata.get("source_name")
+        if isinstance(source_name, str) and source_name.strip():
+            source_stem = os.path.splitext(os.path.basename(source_name.strip()))[0]
+            if source_stem:
+                return source_stem
+
+    return item_id
+
+
+def make_model_download_name(paths, item_id, extension, suffix="", metadata=None):
+    """使用展示名生成安全下载名，不改变内部模型文件路径。"""
+    display_name = get_model_display_name(paths, item_id, metadata)
+    safe_stem = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", display_name).strip(". ")
+    safe_stem = safe_stem[:120] or item_id
+    return f"{safe_stem}{suffix}{extension.lower()}"
+
+
+def get_original_image_download_name(paths, item_id, stored_filename):
+    """返回原图下载名，优先使用上传时的原始文件名。"""
+    metadata = read_model_metadata(paths, item_id)
+    source_name = metadata.get("source_name")
+    extension = os.path.splitext(stored_filename)[1].lower()
+    if isinstance(source_name, str) and source_name.strip():
+        source_stem = os.path.splitext(
+            source_name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+        )[0]
+        safe_stem = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", source_stem).strip(". ")
+        if safe_stem:
+            return f"{safe_stem[:120]}{extension}"
+    return make_model_download_name(paths, item_id, extension, metadata=metadata)
 
 
 def resolve_gallery_source_video(paths, item_id):
@@ -427,9 +494,11 @@ def build_gallery_item(
 
     latest_timestamp = max(file_timestamps)
 
+    display_name = get_model_display_name(paths, name_without_ext, metadata)
+
     item = {
         "id": name_without_ext,
-        "name": name_without_ext,
+        "name": display_name,
         "model_url": f"/files/{get_relative_files_path(primary_path, paths)}",
         "model_format": primary_format,
         "available_formats": [
@@ -454,6 +523,11 @@ def build_gallery_item(
             "source_media_id": metadata.get("source_media_id"),
             "source_name": metadata.get("source_name"),
             "source_video_url": f"/api/gallery/{quote(name_without_ext, safe='')}/source-video",
+        })
+    elif metadata.get("source_media_type") == "image":
+        item.update({
+            "source_media_type": "image",
+            "source_name": metadata.get("source_name"),
         })
 
     return item
@@ -498,6 +572,49 @@ def list_gallery_items(paths):
             if repair_assets:
                 remaining_asset_repairs -= 1
     return items
+
+
+def cleanup_interrupted_image_tasks(paths):
+    """Reconcile UUID image tasks left behind by a previous server process."""
+    summary = {"removed": 0, "recovered": 0, "errors": 0}
+    if not os.path.isdir(paths.output_folder):
+        return summary
+
+    suffix = MODEL_METADATA_SUFFIX
+    asset_id_pattern = re.compile(rf"^{re.escape(IMAGE_ASSET_ID_PREFIX)}[0-9a-f]{{32}}$")
+
+    for filename in os.listdir(paths.output_folder):
+        if not filename.endswith(suffix):
+            continue
+
+        item_id = filename[:-len(suffix)]
+        if not asset_id_pattern.fullmatch(item_id):
+            continue
+
+        metadata = read_model_metadata(paths, item_id)
+        if (
+            metadata.get("source_media_type") != "image"
+            or metadata.get("generation_status") not in INTERRUPTED_IMAGE_TASK_STATUSES
+        ):
+            continue
+
+        ply_path = os.path.join(paths.output_folder, item_id + ".ply")
+        spz_path = os.path.join(paths.output_folder, item_id + ".spz")
+        try:
+            if os.path.isfile(ply_path) or os.path.isfile(spz_path):
+                write_model_metadata(
+                    paths,
+                    item_id,
+                    {**metadata, "generation_status": "completed"},
+                )
+                summary["recovered"] += 1
+            else:
+                delete_gallery_item(paths, item_id)
+                summary["removed"] += 1
+        except OSError:
+            summary["errors"] += 1
+
+    return summary
 
 
 def delete_gallery_item(paths, item_id):

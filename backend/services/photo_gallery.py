@@ -17,6 +17,7 @@ from werkzeug.utils import secure_filename
 from backend import runtime
 from backend.config import load_config, save_config
 from backend.security.access_control import create_video_play_token
+from backend.services import model_gallery
 from backend.services.static_files import is_real_path_inside, to_url_path
 
 PHOTO_THUMBNAIL_WIDTH = 480
@@ -1629,23 +1630,8 @@ def rescan_photo_album(paths, album_id):
 
 
 def make_unique_input_filename(paths, filename):
-    """为照片转 3D 生成唯一输入文件名。"""
-    safe_name = secure_filename(filename)
-    name, ext = os.path.splitext(safe_name)
-    if not ext:
-        _, ext = os.path.splitext(filename)
-    if not name:
-        name = "photo"
-    if not ext:
-        ext = ".jpg"
-
-    candidate = f"{name}{ext}"
-    candidate_path = os.path.join(paths.input_folder, candidate)
-    if not os.path.exists(candidate_path):
-        return candidate
-
-    suffix = uuid.uuid4().hex[:8]
-    return f"{name}-{suffix}{ext}"
+    """为照片转 3D 分配与上传图片一致的 UUID 输入文件名。"""
+    return model_gallery.make_unique_image_input_filename(paths, filename)
 
 
 def make_unique_archive_name(filename, used_names):
@@ -1767,11 +1753,18 @@ def convert_photos_to_models(paths, task_manager, photo_ids):
 
         _, full_path, meta = resolved
         filename = make_unique_input_filename(paths, meta.get("name") or os.path.basename(full_path))
+        if not filename:
+            failed.append({"id": photo_id, "error": "Unsupported image format"})
+            continue
         input_path = os.path.join(paths.input_folder, filename)
 
         try:
             shutil.copy2(full_path, input_path)
-            task_info = task_manager.enqueue_file(input_path, filename)
+            task_info = task_manager.enqueue_file(
+                input_path,
+                filename,
+                display_filename=meta.get("name") or os.path.basename(full_path),
+            )
             created_tasks.append(task_info)
             print(f"📥 Photo conversion task added: {filename} (ID: {task_info['id']})")
         except Exception as exc:

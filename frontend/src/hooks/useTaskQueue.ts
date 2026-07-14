@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { fetchTasks, fetchGallery } from '@/api';
 import { useAppStore } from '@/store/useAppStore';
+import { createTaskStatusMap, hasNewlyCompletedTask } from '@/utils';
 
 const POLLING_INTERVAL = 3000; // 3 seconds
 
@@ -19,37 +20,51 @@ export const useTaskQueue = () => {
     );
     
     const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
-    const hasActiveRef = useRef(hasActiveTasks);
+    const pollInFlightRef = useRef(false);
+    const taskStatusesRef = useRef(createTaskStatusMap(tasks));
 
-    // Keep ref in sync with state
+    // Keep locally queued tasks visible to the transition detector before the
+    // first server poll observes them.
     useEffect(() => {
-        hasActiveRef.current = hasActiveTasks;
-    }, [hasActiveTasks]);
+        taskStatusesRef.current = createTaskStatusMap(tasks);
+    }, [tasks]);
 
     // Polling logic
     const poll = useCallback(async () => {
-        if (!canUsePrivateApi) {
+        if (!canUsePrivateApi || pollInFlightRef.current) {
             return;
         }
 
+        pollInFlightRef.current = true;
         try {
             const data = await fetchTasks();
-            setTasks(data.tasks, data.has_active);
+            const shouldRefreshGallery = hasNewlyCompletedTask(
+                taskStatusesRef.current,
+                data.tasks,
+            );
 
-            // If a task just completed (was active, now not), refresh gallery
-            if (!data.has_active && hasActiveRef.current) {
+            // A completed model is publishable independently of other queued
+            // tasks, so refresh even while the queue remains active. Fetch it
+            // before committing the completed state so a transient gallery
+            // error leaves polling active and can be retried automatically.
+            if (shouldRefreshGallery) {
                 const gallery = await fetchGallery();
                 setGalleryItems(gallery);
             }
+
+            taskStatusesRef.current = createTaskStatusMap(data.tasks);
+            setTasks(data.tasks, data.has_active);
         } catch (error) {
             console.error('Task polling error:', error);
+        } finally {
+            pollInFlightRef.current = false;
         }
     }, [canUsePrivateApi, setTasks, setGalleryItems]);
 
     // Start/stop polling based on hasActiveTasks
     useEffect(() => {
         if (hasActiveTasks && canUsePrivateApi) {
-            // Start polling
+            void poll();
             if (!pollingRef.current) {
                 pollingRef.current = setInterval(poll, POLLING_INTERVAL);
             }

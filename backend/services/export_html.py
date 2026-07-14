@@ -3,6 +3,7 @@ import html
 import os
 
 from backend import runtime
+from backend.services import model_gallery
 from backend.services.model_convert import ply_to_splat, ply_to_spz
 from backend.services.model_gallery import (
     MODEL_FORMAT_PRIORITY,
@@ -144,8 +145,15 @@ def build_export_html(paths, model_id, fmt):
     with open(template_path, "r", encoding="utf-8") as f:
         template = f.read()
 
+    display_name = model_gallery.get_model_display_name(paths, model_id)
+    download_name = model_gallery.make_model_download_name(
+        paths,
+        model_id,
+        ".html",
+        suffix="_share",
+    )
     html_content = template.replace("{{MODEL_DATA}}", model_data)
-    html_content = html_content.replace("{{MODEL_NAME}}", html.escape(model_id))
+    html_content = html_content.replace("{{MODEL_NAME}}", html.escape(display_name))
     html_content = html_content.replace("{{SCENE_FORMAT}}", scene_format)
     html_content = html_content.replace("{{THREE_DATA_URL}}", three_data_url)
     html_content = html_content.replace("{{THREE_CORE_DATA_URL}}", three_core_data_url)
@@ -164,4 +172,5 @@ def build_export_html(paths, model_id, fmt):
         "format": actual_format,
         "model_size": model_size,
         "html_size": html_size,
+        "download_name": download_name,
     }, None, 200

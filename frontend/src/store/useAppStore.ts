@@ -1,6 +1,11 @@
 import { create } from 'zustand';
 import { getLodPresetConfig } from '@/constants/spark';
-import { getGalleryModelSource, reconcileGalleryItems } from '@/utils';
+import {
+  getGalleryModelSource,
+  hasActiveTask,
+  mergeTaskUpdates,
+  reconcileGalleryItems,
+} from '@/utils';
 import {
   DEFAULT_REVEAL_EFFECT_PREFERENCE_ID,
   REVEAL_EFFECT_NONE_ID,
@@ -535,6 +540,7 @@ interface AppState {
   toggleLocalModelFormat: () => void;
 
   setTasks: (tasks: Task[], hasActive: boolean) => void;
+  upsertTasks: (tasks: Task[]) => void;
 
   toggleLimits: () => void;
   toggleGyro: () => void;
@@ -937,6 +943,13 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setTasks: (tasks, hasActive) => set({ tasks, hasActiveTasks: hasActive }),
+  upsertTasks: (tasks) => set((state) => {
+    const mergedTasks = mergeTaskUpdates(state.tasks, tasks);
+    return {
+      tasks: mergedTasks,
+      hasActiveTasks: hasActiveTask(mergedTasks),
+    };
+  }),
 
   toggleLimits: () => set((state) => ({ isLimitsOn: !state.isLimitsOn })),
   toggleGyro: () => set((state) => ({ isGyroEnabled: !state.isGyroEnabled })),

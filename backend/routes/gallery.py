@@ -1,7 +1,6 @@
 import os
 
 from flask import Blueprint, current_app, g, jsonify, request, send_from_directory
-from werkzeug.utils import secure_filename
 
 from backend.services import model_gallery
 from backend.services.model_convert import ply_to_spz
@@ -34,13 +33,21 @@ def generate():
 
     for uploaded_file in files:
         if uploaded_file:
-            filename = secure_filename(uploaded_file.filename)
+            original_filename = str(uploaded_file.filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+            filename = model_gallery.make_unique_image_input_filename(paths, original_filename)
+            if not filename:
+                return jsonify({"error": "Unsupported image format"}), 400
+
             input_path = os.path.join(paths.input_folder, filename)
             uploaded_file.save(input_path)
 
-            task_info = task_manager.enqueue_file(input_path, filename)
+            task_info = task_manager.enqueue_file(
+                input_path,
+                filename,
+                display_filename=original_filename,
+            )
             created_tasks.append(task_info)
-            print(f"📥 Task added: {filename} (ID: {task_info['id']})")
+            print(f"📥 Task added: {original_filename} (ID: {task_info['id']})")
 
     return jsonify({
         "success": True,
@@ -67,12 +74,14 @@ def download_model(item_id):
     filename = model_gallery.resolve_download_model(paths, item_id, fmt)
     if not filename:
         return jsonify({"error": "File not found"}), 404
+    extension = os.path.splitext(filename)[1]
+    download_name = model_gallery.make_model_download_name(paths, item_id, extension)
 
     return send_from_directory(
         paths.output_folder,
         filename,
         as_attachment=True,
-        download_name=filename,
+        download_name=download_name,
     )
 
 
@@ -85,11 +94,12 @@ def get_original_image(item_id):
         return jsonify({"error": "Image not found"}), 404
 
     download = request.args.get("download", "0").lower() in ("1", "true", "yes")
+    download_name = model_gallery.get_original_image_download_name(paths, item_id, filename)
     return send_from_directory(
         paths.input_folder,
         filename,
         as_attachment=download,
-        download_name=filename,
+        download_name=download_name,
         conditional=True,
         max_age=model_gallery.DEFAULT_FILE_CACHE_SECONDS,
     )

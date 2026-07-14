@@ -1,7 +1,7 @@
 import traceback
+from io import BytesIO
 
-from flask import Blueprint, Response, current_app, jsonify, request
-from werkzeug.utils import secure_filename
+from flask import Blueprint, current_app, jsonify, request, send_file
 
 from backend.services.export_html import build_export_html
 
@@ -20,9 +20,13 @@ def export_model(model_id):
         if error_payload:
             return jsonify(error_payload), status_code
 
-        response = Response(result["html"], mimetype="text/html")
-        download_name = secure_filename(f"{model_id}_share.html") or "model_share.html"
-        response.headers["Content-Disposition"] = f'attachment; filename="{download_name}"'
+        response = send_file(
+            BytesIO(result["html"].encode("utf-8")),
+            as_attachment=True,
+            download_name=result["download_name"],
+            mimetype="text/html",
+            max_age=0,
+        )
         response.headers["X-Export-Format"] = result["format"]
         response.headers["X-Export-Model-Bytes"] = str(result["model_size"])
         response.headers["X-Export-Html-Bytes"] = str(result["html_size"])

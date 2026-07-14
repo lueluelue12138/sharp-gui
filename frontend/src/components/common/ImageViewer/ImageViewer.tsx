@@ -85,7 +85,7 @@ export function ImageViewer() {
     setPreviewImage,
     setPreviewPhoto,
     openVideoReconstructionDialog,
-    setTasks,
+    upsertTasks,
   } = useAppStore();
   const { t } = useTranslation();
   
@@ -732,7 +732,7 @@ export function ImageViewer() {
       setNotice({ tone: 'success', message: t('photoConvertPreparing') });
       const result = await convertPhotosToModels([previewPhoto.id]);
       if (result.tasks?.length) {
-        setTasks(result.tasks, true);
+        upsertTasks(result.tasks);
       }
       setNotice({
         tone: 'success',

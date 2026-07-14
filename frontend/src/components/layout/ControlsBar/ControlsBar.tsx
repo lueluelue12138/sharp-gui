@@ -88,7 +88,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
             const url = URL.createObjectURL(exportResult.blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = `${currentModelId}_share.html`;
+            a.download = exportResult.downloadName;
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);

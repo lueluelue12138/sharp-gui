@@ -7,8 +7,8 @@ import traceback
 import uuid
 
 from backend import runtime
+from backend.services import model_gallery, video_reconstruction
 from backend.services.model_convert import ply_to_spz
-from backend.services import video_reconstruction
 
 TASK_RETENTION_SECONDS = 3600
 CLEANUP_INTERVAL = 300
@@ -48,16 +48,57 @@ class TaskManager:
     def set_thumbnail_generator(self, thumbnail_generator):
         self.thumbnail_generator = thumbnail_generator
 
-    def enqueue_file(self, input_path, filename):
+    def _write_image_metadata(self, model_id, display_filename, generation_status):
+        source_name = str(display_filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+        display_name = os.path.splitext(source_name)[0] or model_id
+        existing_metadata = model_gallery.read_model_metadata(self.paths, model_id)
+        return model_gallery.write_model_metadata(
+            self.paths,
+            model_id,
+            {
+                **existing_metadata,
+                "display_name": display_name,
+                "source_media_type": "image",
+                "source_name": source_name,
+                "generation_status": generation_status,
+            },
+        )
+
+    def _update_image_metadata_status(self, task_id, generation_status):
+        with self.task_lock:
+            task = dict(self.task_status.get(task_id) or {})
+        if (task.get("kind") or TASK_KIND_IMAGE_SHARP) != TASK_KIND_IMAGE_SHARP:
+            return
+
+        input_filename = task.get("input_filename") or os.path.basename(task.get("input_path", ""))
+        model_id = task.get("model_id") or os.path.splitext(input_filename)[0]
+        display_filename = task.get("filename") or input_filename
+        if not model_id:
+            return
+
+        try:
+            self._write_image_metadata(model_id, display_filename, generation_status)
+        except Exception as exc:
+            runtime.log(
+                "WARN",
+                f"Task {task_id} failed to save image metadata status {generation_status}: {exc}",
+            )
+
+    def enqueue_file(self, input_path, filename, display_filename=None):
         if self.thumbnail_generator:
             self.thumbnail_generator(input_path, filename)
 
         task_id = str(uuid.uuid4())
+        resolved_display_filename = display_filename or filename
+        model_id = os.path.splitext(filename)[0]
+        self._write_image_metadata(model_id, resolved_display_filename, "pending")
         task_info = {
             "id": task_id,
             "kind": TASK_KIND_IMAGE_SHARP,
             "status": "pending",
-            "filename": filename,
+            "filename": resolved_display_filename,
+            "input_filename": filename,
+            "model_id": model_id,
             "input_path": input_path,
             "output_folder": self.paths.output_folder,
             "created_at": time.time(),
@@ -67,7 +108,10 @@ class TaskManager:
         with self.task_lock:
             self.task_status[task_id] = task_info
         self.task_queue.put(task_id)
-        runtime.log("INFO", f"Queued image task {task_id}: filename={filename} input={input_path}")
+        runtime.log(
+            "INFO",
+            f"Queued image task {task_id}: filename={resolved_display_filename} input={input_path}",
+        )
         return self._public_task(task_info)
 
     def enqueue_video_reconstruction(self, task_payload):
@@ -101,6 +145,7 @@ class TaskManager:
     def cancel_task(self, task_id):
         process_to_kill = None
         kill_process_tree = False
+        cancelled_immediately = False
         with self.task_lock:
             task = self.task_status.get(task_id)
             if not task:
@@ -108,9 +153,9 @@ class TaskManager:
 
             if task["status"] == "pending":
                 task["status"] = "cancelled"
-                return {"success": True, "message": "Task cancelled"}, 200
+                cancelled_immediately = True
 
-            if task["status"] in ("running", "processing"):
+            elif task["status"] in ("running", "processing"):
                 task["status"] = "cancelled"
                 process_to_kill = self.running_processes.get(task_id)
                 kill_process_tree = (
@@ -118,6 +163,10 @@ class TaskManager:
                 )
             else:
                 return {"success": False, "error": f"Task already {task['status']}"}, 400
+
+        self._update_image_metadata_status(task_id, "cancelled")
+        if cancelled_immediately:
+            return {"success": True, "message": "Task cancelled"}, 200
 
         # Terminate outside the lock so a slow kill never blocks status reads.
         if process_to_kill is not None:
@@ -161,6 +210,7 @@ class TaskManager:
                     self.task_queue.task_done()
                     continue
                 filename = task["filename"]
+                input_filename = task.get("input_filename") or os.path.basename(task.get("input_path", ""))
                 kind = task.get("kind") or TASK_KIND_IMAGE_SHARP
 
             print(f"🔄 Processing task {task_id}: {filename}")
@@ -185,6 +235,7 @@ class TaskManager:
                 self.task_queue.task_done()
                 continue
 
+            self._update_image_metadata_status(task_id, "processing")
             input_path = task["input_path"]
             output_folder = task["output_folder"]
 
@@ -243,7 +294,7 @@ class TaskManager:
 
                     output_lines.append(line)
                     runtime.log("DEBUG", f"Task {task_id} | {line.rstrip()}")
-                    self._update_progress_from_line(task_id, filename, line)
+                    self._update_progress_from_line(task_id, input_filename, line)
 
                 if cancelled:
                     process.terminate()
@@ -257,14 +308,18 @@ class TaskManager:
 
                 process.stdout.close()
                 return_code = process.wait()
-                self._finish_process(task_id, filename, output_folder, return_code, output_lines)
+                self._finish_process(task_id, input_filename, output_folder, return_code, output_lines)
 
             except Exception as exc:
                 error_text = traceback.format_exc()
+                task_failed = False
                 with self.task_lock:
                     if self.task_status.get(task_id, {}).get("status") != "cancelled":
                         self.task_status[task_id]["status"] = "failed"
                         self.task_status[task_id]["error"] = error_text
+                        task_failed = True
+                if task_failed:
+                    self._update_image_metadata_status(task_id, "failed")
                 print(f"❌ Task {task_id} exception: {exc}")
                 runtime.log("ERROR", f"Task {task_id} exception traceback:\n{error_text}")
             finally:
@@ -363,42 +418,67 @@ class TaskManager:
                 self.task_status[task_id]["stage"] = "saving"
 
     def _finish_process(self, task_id, filename, output_folder, return_code, output_lines):
+        with self.task_lock:
+            if self.task_status.get(task_id, {}).get("status") == "cancelled":
+                return
+
         if return_code == 0:
             name_without_ext = os.path.splitext(filename)[0]
             expected_ply = os.path.join(output_folder, name_without_ext + ".ply")
 
             ply_exists = os.path.exists(expected_ply)
-            with self.task_lock:
-                if ply_exists:
-                    self.task_status[task_id]["status"] = "completed"
-                    self.task_status[task_id]["progress"] = 100
-                    self.task_status[task_id]["stage"] = "done"
-                    print(f"✅ Task {task_id} completed successfully.")
-                    runtime.log("INFO", f"Task {task_id} completed successfully: {expected_ply}")
-                else:
+            if not ply_exists:
+                with self.task_lock:
+                    if self.task_status.get(task_id, {}).get("status") == "cancelled":
+                        return
                     self.task_status[task_id]["status"] = "failed"
                     self.task_status[task_id]["error"] = "Output file not found after execution."
-                    print(f"❌ Task {task_id} failed: Output missing.")
-                    runtime.log("ERROR", f"Task {task_id} failed: output file missing at {expected_ply}")
+                self._update_image_metadata_status(task_id, "failed")
+                print(f"❌ Task {task_id} failed: Output missing.")
+                runtime.log("ERROR", f"Task {task_id} failed: output file missing at {expected_ply}")
+                return
 
-            if ply_exists:
-                try:
-                    spz_result = self.spz_converter(expected_ply)
-                    if spz_result:
-                        ply_size = os.path.getsize(expected_ply)
-                        spz_size = os.path.getsize(spz_result)
-                        ratio = 100 - spz_size * 100 // ply_size if ply_size > 0 else 0
-                        print(f"📦 SPZ converted: {ply_size/1024:.0f}KB → {spz_size/1024:.0f}KB ({ratio}% smaller)")
-                except Exception as exc:
-                    print(f"⚠️ SPZ auto-convert failed for {name_without_ext}: {exc}")
-                    runtime.log("WARN", f"Task {task_id} SPZ auto-convert failed for {name_without_ext}: {exc}")
+            with self.task_lock:
+                if self.task_status.get(task_id, {}).get("status") == "cancelled":
+                    return
+                self.task_status[task_id]["progress"] = 98
+                self.task_status[task_id]["stage"] = "postprocessing"
+
+            try:
+                spz_result = self.spz_converter(expected_ply)
+                if spz_result:
+                    ply_size = os.path.getsize(expected_ply)
+                    spz_size = os.path.getsize(spz_result)
+                    ratio = 100 - spz_size * 100 // ply_size if ply_size > 0 else 0
+                    print(f"📦 SPZ converted: {ply_size/1024:.0f}KB → {spz_size/1024:.0f}KB ({ratio}% smaller)")
+            except Exception as exc:
+                print(f"⚠️ SPZ auto-convert failed for {name_without_ext}: {exc}")
+                runtime.log("WARN", f"Task {task_id} SPZ auto-convert failed for {name_without_ext}: {exc}")
+
+            with self.task_lock:
+                if self.task_status.get(task_id, {}).get("status") == "cancelled":
+                    return
+
+            self._update_image_metadata_status(task_id, "completed")
+            with self.task_lock:
+                if self.task_status.get(task_id, {}).get("status") == "cancelled":
+                    return
+                self.task_status[task_id]["status"] = "completed"
+                self.task_status[task_id]["progress"] = 100
+                self.task_status[task_id]["stage"] = "done"
+            print(f"✅ Task {task_id} completed successfully.")
+            runtime.log("INFO", f"Task {task_id} completed successfully: {expected_ply}")
             return
 
         stderr_output = "".join(output_lines)
         with self.task_lock:
+            task_failed = False
             if self.task_status.get(task_id, {}).get("status") != "cancelled":
                 self.task_status[task_id]["status"] = "failed"
                 self.task_status[task_id]["error"] = stderr_output if stderr_output else "Unknown error"
+                task_failed = True
+        if task_failed:
+            self._update_image_metadata_status(task_id, "failed")
         print(f"❌ Task {task_id} failed with return code {return_code}")
         runtime.log("ERROR", f"Task {task_id} failed with return code {return_code}")
         if stderr_output:

@@ -118,7 +118,7 @@ export function PhotoGalleryView() {
     clearSelectedPhotos,
     setPreviewPhoto,
     openVideoReconstructionDialog,
-    setTasks,
+    upsertTasks,
     setCurrentPhotoAlbum,
   } = useAppStore(
     useShallow((state) => ({
@@ -147,7 +147,7 @@ export function PhotoGalleryView() {
       clearSelectedPhotos: state.clearSelectedPhotos,
       setPreviewPhoto: state.setPreviewPhoto,
       openVideoReconstructionDialog: state.openVideoReconstructionDialog,
-      setTasks: state.setTasks,
+      upsertTasks: state.upsertTasks,
       setCurrentPhotoAlbum: state.setCurrentPhotoAlbum,
     })),
   );
@@ -586,7 +586,7 @@ export function PhotoGalleryView() {
       setNotice({ tone: 'success', message: t('photoConvertPreparing') });
       const result = await convertPhotosToModels(imagePhotos.map((photo) => photo.id));
       if (result.tasks?.length) {
-        setTasks(result.tasks, true);
+        upsertTasks(result.tasks);
       }
       clearSelectedPhotos();
       const failedCount = result.failed?.length ?? 0;
@@ -603,7 +603,7 @@ export function PhotoGalleryView() {
     } finally {
       setIsConverting(false);
     }
-  }, [clearSelectedPhotos, isConverting, setTasks, t]);
+  }, [clearSelectedPhotos, isConverting, t, upsertTasks]);
 
   const handleConvertSelected = useCallback(() => {
     void convertPhotos(selectedItems);
