@@ -4,7 +4,12 @@ import { useTranslation } from 'react-i18next';
 
 import { EyeIcon, DownloadIcon, DeleteIcon } from '@/components/common/Icons';
 import { useGalleryThumbnail } from '@/hooks/useGalleryThumbnail';
-import { formatFileSize, getGallerySourceVideoUrl, getGalleryThumbnailSrc } from '@/utils';
+import {
+  formatFileSize,
+  getGalleryModelSource,
+  getGallerySourceVideoUrl,
+  getGalleryThumbnailSrc,
+} from '@/utils';
 import type { GalleryItem as GalleryItemType, ModelFormat } from '@/types';
 
 import styles from './GalleryItem.module.css';
@@ -34,8 +39,9 @@ export const GalleryItem = memo(function GalleryItem({
   const sourceVideoUrl = getGallerySourceVideoUrl(item);
   const hasOriginalPreview = Boolean(item.image_url || sourceVideoUrl);
   const thumbnailState = useGalleryThumbnail(thumbnailSrc, Boolean(thumbnailSrc));
-  const displaySize = preferredFormat === 'spz' && item.spz_size ? item.spz_size : item.size;
-  const formatLabel = preferredFormat === 'spz' && item.spz_url ? 'SPZ' : 'PLY';
+  const modelSource = getGalleryModelSource(item, preferredFormat);
+  const displaySize = modelSource.size ?? item.size;
+  const formatLabel = (modelSource.format ?? 'ply').toUpperCase();
   const thumbnailStatusText =
     thumbnailState === 'loading'
       ? t('galleryThumbLoading')

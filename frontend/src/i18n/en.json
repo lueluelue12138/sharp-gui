@@ -167,6 +167,7 @@
   "cancel": "Cancel",
   "confirm": "Confirm",
   "close": "Close",
+  "closeModel": "Close current model",
   "accessGateTitle": "Sharp GUI Access",
   "accessGateSubtitle": "Enter the LAN access code to browse models, photos, previews and downloads.",
   "accessGateCodeLabel": "Access code",

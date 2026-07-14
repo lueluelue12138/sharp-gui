@@ -82,6 +82,7 @@ export const Settings: React.FC = () => {
         currentModelId,
         currentModelUrl,
         currentModelFormat: storeModelFormat,
+        currentModelSize,
         setCurrentModel,
         authStatus,
         setAuthStatus,
@@ -124,7 +125,7 @@ export const Settings: React.FC = () => {
         if (currentModelId && currentModelUrl) {
             const fmt = storeModelFormat;
             setCurrentModel(null, null);
-            setTimeout(() => setCurrentModel(currentModelId, currentModelUrl, fmt), 50);
+            setTimeout(() => setCurrentModel(currentModelId, currentModelUrl, fmt, currentModelSize), 50);
         }
     };
 

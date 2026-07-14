@@ -167,6 +167,7 @@
   "cancel": "取消",
   "confirm": "确认",
   "close": "关闭",
+  "closeModel": "关闭当前模型",
   "accessGateTitle": "Sharp GUI 访问门禁",
   "accessGateSubtitle": "输入局域网访问码后即可浏览模型、照片、预览和下载资源。",
   "accessGateCodeLabel": "访问码",

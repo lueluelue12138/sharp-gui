@@ -20,6 +20,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
         currentModelId,
         effectiveModelFormat,
         setLoading,
+        resetLoadingProgress,
         setLoadingProgress,
         sidebarCollapsed,
     } = useAppStore();
@@ -54,8 +55,8 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
         }
 
         // Start loading with initial progress
+        resetLoadingProgress();
         setLoading(true, t('preparingExport'));
-        setLoadingProgress(0);
 
         // Simulate progress (backend conversion takes time)
         let progress = 5;
@@ -117,7 +118,14 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
             const message = e instanceof Error ? e.message : 'Unknown error';
             alert(`${t('exportFailed')}: ${message}`);
         }
-    }, [currentModelId, effectiveModelFormat, t, setLoading, setLoadingProgress]);
+    }, [
+        currentModelId,
+        effectiveModelFormat,
+        resetLoadingProgress,
+        t,
+        setLoading,
+        setLoadingProgress,
+    ]);
 
     return (
         <div className={`${styles.controlsWrapper} ${collapsed ? styles.collapsed : ''} ${!sidebarCollapsed ? styles.sidebarExpanded : ''}`}>

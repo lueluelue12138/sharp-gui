@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import * as Icons from '@/components/common/Icons';
+import { useAppStore } from '@/store/useAppStore';
 import styles from './Help.module.css';
 
 interface HelpEntry {
@@ -15,10 +16,16 @@ interface HelpCategory {
     items: HelpEntry[];
 }
 
-export const Help: React.FC = () => {
+interface HelpProps {
+    showCloseModel?: boolean;
+}
+
+export const Help: React.FC<HelpProps> = ({ showCloseModel = false }) => {
     const { t } = useTranslation();
     const [isOpen, setIsOpen] = useState(false);
     const panelRef = useRef<HTMLDivElement>(null);
+    const currentModelUrl = useAppStore((state) => state.currentModelUrl);
+    const setCurrentModel = useAppStore((state) => state.setCurrentModel);
 
     const categories: HelpCategory[] = [
         {
@@ -59,6 +66,17 @@ export const Help: React.FC = () => {
 
     return (
         <>
+            {showCloseModel && currentModelUrl ? (
+                <button
+                    className={styles.closeBtn}
+                    onClick={() => setCurrentModel(null, null)}
+                    aria-label={t('closeModel')}
+                    data-tooltip={t('closeModel')}
+                    type="button"
+                >
+                    <Icons.CloseIcon />
+                </button>
+            ) : null}
             <button
                 className={styles.helpBtn}
                 onClick={() => setIsOpen(!isOpen)}

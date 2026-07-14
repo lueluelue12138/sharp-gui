@@ -1,5 +1,5 @@
 import { ApiError, apiGet, apiDelete } from './client';
-import type { GalleryItem, ModelFormat } from '@/types';
+import type { GalleryItem, GalleryModelFormat, ModelFormat } from '@/types';
 
 /**
  * Fetch gallery items from API
@@ -30,7 +30,7 @@ export function downloadModel(id: string, format: ModelFormat = 'spz'): void {
  */
 export interface ExportModelResult {
   blob: Blob;
-  formatUsed: ModelFormat;
+  formatUsed: GalleryModelFormat;
   modelBytes: number | null;
   htmlBytes: number | null;
 }
@@ -43,8 +43,11 @@ export async function exportModel(id: string, format: ModelFormat = 'spz'): Prom
   }
   const blob = await response.blob();
 
-  const formatHeader = response.headers.get('X-Export-Format');
-  const formatUsed: ModelFormat = formatHeader === 'ply' ? 'ply' : 'spz';
+  const formatHeader = response.headers.get('X-Export-Format')?.toLowerCase();
+  const formatUsed: GalleryModelFormat =
+    formatHeader === 'ply' || formatHeader === 'splat' || formatHeader === 'rad'
+      ? formatHeader
+      : 'spz';
 
   const modelBytesHeader = response.headers.get('X-Export-Model-Bytes');
   const htmlBytesHeader = response.headers.get('X-Export-Html-Bytes');

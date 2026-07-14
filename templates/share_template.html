@@ -538,6 +538,7 @@
           "three": "{{THREE_DATA_URL}}",
           "three-core": "{{THREE_CORE_DATA_URL}}",
           "three/addons/controls/OrbitControls.js": "{{ORBIT_CONTROLS_DATA_URL}}",
+          "three/addons/postprocessing/Pass.js": "{{PASS_DATA_URL}}",
           "@sparkjsdev/spark": "{{SPARK_DATA_URL}}"
         }
       }
@@ -793,15 +794,22 @@
       })();
     </script>
 
+    <script type="text/plain" id="model-data-raw">{{MODEL_DATA}}</script>
+
     <script type="module">
       import * as THREE from "three";
       import { OrbitControls } from "three/addons/controls/OrbitControls.js";
       import { SparkRenderer, SplatMesh, SplatFileType } from "@sparkjsdev/spark";
 
-      // 模型数据 (Base64)
-      const MODEL_DATA = "{{MODEL_DATA}}";
       const SCENE_FORMAT = "{{SCENE_FORMAT}}".toLowerCase();
       let viewer = null;
+      let modelObjectUrl = null;
+
+      window.addEventListener("beforeunload", () => {
+        if (modelObjectUrl) {
+          URL.revokeObjectURL(modelObjectUrl);
+        }
+      });
 
       function showFocusRing(x, y, container) {
         const ring = document.createElement("div");
@@ -1041,22 +1049,41 @@
       joystick.element.addEventListener("touchcancel", stopJoystickMovement);
 
       // Base64 转 ArrayBuffer (带进度)
-      function base64ToArrayBuffer(base64, onProgress) {
-        const binaryString = atob(base64);
-        const len = binaryString.length;
-        const bytes = new Uint8Array(len);
+      async function base64ToArrayBuffer(base64, onProgress) {
+        const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+        const bytesLength = (base64.length * 3) / 4 - padding;
+        const bytes = new Uint8Array(bytesLength);
+        const lookup = new Uint8Array(256);
+        const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        for (let i = 0; i < alphabet.length; i += 1) {
+          lookup[alphabet.charCodeAt(i)] = i;
+        }
 
-        // 分块处理以便报告进度
-        const chunkSize = 100000;
-        for (let i = 0; i < len; i += chunkSize) {
-          const end = Math.min(i + chunkSize, len);
-          for (let j = i; j < end; j++) {
-            bytes[j] = binaryString.charCodeAt(j);
+        const yieldEvery = 400000;
+        let outputIndex = 0;
+        let lastYield = 0;
+        for (let inputIndex = 0; inputIndex < base64.length - padding; inputIndex += 4) {
+          const c1 = lookup[base64.charCodeAt(inputIndex)];
+          const c2 = lookup[base64.charCodeAt(inputIndex + 1)];
+          const c3 = lookup[base64.charCodeAt(inputIndex + 2)];
+          const c4 = lookup[base64.charCodeAt(inputIndex + 3)];
+
+          bytes[outputIndex++] = (c1 << 2) | (c2 >> 4);
+          if (outputIndex < bytesLength) {
+            bytes[outputIndex++] = ((c2 & 15) << 4) | (c3 >> 2);
           }
-          if (onProgress) {
-            onProgress(Math.min(end / len, 1));
+          if (outputIndex < bytesLength) {
+            bytes[outputIndex++] = ((c3 & 3) << 6) | c4;
+          }
+
+          if (inputIndex - lastYield >= yieldEvery) {
+            lastYield = inputIndex;
+            onProgress?.(inputIndex / base64.length);
+            await new Promise((resolve) => setTimeout(resolve, 0));
           }
         }
+
+        onProgress?.(1);
         return bytes.buffer;
       }
 
@@ -1184,14 +1211,36 @@
 
           updateProgress(10, "Decoding model data...");
 
-          // 单文件离线场景下，直接使用 data URL，避免 blob:null 在部分环境被禁止 fetch。
-          updateProgress(45, "Preparing model data...");
-          const url = `data:application/octet-stream;base64,${MODEL_DATA}`;
+          const rawModelData = document.getElementById("model-data-raw");
+          let modelData = rawModelData?.textContent ?? "";
+          if (!modelData) {
+            throw new Error("Embedded model data is missing");
+          }
+
+          const isFileProtocol = window.location.protocol === "file:";
+          let modelUrl;
+          if (isFileProtocol) {
+            updateProgress(45, "Preparing model data...");
+            modelUrl = `data:application/octet-stream;base64,${modelData}`;
+          } else {
+            const arrayBuffer = await base64ToArrayBuffer(modelData, (ratio) => {
+              updateProgress(10 + ratio * 35, "Decoding model data...");
+            });
+            updateProgress(45, "Preparing model data...");
+            modelUrl = URL.createObjectURL(
+              new Blob([arrayBuffer], { type: "application/octet-stream" }),
+            );
+            modelObjectUrl = modelUrl;
+          }
+          modelData = "";
+          rawModelData?.remove();
 
           updateProgress(50, "Loading 3D model...");
 
           let fileType;
           if (SCENE_FORMAT === "spz") fileType = SplatFileType.SPZ;
+          else if (SCENE_FORMAT === "ply") fileType = SplatFileType.PLY;
+          else if (SCENE_FORMAT === "rad") fileType = SplatFileType.RAD;
           else fileType = SplatFileType.SPLAT;
 
           // 模拟加载进度 (库不提供进度回调)
@@ -1204,7 +1253,7 @@
           }, 100);
 
           const splatMesh = new SplatMesh({
-            url,
+            url: modelUrl,
             fileType,
             lod: true,
           });
@@ -1220,6 +1269,8 @@
 
           clearInterval(progressInterval);
           updateProgress(100, "Complete!");
+
+          modelUrl = null;
 
           setTimeout(() => {
             loading.classList.add("hidden");

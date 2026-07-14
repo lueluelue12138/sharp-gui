@@ -40,7 +40,8 @@
     height: 100%;
     background: var(--accent-blue);
     border-radius: 2px;
-    transition: width 0.3s ease;
+    /* Progress events can fire faster than an animated width can catch up. */
+    transition: none;
 }
 
 .percent {

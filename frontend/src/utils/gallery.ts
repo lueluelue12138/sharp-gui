@@ -19,6 +19,8 @@ function areGalleryItemsEquivalent(current: GalleryItem, next: GalleryItem): boo
     current.thumb_url === next.thumb_url &&
     current.thumb_version === next.thumb_version &&
     current.model_url === next.model_url &&
+    current.model_format === next.model_format &&
+    current.available_formats?.join(',') === next.available_formats?.join(',') &&
     current.spz_url === next.spz_url &&
     current.size === next.size &&
     current.spz_size === next.spz_size &&
@@ -108,16 +110,37 @@ export function getGallerySourceVideoUrl(item: GalleryItem): string | null {
 export function getGalleryModelSource(
   item: GalleryItem,
   preferredFormat: ModelFormat,
-): { url: string; format: ViewerModelFormat } {
+): { url: string; format: ViewerModelFormat; size: number | null } {
   if (preferredFormat === 'spz' && item.spz_url) {
     return {
       url: item.spz_url,
       format: 'spz',
+      size: item.spz_size ?? null,
     };
+  }
+
+  if (item.model_format) {
+    return {
+      url: item.model_url,
+      format: item.model_format,
+      size: item.size ?? null,
+    };
+  }
+
+  const normalizedUrl = item.model_url.toLowerCase().split(/[?#]/, 1)[0];
+  if (normalizedUrl.endsWith('.spz')) {
+    return { url: item.model_url, format: 'spz', size: item.size ?? null };
+  }
+  if (normalizedUrl.endsWith('.splat')) {
+    return { url: item.model_url, format: 'splat', size: item.size ?? null };
+  }
+  if (normalizedUrl.endsWith('.rad')) {
+    return { url: item.model_url, format: 'rad', size: item.size ?? null };
   }
 
   return {
     url: item.model_url,
     format: 'ply',
+    size: item.size ?? null,
   };
 }

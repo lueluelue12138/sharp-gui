@@ -1,3 +1,5 @@
+export type GalleryModelFormat = 'ply' | 'spz' | 'splat' | 'rad';
+
 // Gallery item from API
 export interface GalleryItem {
   id: string;
@@ -6,6 +8,8 @@ export interface GalleryItem {
   thumb_url?: string | null;
   thumb_version?: number | null;
   model_url: string;
+  model_format?: GalleryModelFormat;
+  available_formats?: GalleryModelFormat[];
   spz_url?: string | null;
   size?: number;
   spz_size?: number | null;

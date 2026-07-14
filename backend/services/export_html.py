@@ -1,8 +1,14 @@
 import base64
+import html
 import os
 
 from backend import runtime
 from backend.services.model_convert import ply_to_splat, ply_to_spz
+from backend.services.model_gallery import (
+    MODEL_FORMAT_PRIORITY,
+    collect_model_variants,
+    normalize_model_item_id,
+)
 
 
 def _pick_existing_path(candidates):
@@ -12,45 +18,57 @@ def _pick_existing_path(candidates):
     raise FileNotFoundError(f"No available asset found in candidates: {candidates}")
 
 
+def _read_model_file(paths, filename):
+    path = os.path.join(paths.output_folder, filename)
+    with open(path, "rb") as file:
+        return file.read()
+
+
+def _resolve_export_payload(paths, model_id, requested_format):
+    """Resolve or convert a model payload and report the format actually embedded."""
+    item_id = normalize_model_item_id(model_id)
+    if not item_id:
+        return None
+
+    variants = collect_model_variants(paths, item_id)
+    if not variants:
+        return None
+
+    if requested_format == "spz" and "spz" not in variants and "ply" in variants:
+        ply_path = os.path.join(paths.output_folder, variants["ply"])
+        spz_filename = f"{item_id}.spz"
+        spz_path = os.path.join(paths.output_folder, spz_filename)
+        ply_to_spz(ply_path, spz_path)
+        variants["spz"] = spz_filename
+
+    if requested_format == "splat" and "splat" not in variants and "ply" in variants:
+        ply_path = os.path.join(paths.output_folder, variants["ply"])
+        return ply_to_splat(ply_path), "splat"
+
+    format_order = [requested_format, "spz", "ply", "splat", "rad"]
+    for model_format in dict.fromkeys(format_order):
+        filename = variants.get(model_format)
+        if filename:
+            return _read_model_file(paths, filename), model_format
+    return None
+
+
 def build_export_html(paths, model_id, fmt):
-    """构建独立 HTML 导出内容和元信息。"""
-    if fmt not in ("spz", "ply"):
+    """Build the standalone HTML export and its response metadata."""
+    if fmt not in MODEL_FORMAT_PRIORITY:
         fmt = "spz"
 
-    ply_filename = f"{model_id}.ply"
-    ply_path = os.path.join(paths.output_folder, ply_filename)
-
-    if not os.path.exists(ply_path):
+    resolved_payload = _resolve_export_payload(paths, model_id, fmt)
+    if not resolved_payload:
         return None, {"error": "Model not found"}, 404
 
-    print(f"📦 Exporting {model_id} as {fmt.upper()}...")
-
-    ply_size = os.path.getsize(ply_path)
-
-    if fmt == "spz":
-        spz_path = os.path.join(paths.output_folder, f"{model_id}.spz")
-        if not os.path.exists(spz_path):
-            spz_path = ply_to_spz(ply_path, spz_path)
-
-        with open(spz_path, "rb") as f:
-            model_bytes = f.read()
-
-        model_size = len(model_bytes)
-        model_data = base64.b64encode(model_bytes).decode("utf-8")
-        scene_format = "Spz"
-        print(
-            f"   PLY: {ply_size / 1024 / 1024:.1f}MB → SPZ: {model_size / 1024 / 1024:.1f}MB "
-            f"({100 - model_size * 100 // ply_size}% smaller)"
-        )
-    else:
-        splat_data = ply_to_splat(ply_path)
-        model_size = len(splat_data)
-        model_data = base64.b64encode(splat_data).decode("utf-8")
-        scene_format = "Splat"
-        print(
-            f"   PLY: {ply_size / 1024 / 1024:.1f}MB → Splat: {model_size / 1024 / 1024:.1f}MB "
-            f"({100 - model_size * 100 // ply_size}% smaller)"
-        )
+    model_bytes, actual_format = resolved_payload
+    model_size = len(model_bytes)
+    model_data = base64.b64encode(model_bytes).decode("ascii")
+    scene_format = actual_format.upper()
+    # Keep server logs ASCII-safe because Windows consoles may still use a
+    # legacy code page such as GBK/CP936.
+    print(f"[export] {model_id} as {scene_format} ({model_size / 1024 / 1024:.1f}MB)...")
 
     three_js_candidates = [
         os.path.join(runtime.BASE_DIR, "frontend", "node_modules", "three", "build", "three.module.js"),
@@ -79,10 +97,23 @@ def build_export_html(paths, model_id, fmt):
             "spark.module.js",
         ),
     ]
+    pass_js_candidates = [
+        os.path.join(
+            runtime.BASE_DIR,
+            "frontend",
+            "node_modules",
+            "three",
+            "examples",
+            "jsm",
+            "postprocessing",
+            "Pass.js",
+        ),
+    ]
 
     three_js_path = _pick_existing_path(three_js_candidates)
     orbit_controls_path = _pick_existing_path(orbit_controls_candidates)
     spark_js_path = _pick_existing_path(spark_js_candidates)
+    pass_js_path = _pick_existing_path(pass_js_candidates)
 
     with open(three_js_path, "r", encoding="utf-8") as f:
         three_module_text = f.read()
@@ -101,32 +132,36 @@ def build_export_html(paths, model_id, fmt):
         orbit_controls_b64 = base64.b64encode(f.read()).decode("utf-8")
     with open(spark_js_path, "rb") as f:
         spark_js_b64 = base64.b64encode(f.read()).decode("utf-8")
+    with open(pass_js_path, "rb") as f:
+        pass_js_b64 = base64.b64encode(f.read()).decode("utf-8")
 
     three_data_url = f"data:text/javascript;base64,{three_js_b64}"
     orbit_controls_data_url = f"data:text/javascript;base64,{orbit_controls_b64}"
     spark_data_url = f"data:text/javascript;base64,{spark_js_b64}"
+    pass_data_url = f"data:text/javascript;base64,{pass_js_b64}"
 
     template_path = os.path.join(runtime.BASE_DIR, "templates", "share_template.html")
     with open(template_path, "r", encoding="utf-8") as f:
         template = f.read()
 
     html_content = template.replace("{{MODEL_DATA}}", model_data)
-    html_content = html_content.replace("{{MODEL_NAME}}", model_id)
+    html_content = html_content.replace("{{MODEL_NAME}}", html.escape(model_id))
     html_content = html_content.replace("{{SCENE_FORMAT}}", scene_format)
     html_content = html_content.replace("{{THREE_DATA_URL}}", three_data_url)
     html_content = html_content.replace("{{THREE_CORE_DATA_URL}}", three_core_data_url)
     html_content = html_content.replace("{{ORBIT_CONTROLS_DATA_URL}}", orbit_controls_data_url)
     html_content = html_content.replace("{{SPARK_DATA_URL}}", spark_data_url)
+    html_content = html_content.replace("{{PASS_DATA_URL}}", pass_data_url)
 
     html_size = len(html_content.encode("utf-8"))
     print(
-        f"   ✅ 导出完成: {ply_size / 1024 / 1024:.1f}MB → {html_size / 1024 / 1024:.1f}MB "
-        f"(原始 HTML 约 {100 * ply_size // html_size}% 大小)"
+        f"[export] complete: model={model_size / 1024 / 1024:.1f}MB, "
+        f"html={html_size / 1024 / 1024:.1f}MB"
     )
 
     return {
         "html": html_content,
-        "format": fmt,
+        "format": actual_format,
         "model_size": model_size,
         "html_size": html_size,
     }, None, 200

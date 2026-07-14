@@ -406,6 +406,7 @@ interface AppState {
   currentModelId: string | null;
   currentModelUrl: string | null;
   currentModelFormat: ViewerModelFormat; // Format hint for blob URLs
+  currentModelSize: number | null;
   previewImage: GalleryItem | null; // For image lightbox
 
   // Photo Gallery
@@ -485,6 +486,7 @@ interface AppState {
   closeVideoReconstructionGuide: () => void;
 
   setLoading: (loading: boolean, text?: string) => void;
+  resetLoadingProgress: () => void;
   setLoadingProgress: (progress: number) => void;
 
   setBootComplete: () => void;
@@ -492,7 +494,12 @@ interface AppState {
 
   setGalleryItems: (items: GalleryItem[]) => void;
   removeGalleryItem: (id: string) => void;
-  setCurrentModel: (id: string | null, url: string | null, format?: ViewerModelFormat) => void;
+  setCurrentModel: (
+    id: string | null,
+    url: string | null,
+    format?: ViewerModelFormat,
+    size?: number | null,
+  ) => void;
   setPreviewImage: (item: GalleryItem | null) => void;
 
   setActiveView: (view: AppView) => void;
@@ -584,6 +591,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentModelId: null,
   currentModelUrl: null,
   currentModelFormat: null,
+  currentModelSize: null,
   previewImage: null,
 
   activeView: 'models',
@@ -667,6 +675,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       ? (state.isLoading ? state.loadingProgress : 0)
       : 0,
   })),
+  resetLoadingProgress: () => set({ loadingProgress: 0 }),
   setLoadingProgress: (progress) => set((state) => ({
     loadingProgress: Math.max(state.loadingProgress, progress),
   })),
@@ -686,11 +695,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     let currentModelId = state.currentModelId;
     let currentModelUrl = state.currentModelUrl;
     let currentModelFormat = state.currentModelFormat;
+    let currentModelSize = state.currentModelSize;
 
     if (state.currentModelId && !selectedItem) {
       currentModelId = null;
       currentModelUrl = null;
       currentModelFormat = null;
+      currentModelSize = null;
     } else if (
       selectedItem &&
       state.currentModelFormat !== 'splat' &&
@@ -705,13 +716,15 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelId = selectedItem.id;
       currentModelUrl = nextModel.url;
       currentModelFormat = nextModel.format;
+      currentModelSize = nextModel.size;
     }
 
     const galleryUnchanged = nextGalleryItems === state.galleryItems;
     const selectionUnchanged =
       currentModelId === state.currentModelId &&
       currentModelUrl === state.currentModelUrl &&
-      currentModelFormat === state.currentModelFormat;
+      currentModelFormat === state.currentModelFormat &&
+      currentModelSize === state.currentModelSize;
     const previewUnchanged = previewImage === state.previewImage;
 
     if (galleryUnchanged && selectionUnchanged && previewUnchanged) {
@@ -723,6 +736,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelId,
       currentModelUrl,
       currentModelFormat,
+      currentModelSize,
       previewImage,
     };
   }),
@@ -740,6 +754,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         currentModelId: null,
         currentModelUrl: null,
         currentModelFormat: null,
+        currentModelSize: null,
         previewImage,
       };
     }
@@ -749,7 +764,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       previewImage,
     };
   }),
-  setCurrentModel: (id, url, format = null) => set((state) => {
+  setCurrentModel: (id, url, format = null, size = null) => set((state) => {
     const fallbackQuality = getViewerQualityFromPreset(state.lodPreset, state.isLodEnabled);
     const fallbackOverride = getDefaultViewerOverride(fallbackQuality);
     const override = id ? state.modelViewerOverrides[id] : undefined;
@@ -761,6 +776,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelId: id,
       currentModelUrl: url,
       currentModelFormat: format,
+      currentModelSize: typeof size === 'number' && Number.isFinite(size) && size > 0
+        ? size
+        : null,
       viewerTransformDraft: resolved.transform,
       viewerTransformApplied: resolved.transform,
       viewerInteractionDraft: resolved.interaction,

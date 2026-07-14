@@ -131,6 +131,14 @@ function App() {
   );
   const canGenerateModels = isOwnerAccess || Boolean(authStatus?.allow_remote_generation);
 
+  useEffect(() => {
+    if (!currentModelUrl?.startsWith('blob:')) {
+      return undefined;
+    }
+
+    return () => URL.revokeObjectURL(currentModelUrl);
+  }, [currentModelUrl]);
+
   const loadPrivateData = useCallback(async () => {
     const gallery = await fetchGallery();
     setGalleryItems(gallery);
@@ -195,7 +203,7 @@ function App() {
   const handlePreviewModelFile = useCallback((file: File, format: DroppedModelFormat) => {
     console.log('📦 Loading dropped model:', file.name, 'format:', format);
     const blobUrl = URL.createObjectURL(file);
-    setCurrentModel(file.name, blobUrl, format);
+    setCurrentModel(file.name, blobUrl, format, file.size);
   }, [setCurrentModel]);
 
   const showGenerationPermissionError = useCallback(() => {
@@ -399,7 +407,7 @@ function App() {
       />
       
       {/* Help Panel - always visible */}
-      <Help />
+      <Help showCloseModel />
       
       {/* Lightbox / Image Viewer */}
       <ImageViewer />
