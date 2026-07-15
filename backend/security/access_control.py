@@ -281,6 +281,10 @@ def get_required_access_level(access_config=None):
         return ACCESS_OWNER
     if path.startswith("/api/model-assets/") and method == "DELETE":
         return ACCESS_OWNER
+    if path == "/api/model-asset-deletions":
+        return ACCESS_OWNER
+    if path == "/api/model-asset-downloads" or path.startswith("/api/model-asset-downloads/"):
+        return ACCESS_UNLOCKED
     if path.startswith("/api/task/") and path.endswith("/cancel"):
         access_config = access_config or get_access_control_config(persist_missing=False)
         if not is_access_control_enabled(access_config):

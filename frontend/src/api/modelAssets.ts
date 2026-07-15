@@ -7,6 +7,8 @@ import {
 } from './client';
 import type {
   ModelAsset,
+  ModelAssetDeleteResult,
+  ModelAssetDownloadResult,
   ModelAssetFormat,
   ModelAssetImportResult,
   ModelAssetListParams,
@@ -88,4 +90,27 @@ export async function deleteModelAsset(id: string): Promise<{ success: boolean }
 export function downloadModelAsset(id: string, format?: ModelAssetFormat | null): void {
   const query = format ? `?format=${encodeURIComponent(format)}` : '';
   window.location.href = `/api/model-assets/${encodeURIComponent(id)}/download${query}`;
+}
+
+export async function downloadModelAssets(
+  assetIds: string[],
+  preferredFormat?: ModelAssetFormat | null,
+): Promise<ModelAssetDownloadResult> {
+  const result = await apiPost<ModelAssetDownloadResult>('/api/model-asset-downloads', {
+    asset_ids: assetIds,
+    preferred_format: preferredFormat ?? null,
+  }, { timeout: 300000 });
+  const link = document.createElement('a');
+  link.href = result.download_url;
+  link.download = result.download_name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return result;
+}
+
+export async function deleteModelAssets(assetIds: string[]): Promise<ModelAssetDeleteResult> {
+  return apiPost<ModelAssetDeleteResult>('/api/model-asset-deletions', {
+    asset_ids: assetIds,
+  }, { timeout: 300000 });
 }

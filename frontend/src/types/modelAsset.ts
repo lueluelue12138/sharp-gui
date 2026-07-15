@@ -117,6 +117,25 @@ export interface ModelAssetImportResult {
   failed: ModelAssetImportFailure[];
 }
 
+export interface ModelAssetBatchFailure {
+  id: string;
+  code: string;
+}
+
+export interface ModelAssetDownloadResult {
+  download_id: string;
+  download_url: string;
+  download_name: string;
+  downloaded: number;
+  failed: ModelAssetBatchFailure[];
+}
+
+export interface ModelAssetDeleteResult {
+  success: boolean;
+  deleted_ids: string[];
+  failed: ModelAssetBatchFailure[];
+}
+
 export interface ModelAssetProfileInput {
   display_name?: string;
   name?: string;

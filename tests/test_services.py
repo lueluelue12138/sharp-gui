@@ -320,6 +320,30 @@ def test_model_asset_download_resolves_controlled_path(tmp_path):
     assert is_real_path_inside(import_path, paths.model_asset_import_folder)
 
 
+def test_model_asset_batch_download_checks_limits_and_free_space(tmp_path, monkeypatch):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    with open(os.path.join(paths.output_folder, "demo.ply"), "wb") as file:
+        file.write(b"generated-model")
+
+    with pytest.raises(model_assets.ModelAssetServiceError) as too_many:
+        model_assets.normalize_batch_asset_ids([
+            f"asset-{index}" for index in range(model_assets.MAX_BATCH_OPERATION_ASSETS + 1)
+        ])
+    assert too_many.value.code == "model_asset_batch_too_large"
+
+    class NoFreeSpace:
+        free = 0
+
+    monkeypatch.setattr(model_assets.shutil, "disk_usage", lambda _folder: NoFreeSpace())
+    with pytest.raises(model_assets.ModelAssetServiceError) as insufficient_space:
+        model_assets.prepare_model_asset_download(paths, ["demo"], "ply")
+    assert insufficient_space.value.code == "model_asset_download_insufficient_space"
+    download_folder = model_assets.get_model_asset_download_folder(paths)
+    assert os.path.isdir(download_folder)
+    assert os.listdir(download_folder) == []
+
+
 def test_model_asset_warm_list_uses_catalog_without_rescanning(tmp_path, monkeypatch):
     paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
     ensure_runtime_directories(paths)

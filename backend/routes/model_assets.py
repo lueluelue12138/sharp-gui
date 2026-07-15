@@ -1,6 +1,7 @@
+import datetime
 import os
 
-from flask import Blueprint, current_app, jsonify, request, send_from_directory
+from flask import Blueprint, current_app, jsonify, request, send_file, send_from_directory
 
 from backend.services import model_assets
 
@@ -140,3 +141,70 @@ def download_model_asset(asset_id):
         as_attachment=True,
         download_name=filename,
     )
+
+
+@bp.route("/api/model-asset-downloads", methods=["POST"])
+def prepare_model_asset_download():
+    """准备所选模型资产的临时 ZIP，并返回一次性下载地址。"""
+    data = request.get_json() or {}
+    try:
+        result = model_assets.prepare_model_asset_download(
+            get_paths(),
+            data.get("asset_ids"),
+            data.get("preferred_format"),
+        )
+    except model_assets.ModelAssetServiceError as exc:
+        return service_error_response(exc)
+    return jsonify(result)
+
+
+@bp.route("/api/model-asset-downloads/<download_id>")
+def download_prepared_model_assets(download_id):
+    """流式发送已准备的模型 ZIP，并在传输结束后清理。"""
+    try:
+        path = model_assets.resolve_prepared_model_asset_download(get_paths(), download_id)
+    except model_assets.ModelAssetServiceError as exc:
+        return service_error_response(exc)
+    if not path:
+        return jsonify({
+            "error": "Model asset download not found",
+            "code": "model_asset_download_not_found",
+        }), 404
+
+    response = send_file(
+        path,
+        as_attachment=True,
+        download_name=f"sharp-gui-models-{datetime.datetime.now().strftime('%Y%m%d-%H%M%S')}.zip",
+        mimetype="application/zip",
+        max_age=0,
+        conditional=False,
+    )
+
+    file_iterable = response.response
+
+    def stream_and_cleanup():
+        try:
+            yield from file_iterable
+        finally:
+            close = getattr(file_iterable, "close", None)
+            if close:
+                close()
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+
+    response.response = stream_and_cleanup()
+
+    return response
+
+
+@bp.route("/api/model-asset-deletions", methods=["POST"])
+def delete_model_assets():
+    """批量删除 owner 已确认的模型资产。"""
+    data = request.get_json() or {}
+    try:
+        result = model_assets.delete_model_assets(get_paths(), data.get("asset_ids"))
+    except model_assets.ModelAssetServiceError as exc:
+        return service_error_response(exc)
+    return jsonify(result)

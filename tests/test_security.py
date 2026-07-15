@@ -247,6 +247,24 @@ def test_remote_model_asset_write_allowed_but_delete_stays_owner_only(config_fil
         assert cover.status_code == 200
         assert cover.get_json()["thumbnail_state"] == "ready"
 
+        prepared_download = remote_post(
+            client,
+            "/api/model-asset-downloads",
+            json={"asset_ids": [asset_id], "preferred_format": "ply"},
+        )
+        assert prepared_download.status_code == 200
+        download = remote_get(client, prepared_download.get_json()["download_url"])
+        assert download.status_code == 200
+        assert download.mimetype == "application/zip"
+
+        batch_delete = remote_post(
+            client,
+            "/api/model-asset-deletions",
+            json={"asset_ids": [asset_id]},
+        )
+        assert batch_delete.status_code == 403
+        assert batch_delete.get_json()["code"] == "OWNER_REQUIRED"
+
         delete = client.delete(
             f"/api/model-assets/{asset_id}",
             base_url="http://192.168.1.2",

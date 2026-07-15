@@ -6,3 +6,4 @@ export type {
   ModelAssetImportPhase,
 } from './ModelAssetImportDialog';
 export { ModelAssetSidebarPanel } from './ModelAssetSidebarPanel';
+export { ModelAssetSelectionBar } from './ModelAssetSelectionBar';

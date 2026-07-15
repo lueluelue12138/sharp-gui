@@ -1,4 +1,5 @@
 import os
+import zipfile
 from io import BytesIO
 from urllib.parse import quote
 
@@ -136,6 +137,54 @@ def test_model_assets_api_lists_imports_edits_covers_and_downloads(client, app):
     legacy_gallery = client.get("/api/gallery")
     assert legacy_gallery.status_code == 200
     assert legacy_gallery.get_json()[0]["id"] == "demo"
+
+
+def test_model_asset_batch_download_and_delete_report_partial_results(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    with open(os.path.join(paths.output_folder, "first.ply"), "wb") as file:
+        file.write(b"first-model")
+    with open(os.path.join(paths.output_folder, "second.ply"), "wb") as file:
+        file.write(b"second-model")
+    model_gallery.write_model_metadata(paths, "first", {"display_name": "Shared Name"})
+    model_gallery.write_model_metadata(paths, "second", {"display_name": "Shared Name"})
+
+    prepared = client.post(
+        "/api/model-asset-downloads",
+        json={
+            "asset_ids": ["first", "second", "missing", "first"],
+            "preferred_format": "spz",
+        },
+    )
+
+    assert prepared.status_code == 200
+    payload = prepared.get_json()
+    assert payload["downloaded"] == 2
+    assert payload["failed"] == [{"id": "missing", "code": "model_asset_file_not_found"}]
+
+    download = client.get(payload["download_url"])
+    assert download.status_code == 200
+    assert download.mimetype == "application/zip"
+    with zipfile.ZipFile(BytesIO(download.data)) as archive:
+        assert archive.namelist() == ["Shared Name.ply", "Shared Name-2.ply"]
+        assert archive.read("Shared Name.ply") == b"first-model"
+        assert archive.read("Shared Name-2.ply") == b"second-model"
+        assert all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist())
+    download.close()
+    assert client.get(payload["download_url"]).status_code == 404
+
+    deleted = client.post(
+        "/api/model-asset-deletions",
+        json={"asset_ids": ["first", "missing"]},
+    )
+    assert deleted.status_code == 200
+    delete_payload = deleted.get_json()
+    assert delete_payload == {
+        "success": False,
+        "deleted_ids": ["first"],
+        "failed": [{"id": "missing", "code": "model_asset_not_found"}],
+    }
+    assert not os.path.exists(os.path.join(paths.output_folder, "first.ply"))
+    assert os.path.exists(os.path.join(paths.output_folder, "second.ply"))
 
 
 def test_model_asset_download_uses_unicode_name_and_rejects_generated_traversal(client, app):

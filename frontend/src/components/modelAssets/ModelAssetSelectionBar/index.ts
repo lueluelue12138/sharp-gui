@@ -1,0 +1,1 @@
+export { ModelAssetSelectionBar } from './ModelAssetSelectionBar';

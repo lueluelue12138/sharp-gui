@@ -8,7 +8,9 @@ import type { TFunction } from 'i18next';
 import {
   ApiError,
   deleteModelAsset,
+  deleteModelAssets,
   downloadModelAsset,
+  downloadModelAssets,
   exportModel,
   fetchModelAsset,
   fetchModelAssets,
@@ -20,6 +22,7 @@ import { CloseIcon, CloudUploadIcon } from '@/components/common/Icons';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ModelAssetDetailsPanel } from '@/components/modelAssets/ModelAssetDetailsPanel';
 import { ModelAssetGrid } from '@/components/modelAssets/ModelAssetGrid';
+import { ModelAssetSelectionBar } from '@/components/modelAssets/ModelAssetSelectionBar';
 import { ModelAssetToolbar } from '@/components/modelAssets/ModelAssetToolbar';
 import type { ModelAssetToolbarMode } from '@/components/modelAssets/ModelAssetToolbar';
 import { useModelAssetCoverQueue } from '@/hooks/useModelAssetCoverQueue';
@@ -82,6 +85,9 @@ export function ModelAssetLibraryView({
   } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ModelAsset | null>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
+  const [batchDeleting, setBatchDeleting] = useState(false);
+  const [batchDownloading, setBatchDownloading] = useState(false);
   const [toolbarMode, setToolbarMode] = useState<ModelAssetToolbarMode>('expanded');
   const [openCardsDirectly, setOpenCardsDirectly] = useState(true);
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
@@ -109,6 +115,7 @@ export function ModelAssetLibraryView({
     modelAssetError,
     preferredModelFormat,
     setModelAssets,
+    mergeModelAssetRefresh,
     setModelAssetLoading,
     setModelAssetError,
     setModelAssetFilters,
@@ -145,6 +152,7 @@ export function ModelAssetLibraryView({
       modelAssetError: state.modelAssetError,
       preferredModelFormat: state.localModelFormat ?? state.serverModelFormat,
       setModelAssets: state.setModelAssets,
+      mergeModelAssetRefresh: state.mergeModelAssetRefresh,
       setModelAssetLoading: state.setModelAssetLoading,
       setModelAssetError: state.setModelAssetError,
       setModelAssetFilters: state.setModelAssetFilters,
@@ -166,6 +174,21 @@ export function ModelAssetLibraryView({
     [modelAssets, selectedModelAssetId],
   );
   const selectedAsset = explicitlySelectedAsset ?? modelAssets[0] ?? null;
+  const selectedAssetIdSet = useMemo(
+    () => new Set(selectedModelAssetIds),
+    [selectedModelAssetIds],
+  );
+  const selectedBatchAssets = useMemo(
+    () => modelAssets.filter((asset) => selectedAssetIdSet.has(asset.id)),
+    [modelAssets, selectedAssetIdSet],
+  );
+  const downloadableSelectedCount = useMemo(
+    () => selectedBatchAssets.filter((asset) => asset.available).length,
+    [selectedBatchAssets],
+  );
+  const toolbarSelectedAsset = modelAssetSelectionMode
+    ? (selectedBatchAssets.length === 1 ? selectedBatchAssets[0] : null)
+    : selectedAsset;
 
   const updateToolbarMode = useCallback((nextMode: ModelAssetToolbarMode) => {
     if (toolbarModeRef.current === nextMode) {
@@ -316,6 +339,7 @@ export function ModelAssetLibraryView({
     cursor: string | null = null,
     append = false,
     refresh = false,
+    merge = false,
   ) => {
     const generation = requestGenerationRef.current + 1;
     requestGenerationRef.current = generation;
@@ -357,7 +381,11 @@ export function ModelAssetLibraryView({
       if (generation !== requestGenerationRef.current || querySignature !== currentSignature) {
         return;
       }
-      setModelAssets(response, append);
+      if (merge) {
+        mergeModelAssetRefresh(response);
+      } else {
+        setModelAssets(response, append);
+      }
     } catch (error) {
       if (controller.signal.aborted || generation !== requestGenerationRef.current) {
         return;
@@ -374,6 +402,7 @@ export function ModelAssetLibraryView({
     modelAssetSort,
     modelAssetSource,
     modelAssetTag,
+    mergeModelAssetRefresh,
     setModelAssetError,
     setModelAssetLoading,
     setModelAssets,
@@ -585,6 +614,38 @@ export function ModelAssetLibraryView({
     downloadModelAsset(asset.id, modelSource.format ?? asset.primary_format);
   }, [preferredModelFormat, setModelAssetError, t]);
 
+  const handleDownloadSelected = useCallback(async () => {
+    if (selectedModelAssetIds.length === 0 || batchDownloading || batchDeleting) {
+      return;
+    }
+
+    try {
+      setBatchDownloading(true);
+      setNotice(null);
+      setModelAssetError(null);
+      const result = await downloadModelAssets(selectedModelAssetIds, preferredModelFormat);
+      if (result.failed.length > 0) {
+        setModelAssetError(t('modelAssetDownloadPartial', {
+          success: result.downloaded,
+          failed: result.failed.length,
+        }));
+      } else {
+        setNotice(t('modelAssetDownloadReady', { count: result.downloaded }));
+      }
+    } catch (error) {
+      setModelAssetError(getErrorMessage(error, t));
+    } finally {
+      setBatchDownloading(false);
+    }
+  }, [
+    batchDeleting,
+    batchDownloading,
+    preferredModelFormat,
+    selectedModelAssetIds,
+    setModelAssetError,
+    t,
+  ]);
+
   const handleExport = useCallback(async (asset: ModelAsset) => {
     if (!asset.is_generated) {
       setModelAssetError(t('modelAssetExportUnavailable'));
@@ -634,6 +695,63 @@ export function ModelAssetLibraryView({
     setDeleteTarget(asset);
   }, [canDeleteAssets, setModelAssetError, t]);
 
+  const handleDeleteSelected = useCallback(() => {
+    if (!canDeleteAssets) {
+      setModelAssetError(t('modelAssetDeletePermissionRequired'));
+      return;
+    }
+    if (selectedModelAssetIds.length > 0) {
+      setBatchDeleteOpen(true);
+    }
+  }, [canDeleteAssets, selectedModelAssetIds.length, setModelAssetError, t]);
+
+  const confirmDeleteSelected = useCallback(async () => {
+    if (!canDeleteAssets || selectedModelAssetIds.length === 0 || batchDeleting) {
+      return;
+    }
+
+    const deletingIds = [...selectedModelAssetIds];
+    try {
+      setBatchDeleting(true);
+      setNotice(null);
+      setModelAssetError(null);
+      const result = await deleteModelAssets(deletingIds);
+      result.deleted_ids.forEach(removeModelAsset);
+      if (selectedModelAssetId && result.deleted_ids.includes(selectedModelAssetId)) {
+        setMobileDetailsOpen(false);
+      }
+      setBatchDeleteOpen(false);
+
+      if (result.failed.length > 0) {
+        setModelAssetError(t('modelAssetDeletePartial', {
+          success: result.deleted_ids.length,
+          failed: result.failed.length,
+        }));
+      } else {
+        setModelAssetSelectionMode(false);
+        setNotice(t('modelAssetDeleteSelectedComplete', { count: result.deleted_ids.length }));
+      }
+
+      if (result.deleted_ids.length > 0) {
+        await loadAssets(null, false, true, true);
+      }
+    } catch (error) {
+      setModelAssetError(getErrorMessage(error, t));
+    } finally {
+      setBatchDeleting(false);
+    }
+  }, [
+    batchDeleting,
+    canDeleteAssets,
+    loadAssets,
+    removeModelAsset,
+    selectedModelAssetId,
+    selectedModelAssetIds,
+    setModelAssetError,
+    setModelAssetSelectionMode,
+    t,
+  ]);
+
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) {
       return;
@@ -645,7 +763,7 @@ export function ModelAssetLibraryView({
         setMobileDetailsOpen(false);
       }
       setDeleteTarget(null);
-      await loadAssets(null, false);
+      await loadAssets(null, false, true, true);
     } catch (error) {
       setModelAssetError(getErrorMessage(error, t));
     }
@@ -734,6 +852,14 @@ export function ModelAssetLibraryView({
     setModelAssetDensity(density);
   }, [setModelAssetDensity]);
 
+  const handleToggleSelectionMode = useCallback(() => {
+    const nextMode = !modelAssetSelectionMode;
+    setModelAssetSelectionMode(nextMode);
+    if (nextMode) {
+      setMobileDetailsOpen(false);
+    }
+  }, [modelAssetSelectionMode, setModelAssetSelectionMode]);
+
   const handleGridScroll = useCallback((event: React.UIEvent<HTMLDivElement>) => {
     saveScrollPosition(event.currentTarget.scrollTop);
     maybeLoadMoreAssets(event.currentTarget);
@@ -781,7 +907,7 @@ export function ModelAssetLibraryView({
         tags={modelAssetAvailableTags}
         sort={modelAssetSort}
         density={modelAssetDensity}
-        selectedAsset={selectedAsset}
+        selectedAsset={toolbarSelectedAsset}
         selectedCount={selectedModelAssetIds.length}
         selectionMode={modelAssetSelectionMode}
         loading={modelAssetLoading}
@@ -795,8 +921,8 @@ export function ModelAssetLibraryView({
         onDensityChange={handleDensityChange}
         onRefresh={() => void loadAssets(null, false, true)}
         onImportClick={handleImportClick}
-        onToggleSelectionMode={() => setModelAssetSelectionMode(!modelAssetSelectionMode)}
-        onOpenSelected={() => selectedAsset && handleOpen(selectedAsset)}
+        onToggleSelectionMode={handleToggleSelectionMode}
+        onOpenSelected={() => toolbarSelectedAsset && handleOpen(toolbarSelectedAsset)}
         onExpandRequest={handleExpandToolbar}
       />
 
@@ -869,6 +995,17 @@ export function ModelAssetLibraryView({
         </div>
       </div>
 
+      <ModelAssetSelectionBar
+        selectedCount={selectedModelAssetIds.length}
+        downloadableCount={downloadableSelectedCount}
+        canDelete={canDeleteAssets}
+        isDownloading={batchDownloading}
+        isDeleting={batchDeleting}
+        onDownload={() => void handleDownloadSelected()}
+        onDelete={handleDeleteSelected}
+        onClear={() => setModelAssetSelectionMode(false)}
+      />
+
       <ConfirmDialog
         isOpen={Boolean(deleteTarget)}
         title={t('delete')}
@@ -877,6 +1014,20 @@ export function ModelAssetLibraryView({
         danger
         onConfirm={confirmDelete}
         onClose={() => setDeleteTarget(null)}
+      />
+      <ConfirmDialog
+        isOpen={batchDeleteOpen}
+        title={t('modelAssetDeleteSelectedTitle')}
+        message={t('modelAssetDeleteSelectedConfirm', { count: selectedModelAssetIds.length })}
+        confirmLabel={t('modelAssetDeleteSelectedConfirmAction', { count: selectedModelAssetIds.length })}
+        isBusy={batchDeleting}
+        danger
+        onConfirm={() => void confirmDeleteSelected()}
+        onClose={() => {
+          if (!batchDeleting) {
+            setBatchDeleteOpen(false);
+          }
+        }}
       />
     </section>
   );

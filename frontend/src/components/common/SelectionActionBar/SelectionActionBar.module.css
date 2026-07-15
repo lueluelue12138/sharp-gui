@@ -2,7 +2,7 @@
   position: absolute;
   left: 50%;
   bottom: 24px;
-  z-index: 8;
+  z-index: var(--selection-action-bar-z-index, 8);
   transform: translateX(-50%);
   width: min(430px, calc(100% - 36px));
   min-height: 56px;
@@ -19,9 +19,14 @@
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.16);
 }
 
-.withVideo {
+.withTwoPrimary {
   width: min(560px, calc(100% - 36px));
   grid-template-columns: auto repeat(2, minmax(128px, 1fr)) 38px 38px;
+}
+
+.withoutUtility {
+  width: min(384px, calc(100% - 36px));
+  grid-template-columns: auto minmax(132px, 1fr) 38px;
 }
 
 .count {
@@ -60,6 +65,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  border: 0;
   transition:
     background var(--transition-normal),
     transform var(--transition-normal),
@@ -102,9 +108,25 @@
   background: rgba(255, 255, 255, 0.85);
 }
 
+.dangerBtn {
+  color: var(--danger, #dc3545);
+}
+
+.dangerBtn:hover:not(:disabled) {
+  color: #b42332;
+  background: rgba(220, 53, 69, 0.14);
+}
+
 .iconBtn:disabled {
   cursor: wait;
   opacity: 0.62;
+}
+
+.primaryBtn:focus-visible,
+.iconBtn:focus-visible,
+.clearBtn:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
 }
 
 @media (max-width: 768px) {
@@ -117,17 +139,21 @@
     grid-template-columns: minmax(54px, auto) minmax(0, 1fr) 38px 38px;
   }
 
-  .bar.withVideo {
+  .bar.withTwoPrimary {
     grid-template-columns: minmax(54px, auto) minmax(0, 1fr) minmax(0, 1fr) 38px 38px;
+  }
+
+  .bar.withoutUtility {
+    grid-template-columns: minmax(54px, auto) minmax(0, 1fr) 38px;
   }
 }
 
 @media (max-width: 560px) {
-  .bar.withVideo {
+  .bar.withTwoPrimary {
     grid-template-columns: minmax(54px, auto) minmax(0, 1fr) 38px 38px;
   }
 
-  .bar.withVideo .primaryBtn:nth-of-type(2) {
+  .bar.withTwoPrimary .primaryBtn:nth-of-type(2) {
     grid-column: 2 / -1;
   }
 }
@@ -145,5 +171,17 @@
   .iconBtn:hover:not(:disabled),
   .clearBtn:hover {
     background: rgba(255, 255, 255, 0.18);
+  }
+
+  .dangerBtn:hover:not(:disabled) {
+    background: rgba(255, 69, 82, 0.18);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .primaryBtn,
+  .iconBtn,
+  .clearBtn {
+    transition: none;
   }
 }

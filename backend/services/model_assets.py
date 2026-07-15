@@ -2,8 +2,11 @@ import datetime
 import json
 import os
 import re
+import shutil
+import tempfile
 import threading
 import uuid
+import zipfile
 from copy import deepcopy
 from urllib.parse import quote
 
@@ -15,6 +18,7 @@ from backend.services.static_files import get_relative_files_path, is_real_path_
 # 资产索引是单一 JSON 文件的 read-modify-write，局域网多设备可能并发导入/编辑，
 # 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
 _INDEX_LOCK = threading.RLock()
+_DOWNLOAD_LOCK = threading.Lock()
 INDEX_VERSION = 2
 
 # 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
@@ -55,6 +59,9 @@ MAX_IMPORT_REQUEST_BYTES = MAX_IMPORT_BATCH_BYTES + 64 * 1024 * 1024
 MAX_COVER_BYTES = 10 * 1024 * 1024
 MAX_COVER_REQUEST_BYTES = MAX_COVER_BYTES + 1024 * 1024
 MAX_COVER_PIXELS = 40_000_000
+MAX_BATCH_OPERATION_ASSETS = 200
+MODEL_ASSET_DOWNLOAD_MAX_AGE_SECONDS = 24 * 60 * 60
+MODEL_ASSET_DOWNLOAD_DISK_RESERVE_BYTES = 256 * 1024 * 1024
 PLY_HEADER_MAX_BYTES = 512 * 1024
 SPLAT_BYTES_PER_POINT = 32
 ALLOWED_COVER_EXTENSIONS = {
@@ -1548,3 +1555,236 @@ def resolve_download_file(paths, asset_id, fmt=None):
         metadata=metadata,
     )
     return path, download_name
+
+
+def normalize_batch_asset_ids(asset_ids):
+    """校验、去重并限制模型资产批量操作 ID。"""
+    if not isinstance(asset_ids, list):
+        raise ModelAssetServiceError(
+            "asset_ids must be an array",
+            "invalid_model_asset_ids",
+            400,
+        )
+
+    normalized = []
+    seen = set()
+    for raw_asset_id in asset_ids:
+        asset_id = str(raw_asset_id or "").strip()
+        if not asset_id or asset_id in seen:
+            continue
+        seen.add(asset_id)
+        normalized.append(asset_id)
+
+    if not normalized:
+        raise ModelAssetServiceError(
+            "asset_ids is required",
+            "invalid_model_asset_ids",
+            400,
+        )
+    if len(normalized) > MAX_BATCH_OPERATION_ASSETS:
+        raise ModelAssetServiceError(
+            f"At most {MAX_BATCH_OPERATION_ASSETS} model assets can be processed at once",
+            "model_asset_batch_too_large",
+            400,
+        )
+    return normalized
+
+
+def get_model_asset_download_folder(paths):
+    """返回 workspace 内受控的临时模型下载目录。"""
+    folder = os.path.realpath(os.path.join(os.path.dirname(paths.model_asset_index_file), "downloads"))
+    if not is_real_path_inside(folder, paths.workspace_folder):
+        raise ModelAssetServiceError(
+            "Model asset download directory is outside the workspace",
+            "model_asset_download_path_invalid",
+            409,
+        )
+    return folder
+
+
+def cleanup_expired_model_asset_downloads(paths, max_age_seconds=MODEL_ASSET_DOWNLOAD_MAX_AGE_SECONDS):
+    """清理中断请求遗留的过期模型下载归档。"""
+    folder = get_model_asset_download_folder(paths)
+    if not os.path.isdir(folder):
+        return
+
+    cutoff = datetime.datetime.now().timestamp() - max_age_seconds
+    try:
+        entries = os.listdir(folder)
+    except OSError:
+        return
+
+    for filename in entries:
+        is_prepared = re.fullmatch(r"model-assets-[0-9a-f]{32}\.zip", filename)
+        is_incomplete = filename.startswith("model-assets-temp-") and filename.endswith(".zip")
+        if not is_prepared and not is_incomplete:
+            continue
+        path = os.path.realpath(os.path.join(folder, filename))
+        if not is_real_path_inside(path, folder):
+            continue
+        try:
+            if os.path.isfile(path) and os.path.getmtime(path) < cutoff:
+                os.remove(path)
+        except OSError:
+            pass
+
+
+def make_unique_model_archive_name(filename, used_names):
+    """为 ZIP 内模型文件生成无路径且不覆盖的名称。"""
+    basename = os.path.basename(str(filename or "").replace("\\", "/")) or "model"
+    stem, extension = os.path.splitext(basename)
+    candidate = basename
+    suffix = 2
+    while candidate.casefold() in used_names:
+        candidate = f"{stem}-{suffix}{extension}"
+        suffix += 1
+    used_names.add(candidate.casefold())
+    return candidate
+
+
+def _prepare_model_asset_download(paths, asset_ids, preferred_format=None):
+    normalized_ids = normalize_batch_asset_ids(asset_ids)
+    folder = get_model_asset_download_folder(paths)
+    try:
+        os.makedirs(folder, exist_ok=True)
+    except OSError as exc:
+        raise ModelAssetServiceError(
+            "Model asset download directory is unavailable",
+            "model_asset_download_unavailable",
+            409,
+        ) from exc
+    cleanup_expired_model_asset_downloads(paths)
+
+    resolved_files = []
+    failed = []
+    total_bytes = 0
+    for asset_id in normalized_ids:
+        try:
+            resolved = resolve_download_file(paths, asset_id, preferred_format)
+            if not resolved:
+                failed.append({"id": asset_id, "code": "model_asset_file_not_found"})
+                continue
+            path, filename = resolved
+            size = os.path.getsize(path)
+            resolved_files.append((asset_id, path, filename))
+            total_bytes += size
+        except (OSError, ModelAssetServiceError) as exc:
+            failed.append({
+                "id": asset_id,
+                "code": getattr(exc, "code", "model_asset_download_failed"),
+            })
+
+    if not resolved_files:
+        raise ModelAssetServiceError(
+            "No downloadable model assets found",
+            "model_asset_download_empty",
+            404,
+        )
+
+    try:
+        free_bytes = shutil.disk_usage(folder).free
+    except OSError as exc:
+        raise ModelAssetServiceError(
+            "Model asset download storage cannot be inspected",
+            "model_asset_download_unavailable",
+            409,
+        ) from exc
+    if total_bytes + MODEL_ASSET_DOWNLOAD_DISK_RESERVE_BYTES > free_bytes:
+        raise ModelAssetServiceError(
+            "There is not enough free space to prepare the model download",
+            "model_asset_download_insufficient_space",
+            507,
+        )
+
+    download_id = uuid.uuid4().hex
+    fd, zip_path = tempfile.mkstemp(prefix="model-assets-temp-", suffix=".zip", dir=folder)
+    os.close(fd)
+    final_path = os.path.join(folder, f"model-assets-{download_id}.zip")
+    added_count = 0
+    used_names = set()
+
+    try:
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED, allowZip64=True) as archive:
+            for asset_id, path, filename in resolved_files:
+                try:
+                    archive_name = make_unique_model_archive_name(filename, used_names)
+                    archive.write(path, archive_name)
+                    added_count += 1
+                except (OSError, ModelAssetServiceError) as exc:
+                    failed.append({
+                        "id": asset_id,
+                        "code": getattr(exc, "code", "model_asset_download_failed"),
+                    })
+
+        if added_count == 0:
+            raise ModelAssetServiceError(
+                "No downloadable model assets found",
+                "model_asset_download_empty",
+                404,
+            )
+        os.replace(zip_path, final_path)
+    except ModelAssetServiceError:
+        try:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        except OSError:
+            pass
+        raise
+    except Exception as exc:
+        try:
+            if os.path.exists(zip_path):
+                os.remove(zip_path)
+        except OSError:
+            pass
+        raise ModelAssetServiceError(
+            "Model asset archive could not be created",
+            "model_asset_download_failed",
+        ) from exc
+
+    timestamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    return {
+        "download_id": download_id,
+        "download_url": f"/api/model-asset-downloads/{download_id}",
+        "download_name": f"sharp-gui-models-{timestamp}.zip",
+        "downloaded": added_count,
+        "failed": failed,
+    }
+
+
+def prepare_model_asset_download(paths, asset_ids, preferred_format=None):
+    """串行准备可原生流式下载的临时模型 ZIP，避免并发占满磁盘。"""
+    with _DOWNLOAD_LOCK:
+        return _prepare_model_asset_download(paths, asset_ids, preferred_format)
+
+
+def resolve_prepared_model_asset_download(paths, download_id):
+    """仅在受控临时目录内解析一次性模型下载归档。"""
+    if not re.fullmatch(r"[0-9a-f]{32}", str(download_id or "")):
+        return None
+    folder = get_model_asset_download_folder(paths)
+    path = os.path.realpath(os.path.join(folder, f"model-assets-{download_id}.zip"))
+    if not is_real_path_inside(path, folder) or not os.path.isfile(path):
+        return None
+    return path
+
+
+def delete_model_assets(paths, asset_ids):
+    """批量删除模型资产并返回逐项成功与失败结果。"""
+    normalized_ids = normalize_batch_asset_ids(asset_ids)
+    deleted_ids = []
+    failed = []
+
+    for asset_id in normalized_ids:
+        try:
+            if delete_model_asset(paths, asset_id):
+                deleted_ids.append(asset_id)
+            else:
+                failed.append({"id": asset_id, "code": "model_asset_not_found"})
+        except ModelAssetServiceError as exc:
+            failed.append({"id": asset_id, "code": exc.code})
+
+    return {
+        "success": not failed,
+        "deleted_ids": deleted_ids,
+        "failed": failed,
+    }
