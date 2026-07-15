@@ -11,6 +11,20 @@ description: Sharp GUI 项目的 Commit Message、Release Note、Windows 完整�
 
 ## Commit Message 规范
 
+### 作者归属（提交前检查）
+
+- Agent / AI 执行提交时，`Author` 使用实际工具身份；不得把不同工具统一写成固定 Agent，也不得把推送账号直接当作作者。优先使用工具官方身份；没有官方邮箱时可使用清晰工具名和中性未绑定邮箱。
+- 将实际参与需求、讨论、优化、验证或验收的人类参与者写入 `Co-authored-by:`。姓名和邮箱取当前参与者已确认的 GitHub 关联身份，优先使用 GitHub noreply 邮箱；**不得在仓库规则中写死某位维护者的信息**。本人手动提交时无需重复添加自己。
+- 每次提交前检查 `git config --show-origin --get user.name`、`git config --show-origin --get user.email` 和 `git var GIT_AUTHOR_IDENT`。本地配置只能在确认属于当前人类参与者后用于共同作者；无法确认时先询问，不得猜测。
+- Agent 身份只对本次命令临时覆盖，例如 `git -c user.name="<Agent>" -c user.email="<Agent email>" commit ...`；除非用户明确要求，不修改全局 Git 身份。
+- 提交正文与 footer 之间留一个空行；每位参与者只保留一条：
+
+  ```text
+  Co-authored-by: <参与者姓名> <GitHub 已关联邮箱>
+  ```
+
+- 推送前执行 `git show -s --format=fuller HEAD`，确认实际 Agent 作者和共同作者归属正确。错误只能在未推送时修正；不得擅自改写已推送历史。
+
 ### 格式
 
 使用 **Conventional Commits** 格式，语言为 **中文**。
