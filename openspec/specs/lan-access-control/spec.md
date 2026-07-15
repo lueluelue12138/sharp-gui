@@ -207,3 +207,72 @@ The system SHALL make the owner aware that fronting the server with a local reve
 - **WHEN** the application is served over an unencrypted (HTTP) connection and the access-control login flow is shown
 - **THEN** the frontend SHALL show a localized warning that the access code is transmitted without encryption
 - **AND** the warning text SHALL be maintained in both English and Chinese locale resources
+
+### Requirement: 模型资产写入 SHALL 复用远程生成权限控制
+系统 SHALL 将模型资产导入、资产资料编辑和封面写入视为会修改 workspace 的写入操作。localhost owner SHALL 始终可在本机执行这些操作；非本机客户端只有在访问控制启用、会话已认证且 owner 明确开启现有“允许远程生成”开关时，才可执行模型资产写入操作。
+
+#### Scenario: localhost owner 导入模型资产
+- **WHEN** localhost owner 提交模型资产导入请求
+- **THEN** 系统 SHALL 按导入校验规则处理请求
+- **AND** 导入权限 SHALL 不要求访问码
+
+#### Scenario: 已认证远程客户端且允许远程生成已启用
+- **WHEN** 非本机客户端已通过访问控制认证且“允许远程生成”已启用
+- **THEN** 系统 SHALL 允许其提交模型资产导入、资产资料编辑或封面写入请求
+- **AND** 系统 SHALL 继续禁止该客户端执行 owner-only 管理操作
+
+#### Scenario: 已认证远程客户端但允许远程生成未启用
+- **WHEN** 非本机客户端已通过访问控制认证但“允许远程生成”未启用
+- **THEN** 系统 MUST 拒绝模型资产导入、资产资料编辑和封面写入请求
+- **AND** 系统 MUST NOT 写入上传文件或修改模型资产索引
+
+#### Scenario: 未认证远程客户端写入模型资产
+- **WHEN** 未认证非本机客户端提交模型资产导入、资产资料编辑或封面写入请求
+- **THEN** 系统 MUST 返回未授权响应
+- **AND** 系统 MUST NOT 接收文件内容到受控资产库或修改模型资产元数据
+
+### Requirement: 模型封面写入 SHALL 受局域网写入权限控制
+系统 SHALL 将导入模型的封面上传、封面替换和封面刷新写入视为受控写入操作，并使用与模型资产导入一致的 owner 或“允许远程生成”权限。
+
+#### Scenario: localhost owner 写入模型封面
+- **WHEN** localhost owner 为模型资产上传或刷新封面
+- **THEN** 系统 SHALL 在校验资产 ID、图片类型、大小和目标路径后写入封面缓存
+
+#### Scenario: 授权远程客户端写入导入模型封面
+- **WHEN** 已认证且具备远程写入权限的非本机客户端为其可访问的模型资产提交封面
+- **THEN** 系统 SHALL 在受控缩略图缓存目录写入封面
+- **AND** 系统 MUST NOT 允许客户端指定任意服务端路径
+
+#### Scenario: 未授权远程客户端写入封面
+- **WHEN** 未认证或未具备远程写入权限的非本机客户端提交封面写入请求
+- **THEN** 系统 MUST 拒绝请求
+- **AND** 系统 MUST NOT 修改封面缓存或资产索引
+
+### Requirement: 模型资产私有读取 SHALL 纳入现有访问控制
+当局域网访问控制启用时，系统 SHALL 将模型资产列表、详情、缩略图、下载、打开 URL 和受控模型文件读取视为私有模型资源，要求 owner 或已认证远程会话。
+
+#### Scenario: 未认证远程客户端请求模型资产列表
+- **WHEN** 访问控制启用且未认证非本机客户端请求模型资产列表或详情
+- **THEN** 系统 MUST 拒绝请求
+- **AND** 系统 MUST NOT 返回模型资产元数据
+
+#### Scenario: 已认证远程客户端浏览模型资产
+- **WHEN** 访问控制启用且非本机客户端拥有有效认证会话
+- **THEN** 系统 SHALL 允许其读取模型资产列表、详情、缩略图和下载资源
+
+#### Scenario: 访问控制关闭时读取模型资产
+- **WHEN** owner 关闭局域网访问控制
+- **THEN** 模型资产读取流程 SHALL 按现有私有读取关闭策略可访问
+- **AND** owner-only 写入或管理操作 MUST 仍保持本机限制
+
+### Requirement: 模型资产静态文件 SHALL 只从显式 allowlist 根目录提供
+系统 SHALL 仅从明确允许的模型输出目录、模型导入目录和模型缩略图缓存目录提供模型资产静态文件，并拒绝解析到这些根目录之外的请求。
+
+#### Scenario: 请求受控模型资产文件
+- **WHEN** 已授权客户端请求位于允许根目录内的模型文件或缩略图
+- **THEN** 系统 SHALL 返回该文件
+
+#### Scenario: 请求解析到允许根目录之外
+- **WHEN** 客户端通过相对路径、绝对路径、编码路径或符号链接使请求解析到 allowlist 外部
+- **THEN** 系统 MUST 拒绝请求
+- **AND** 系统 MUST NOT 返回外部文件内容
