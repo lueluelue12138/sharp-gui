@@ -79,8 +79,16 @@ def resolve_served_file_path(paths, served_root, served_filename):
         return None
 
     candidate = os.path.realpath(os.path.join(served_root, served_filename))
-
-    if not any(is_real_path_inside(candidate, root) for root in paths.allowed_file_serve_roots):
+    safe_roots = tuple(
+        root
+        for root in paths.allowed_file_serve_roots
+        if is_real_path_inside(root, paths.workspace_folder)
+    )
+    if not any(
+        is_real_path_inside(candidate, root)
+        and is_real_path_inside(candidate, paths.workspace_folder)
+        for root in safe_roots
+    ):
         return None
 
     if is_sensitive_served_file(candidate):
@@ -104,10 +112,13 @@ def resolve_files_route_path(paths, filename):
     if not resolved_path:
         return None, None, None
 
-    thumbnail_prefix = get_relative_files_path(paths.thumbnail_folder, paths) + "/"
+    thumbnail_prefixes = (
+        get_relative_files_path(paths.thumbnail_folder, paths) + "/",
+        get_relative_files_path(paths.model_asset_thumbnail_folder, paths) + "/",
+    )
     cache_timeout = (
         THUMBNAIL_CACHE_SECONDS
-        if normalized_filename.startswith(thumbnail_prefix)
+        if normalized_filename.startswith(thumbnail_prefixes)
         else DEFAULT_FILE_CACHE_SECONDS
     )
     return resolved_path, os.path.basename(resolved_path), cache_timeout

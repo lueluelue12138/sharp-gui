@@ -6,4 +6,6 @@ export { Modal } from './Modal';
 export { ImageViewer } from './ImageViewer';
 export { SelectMenu } from './SelectMenu';
 export type { SelectMenuOption } from './SelectMenu';
+export { SelectionActionBar } from './SelectionActionBar';
+export type { SelectionActionBarAction } from './SelectionActionBar';
 export { TextInputDialog } from './TextInputDialog';

@@ -115,6 +115,165 @@ def test_remote_generate_accepts_unlocked_client_when_enabled(config_file, works
         assert payload["tasks"][0]["filename"] == "dragged.png"
 
 
+def test_remote_model_asset_read_requires_auth_when_gate_enabled(config_file, workspace):
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+    paths = app.config["PATH_CONTEXT"]
+    model_path = workspace / "outputs" / "demo.ply"
+    model_path.write_bytes(b"ply")
+
+    with app.test_client() as client:
+        blocked = remote_get(client, "/api/model-assets")
+        assert blocked.status_code == 401
+        assert blocked.get_json()["code"] == "AUTH_REQUIRED"
+
+        login = remote_post(client, "/api/auth/login", json={"password": "password123"})
+        assert login.status_code == 200
+
+        allowed = remote_get(client, "/api/model-assets")
+        assert allowed.status_code == 200
+        assert allowed.get_json()["items"][0]["id"] == "demo"
+        assert paths.allowed_file_serve_roots
+
+
+def test_remote_model_asset_writes_use_generation_gate(config_file, workspace):
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+            allow_remote_generation=False,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+    paths = app.config["PATH_CONTEXT"]
+
+    with app.test_client() as client:
+        login = remote_post(client, "/api/auth/login", json={"password": "password123"})
+        assert login.status_code == 200
+
+        blocked = remote_post(
+            client,
+            "/api/model-assets/import",
+            data={"files": (BytesIO(b"ply"), "remote.ply")},
+            content_type="multipart/form-data",
+        )
+        assert blocked.status_code == 403
+        assert blocked.get_json()["code"] == "OWNER_REQUIRED"
+        assert not (workspace / "model-assets" / "imports" / "remote.ply").exists()
+
+
+def test_remote_model_asset_write_requires_login_even_when_generation_gate_enabled(
+    config_file,
+    workspace,
+):
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+            allow_remote_generation=True,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        blocked = remote_post(
+            client,
+            "/api/model-assets/import",
+            data={"files": (BytesIO(b"ply"), "remote.ply")},
+            content_type="multipart/form-data",
+        )
+        assert blocked.status_code == 401
+        assert blocked.get_json()["code"] == "AUTH_REQUIRED"
+
+
+def test_remote_model_asset_write_allowed_but_delete_stays_owner_only(config_file, workspace):
+    config = {
+        "workspace_folder": str(workspace),
+        "access_control": make_access_config(
+            enabled=True,
+            password_hash=generate_password_hash("password123"),
+            allow_remote_generation=True,
+        ),
+        "photo_gallery_roots": [],
+    }
+    write_config(config_file, config)
+    app = create_app()
+    app.config["TESTING"] = True
+
+    with app.test_client() as client:
+        login = remote_post(client, "/api/auth/login", json={"password": "password123"})
+        assert login.status_code == 200
+
+        imported = remote_post(
+            client,
+            "/api/model-assets/import",
+            data={"files": (BytesIO(b"ply"), "../remote.ply")},
+            content_type="multipart/form-data",
+        )
+        assert imported.status_code == 200
+        asset_id = imported.get_json()["assets"][0]["id"]
+
+        edited = remote_post(
+            client,
+            f"/api/model-assets/{asset_id}",
+            json={"display_name": "Remote Asset", "tags": ["lan"], "note": "ok"},
+        )
+        assert edited.status_code == 200
+        assert edited.get_json()["name"] == "Remote Asset"
+
+        cover = remote_post(
+            client,
+            f"/api/model-assets/{asset_id}/cover",
+            data={"cover": (make_png_bytes(), "cover.png")},
+            content_type="multipart/form-data",
+        )
+        assert cover.status_code == 200
+        assert cover.get_json()["thumbnail_state"] == "ready"
+
+        prepared_download = remote_post(
+            client,
+            "/api/model-asset-downloads",
+            json={"asset_ids": [asset_id], "preferred_format": "ply"},
+        )
+        assert prepared_download.status_code == 200
+        download = remote_get(client, prepared_download.get_json()["download_url"])
+        assert download.status_code == 200
+        assert download.mimetype == "application/zip"
+
+        batch_delete = remote_post(
+            client,
+            "/api/model-asset-deletions",
+            json={"asset_ids": [asset_id]},
+        )
+        assert batch_delete.status_code == 403
+        assert batch_delete.get_json()["code"] == "OWNER_REQUIRED"
+
+        delete = client.delete(
+            f"/api/model-assets/{asset_id}",
+            base_url="http://192.168.1.2",
+            environ_overrides={"REMOTE_ADDR": "192.168.1.50"},
+        )
+        assert delete.status_code == 403
+        assert delete.get_json()["code"] == "OWNER_REQUIRED"
+
+
 def test_remote_task_cancel_requires_generation_gate(config_file, workspace):
     config = {
         "workspace_folder": str(workspace),

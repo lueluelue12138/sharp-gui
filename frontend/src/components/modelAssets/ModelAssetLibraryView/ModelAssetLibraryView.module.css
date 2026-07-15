@@ -1,0 +1,195 @@
+.library {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px 18px 16px;
+  overflow: hidden;
+  transition: padding-left 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.dropOverlay {
+  position: absolute;
+  inset: 12px 14px;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed rgba(0, 113, 227, 0.56);
+  border-radius: var(--radius-xl);
+  background: rgba(245, 248, 255, 0.68);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38), var(--glass-shadow);
+  backdrop-filter: blur(24px) saturate(170%);
+  -webkit-backdrop-filter: blur(24px) saturate(170%);
+  pointer-events: none;
+}
+
+.dropCard {
+  width: min(360px, calc(100% - 32px));
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-xl);
+  color: var(--text-primary);
+  text-align: center;
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+}
+
+.dropCard strong {
+  font-size: 16px;
+}
+
+.dropCard > span:last-child {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.dropIcon {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-lg);
+  color: var(--accent-blue);
+  background: rgba(0, 113, 227, 0.11);
+}
+
+:global(.main-content.sidebar-expanded) .library {
+  padding-left: calc(var(--sidebar-width) + 32px);
+}
+
+.workbench {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 12px;
+}
+
+.detailsSlot {
+  min-width: 0;
+  min-height: 0;
+}
+
+.notice {
+  position: relative;
+  z-index: 65;
+  min-height: 42px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(52, 199, 89, 0.28);
+  color: var(--text-primary);
+  background: rgba(52, 199, 89, 0.12);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.noticeError {
+  border-color: rgba(220, 53, 69, 0.32);
+  background: rgba(220, 53, 69, 0.12);
+}
+
+.notice button {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+
+.notice button:hover,
+.notice button:focus-visible {
+  color: var(--text-primary);
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.notice button:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1180px) {
+  .library,
+  :global(.main-content.sidebar-expanded) .library {
+    padding-left: 18px;
+    padding-top: 72px;
+    gap: 0;
+    --model-asset-toolbar-overlap: 68px;
+  }
+
+  .workbench {
+    overflow-y: auto;
+    overflow-x: hidden;
+    grid-template-columns: 1fr;
+    margin-top: calc(-1 * var(--model-asset-toolbar-overlap));
+    padding-top: 12px;
+    padding-bottom: 20px;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
+  }
+
+  .detailsSlot {
+    display: none;
+  }
+
+  .detailsSlotOpen {
+    position: fixed;
+    right: 18px;
+    bottom: 18px;
+    left: 18px;
+    z-index: 90;
+    display: block;
+    max-height: min(72dvh, 620px);
+    pointer-events: none;
+  }
+
+  .detailsSlotOpen > * {
+    pointer-events: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  .library,
+  :global(.main-content.sidebar-expanded) .library {
+    padding: 68px 12px 14px;
+    --model-asset-toolbar-overlap: 70px;
+  }
+
+  .detailsSlotOpen {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-height: min(70dvh, 560px);
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .dropOverlay {
+    background: rgba(5, 10, 20, 0.7);
+  }
+
+  .notice button:hover,
+  .notice button:focus-visible {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}

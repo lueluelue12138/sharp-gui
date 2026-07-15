@@ -1,0 +1,459 @@
+.panel {
+  position: relative;
+  min-width: 320px;
+  max-width: 360px;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-2xl);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.preview {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  min-height: 190px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(0, 113, 227, 0.16), transparent 44%),
+    rgba(0, 0, 0, 0.04);
+}
+
+.previewMediaButton,
+.previewMediaSurface {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: block;
+  padding: 0;
+  color: inherit;
+  background: transparent;
+  border: 0;
+  overflow: hidden;
+}
+
+.previewMediaButton {
+  cursor: pointer;
+}
+
+.previewMediaButton:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: -4px;
+}
+
+.previewImage {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: cover;
+  transition: transform var(--transition-slow), opacity var(--transition-normal);
+}
+
+.previewMediaButton:hover .previewImage,
+.previewMediaButton:focus-visible .previewImage {
+  transform: scale(1.015);
+}
+
+.previewFallback {
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-blue);
+  font-size: 30px;
+  font-weight: 800;
+}
+
+.closeButton {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 8;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+}
+
+.closeButton:hover,
+.closeButton:focus-visible {
+  color: var(--accent-blue);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.closeButton:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.coverButton {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 7;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.12);
+}
+
+.coverButton:hover,
+.coverButton:focus-visible {
+  color: var(--accent-blue);
+}
+
+.coverButton:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.restoreCoverButton {
+  right: 54px;
+}
+
+.header {
+  padding: 18px 18px 12px;
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.titleRow h2 {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.editButton {
+  flex: 0 0 auto;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.editButton:hover,
+.editButton:focus-visible {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.editButton:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.summary span {
+  min-width: 0;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
+  padding: 0 18px 14px;
+}
+
+.actions button {
+  height: 54px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 4px;
+  border-radius: var(--radius-lg);
+  color: var(--text-secondary);
+  background: rgba(255, 255, 255, 0.58);
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.actions button:hover:not(:disabled),
+.actions button:focus-visible {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.82);
+  transform: none;
+}
+
+.actions button:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.dangerAction,
+.dangerAction:hover:not(:disabled),
+.dangerAction:focus-visible {
+  color: var(--danger-color) !important;
+}
+
+.tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.tabs button {
+  height: 42px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  border-bottom: 2px solid transparent;
+}
+
+.tabs button:hover,
+.tabs button:focus-visible {
+  color: var(--text-primary);
+}
+
+.tabs button:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: -2px;
+}
+
+.tabActive {
+  color: var(--accent-blue) !important;
+  border-bottom-color: var(--accent-blue) !important;
+}
+
+.detailBody {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+  padding: 14px 18px 18px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.fieldList {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin: 0;
+}
+
+.fieldRow {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.45fr) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+  min-width: 0;
+}
+
+.fieldRow dt {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fieldRow dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.metadataEmpty {
+  padding: 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  text-align: center;
+}
+
+.editStack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.editStack label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.editStack input,
+.editStack textarea {
+  width: 100%;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.65);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  outline: none;
+  resize: vertical;
+}
+
+.editStack input:focus,
+.editStack textarea:focus {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 0 2px rgba(0, 113, 227, 0.14);
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.emptyPanel {
+  flex: 1;
+  min-height: 320px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 28px;
+  text-align: center;
+}
+
+.emptyCube {
+  width: 60px;
+  height: 60px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 14px;
+  color: var(--accent-blue);
+  font-weight: 800;
+  background: rgba(0, 113, 227, 0.1);
+}
+
+.emptyPanel h2 {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 17px;
+}
+
+.emptyPanel p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1180px) {
+  .panel {
+    max-width: none;
+    width: 100%;
+    min-height: 0;
+    max-height: min(72dvh, 620px);
+  }
+
+  .closeButton {
+    display: flex;
+  }
+}
+
+@media (max-width: 720px) {
+  .panel {
+    min-width: 0;
+  }
+
+  .actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 6px;
+    padding: 0 14px 12px;
+  }
+
+  .actions button {
+    height: 46px;
+    padding: 5px 2px;
+    gap: 3px;
+    font-size: 10px;
+    border-radius: var(--radius-md);
+  }
+
+  .preview {
+    min-height: 170px;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .preview,
+  .tabs {
+    border-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .coverButton {
+    background: rgba(22, 24, 30, 0.78);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .closeButton {
+    background: rgba(22, 24, 30, 0.78);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+
+  .closeButton:hover,
+  .closeButton:focus-visible {
+    background: rgba(38, 42, 52, 0.9);
+  }
+
+  .editButton,
+  .actions button {
+    background: rgba(255, 255, 255, 0.1);
+  }
+
+  .editButton:hover,
+  .editButton:focus-visible,
+  .actions button:hover:not(:disabled),
+  .actions button:focus-visible {
+    background: rgba(255, 255, 255, 0.16);
+  }
+
+  .editStack input,
+  .editStack textarea {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+}

@@ -9,6 +9,22 @@ interface ThumbnailCacheEntry {
 }
 
 const thumbnailCache = new Map<string, ThumbnailCacheEntry>();
+const MAX_THUMBNAIL_CACHE_ENTRIES = 512;
+
+function pruneThumbnailCache(): void {
+  if (thumbnailCache.size <= MAX_THUMBNAIL_CACHE_ENTRIES) {
+    return;
+  }
+
+  for (const [src, entry] of thumbnailCache) {
+    if (entry.listeners.size === 0 && entry.state !== 'loading') {
+      thumbnailCache.delete(src);
+    }
+    if (thumbnailCache.size <= MAX_THUMBNAIL_CACHE_ENTRIES) {
+      return;
+    }
+  }
+}
 
 function getThumbnailEntry(src: string): ThumbnailCacheEntry {
   const existing = thumbnailCache.get(src);
@@ -39,6 +55,7 @@ function setThumbnailState(src: string, state: GalleryThumbnailState): void {
 
   entry.state = state;
   notifyThumbnailListeners(entry);
+  pruneThumbnailCache();
 }
 
 function loadThumbnail(src: string): void {
@@ -56,8 +73,7 @@ function loadThumbnail(src: string): void {
   image.src = src;
 
   if (image.complete && image.naturalWidth > 0) {
-    entry.state = 'ready';
-    notifyThumbnailListeners(entry);
+    setThumbnailState(src, 'ready');
     return;
   }
 
@@ -80,6 +96,7 @@ function subscribeToThumbnail(src: string | null, listener: () => void): () => v
 
   return () => {
     entry.listeners.delete(listener);
+    pruneThumbnailCache();
   };
 }
 

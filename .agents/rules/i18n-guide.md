@@ -71,6 +71,10 @@
 
 本地媒体图库沿用历史 `photo*` 前缀，例如 `photoGallery`、`photoSortModifiedNewest`、`photoGridDensityStandard`、`photoOriginalLoadFailed`；新增视频/媒体文案也优先放在该前缀下，例如 `photoMediaTypeVideo`、`photoVideoPlaybackFailed`、`photoVideoDownload`。排序、弹窗、错误提示、按钮 tooltip 和 aria-label 都必须双语同步。
 
+模型资产库统一使用 `modelAsset*` 前缀，例如 `modelAssetSourceFilter`、`modelAssetImportFailed`、`modelAssetDeleteConfirm`。标题、筛选、排序、字段、导入进度、逐文件失败、空/不可用状态、权限原因、tooltip 和 aria-label 都必须双语同步；不要新增同义的 `asset*` 或 `modelLibrary*` 前缀。
+
+后端 `error` 文本只用于诊断，用户界面应优先按稳定 `code` 映射当前语言，未知错误使用本地化通用兜底。批量接口的每个 `failed[]` 项都按自己的错误码独立本地化，并保留安全的文件名上下文；不得直接展示后端英文、`Unknown error` 或 `HTTP error! status: 400`。
+
 局域网门禁新增文案统一使用 `access*` / `auth*` 前缀，例如 `accessGateTitle`、`accessSetupPromptTitle`、`authPermissionOwnerOnly`。门禁页、启动提醒、设置说明、错误提示和按钮文案都必须双语同步。
 
 ---
@@ -138,3 +142,4 @@ frontend/src/i18n/
 - [ ] key 使用 `camelCase` 命名
 - [ ] 翻译内容准确、自然
 - [ ] 组件中使用 `t('key')` 而非硬编码文本
+- [ ] API 错误和批量失败是否按稳定 `code` 本地化，而非直接显示后端英文或 HTTP 状态

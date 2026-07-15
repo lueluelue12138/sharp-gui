@@ -20,6 +20,8 @@ inputs/
 inputs*/
 outputs/
 outputs*/
+model-assets/
+model-assets*/
 inputsbak/
 outputsbak/
 tmp/
@@ -27,8 +29,10 @@ my-video/
 
 # Thumbnails
 .thumbnails/
+.model-asset-library/
 .photo-gallery-cache/
 .video-reconstruction/
+.sharp-gui.lock
 
 # Config
 config.json

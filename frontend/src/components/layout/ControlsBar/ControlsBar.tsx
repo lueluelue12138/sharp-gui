@@ -18,6 +18,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
         isGyroEnabled, 
         toggleLimits,
         currentModelId,
+        currentModelSource,
         effectiveModelFormat,
         setLoading,
         resetLoadingProgress,
@@ -27,6 +28,10 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
     
     // UI state for collapse
     const [collapsed, setCollapsed] = useState(false);
+    const exportUnavailableForSource = Boolean(currentModelId) && (
+        currentModelSource === 'model-asset-imported'
+        || currentModelSource === 'temporary'
+    );
 
     // Fullscreen state
     const [isFullscreen, setIsFullscreen] = useState(!!document.fullscreenElement);
@@ -51,6 +56,9 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
     const handleExport = useCallback(async () => {
         if (!currentModelId) {
             alert(t('selectModelFirst'));
+            return;
+        }
+        if (exportUnavailableForSource) {
             return;
         }
 
@@ -120,6 +128,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
         }
     }, [
         currentModelId,
+        exportUnavailableForSource,
         effectiveModelFormat,
         resetLoadingProgress,
         t,
@@ -213,6 +222,7 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook }) => {
                      <button 
                         className={styles.controlBtn}
                         onClick={handleExport}
+                        disabled={exportUnavailableForSource}
                     >
                         <Icons.ShareIcon />
                         <span>{t("controls_share")}</span>

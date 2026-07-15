@@ -1,0 +1,271 @@
+.card {
+  position: relative;
+  min-width: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.56);
+  box-shadow: 0 10px 28px rgba(31, 38, 135, 0.08);
+  overflow: hidden;
+  cursor: pointer;
+  transition:
+    border-color var(--transition-normal),
+    box-shadow var(--transition-normal),
+    transform var(--transition-normal),
+    background var(--transition-normal);
+}
+
+.card:hover,
+.card:has(.mainAction:focus-visible) {
+  border-color: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 16px 36px rgba(31, 38, 135, 0.14);
+  transform: translateY(-1px);
+}
+
+.card:has(.mainAction:focus-visible) {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.mainAction {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.mainAction:focus-visible {
+  outline: none;
+}
+
+.selected {
+  border-color: rgba(255, 255, 255, 0.78);
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.24),
+    0 16px 36px rgba(31, 38, 135, 0.14);
+}
+
+.checked {
+  border-color: var(--accent-blue);
+}
+
+.unavailable {
+  opacity: 0.62;
+}
+
+.thumbArea {
+  position: relative;
+  aspect-ratio: 16 / 10;
+  min-height: 130px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(0, 113, 227, 0.16), transparent 42%),
+    rgba(0, 0, 0, 0.04);
+  overflow: hidden;
+}
+
+.thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity var(--transition-slow);
+}
+
+.thumbReady {
+  opacity: 1;
+}
+
+.loadingCover {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.4) 45%, transparent 72%),
+    rgba(255, 255, 255, 0.12);
+  background-size: 220% 100%;
+  animation: modelAssetShimmer 1.6s linear infinite;
+}
+
+.coverFallback {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent-blue);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.formatBadge {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  background: rgba(10, 14, 22, 0.72);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+.checkBadge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent-blue);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(0, 113, 227, 0.28);
+}
+
+.quickActions {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  transform: translate(-50%, -44%);
+  transition:
+    opacity var(--transition-normal),
+    transform var(--transition-normal);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.card:hover .quickActions,
+.card:focus-within .quickActions,
+.checked .quickActions {
+  opacity: 1;
+  transform: translate(-50%, -50%);
+  pointer-events: auto;
+}
+
+.actionButton {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  backdrop-filter: blur(18px) saturate(160%);
+  -webkit-backdrop-filter: blur(18px) saturate(160%);
+}
+
+.actionButton:hover:not(:disabled),
+.actionButton:focus-visible {
+  color: var(--accent-blue);
+  background: rgba(255, 255, 255, 0.92);
+}
+
+.actionButton:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
+.actionButton:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.deleteButton:hover:not(:disabled),
+.deleteButton:focus-visible {
+  color: var(--danger-color);
+}
+
+.cardInfo {
+  padding: 12px;
+}
+
+.name {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.meta {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (pointer: coarse) {
+  .quickActions {
+    display: none;
+  }
+}
+
+@media (max-width: 720px) {
+  .quickActions {
+    gap: 6px;
+  }
+
+  .actionButton {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card,
+  .quickActions,
+  .thumb {
+    transition: none;
+  }
+
+  .loadingCover {
+    animation: none;
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .card {
+    background: rgba(16, 19, 26, 0.66);
+    border-color: rgba(255, 255, 255, 0.14);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.34);
+  }
+
+  .thumbArea {
+    background:
+      radial-gradient(circle at 50% 35%, rgba(0, 113, 227, 0.2), transparent 45%),
+      rgba(255, 255, 255, 0.04);
+  }
+
+  .actionButton {
+    background: rgba(22, 24, 30, 0.78);
+    border-color: rgba(255, 255, 255, 0.14);
+    color: var(--text-primary);
+  }
+
+  .actionButton:hover:not(:disabled),
+  .actionButton:focus-visible {
+    background: rgba(38, 42, 52, 0.9);
+  }
+}

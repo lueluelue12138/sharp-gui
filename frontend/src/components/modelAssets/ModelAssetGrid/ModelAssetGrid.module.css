@@ -1,0 +1,145 @@
+.root {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 2px 28px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.root::-webkit-scrollbar {
+  width: 10px;
+}
+
+.root::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.root::-webkit-scrollbar-thumb {
+  min-height: 72px;
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: var(--scrollbar-thumb);
+  background-clip: padding-box;
+}
+
+.root::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+  background-clip: padding-box;
+}
+
+.grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 14px;
+  align-content: start;
+}
+
+.compact {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 12px;
+}
+
+.expanded {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.skeletonCard {
+  min-height: 220px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--glass-border);
+  background:
+    linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.42) 45%, transparent 72%),
+    rgba(255, 255, 255, 0.44);
+  background-size: 220% 100%;
+  animation: modelAssetShimmer 1.6s linear infinite;
+}
+
+.emptyState {
+  min-height: 360px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 32px;
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+}
+
+.emptyIcon {
+  width: 68px;
+  height: 68px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+  color: var(--accent-blue);
+  font-weight: 800;
+  background: rgba(0, 113, 227, 0.1);
+}
+
+.emptyState h2 {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 18px;
+}
+
+.emptyState p {
+  max-width: 420px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+@media (max-width: 1180px) {
+  .root,
+  .grid {
+    min-height: auto;
+  }
+
+  .root {
+    height: auto;
+    overflow: visible;
+    padding: 0;
+  }
+
+  .grid {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 720px) {
+  .grid,
+  .compact,
+  .expanded {
+    grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+    gap: 10px;
+  }
+
+}
+
+@media (prefers-color-scheme: dark) {
+  .skeletonCard {
+    background:
+      linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.1) 45%, transparent 72%),
+      rgba(255, 255, 255, 0.05);
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonCard {
+    animation: none;
+    background-position: 0 0;
+  }
+}

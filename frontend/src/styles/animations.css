@@ -74,3 +74,12 @@
         opacity: 0.5;
     }
 }
+@keyframes modelAssetShimmer {
+  from {
+    background-position: 220% 0;
+  }
+
+  to {
+    background-position: -220% 0;
+  }
+}

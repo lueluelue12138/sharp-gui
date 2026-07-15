@@ -54,7 +54,7 @@ function getDownloadFilename(contentDisposition: string | null, fallback: string
   return plainMatch?.[1] ?? fallback;
 }
 
-export async function exportModel(id: string, format: ModelFormat = 'spz'): Promise<ExportModelResult> {
+export async function exportModel(id: string, format: GalleryModelFormat = 'spz'): Promise<ExportModelResult> {
   const response = await fetch(`/api/export/${id}?format=${format}`, { credentials: 'same-origin' });
   if (!response.ok) {
     const errorData = await response.json().catch(() => null);

@@ -1,8 +1,8 @@
 import { useTranslation } from 'react-i18next';
 
-import { CloseIcon, DownloadIcon, SparklesIcon } from '@/components/common/Icons';
-
-import styles from './PhotoSelectionBar.module.css';
+import { DownloadIcon, SparklesIcon } from '@/components/common/Icons';
+import { SelectionActionBar } from '@/components/common/SelectionActionBar';
+import type { SelectionActionBarAction } from '@/components/common/SelectionActionBar';
 
 interface PhotoSelectionBarProps {
   selectedCount: number;
@@ -33,65 +33,55 @@ export function PhotoSelectionBar({
 }: PhotoSelectionBarProps) {
   const { t } = useTranslation();
 
-  if (selectedCount === 0) {
-    return null;
+  const actions: SelectionActionBarAction[] = [
+    {
+      id: 'convert',
+      icon: <SparklesIcon width={16} height={16} />,
+      label: isConverting
+        ? t('converting')
+        : canConvert
+          ? t('photoConvertSelectedShort', { count: convertCount })
+          : t('photoConvertPhotosOnly'),
+      ariaLabel: canConvert ? t('photoConvertSelected') : t('photoConvertPhotosOnly'),
+      tooltip: canConvert ? t('photoConvertSelected') : t('photoConvertPhotosOnly'),
+      disabled: isConverting || !canConvert,
+      busy: isConverting,
+      variant: 'primary',
+      onClick: onConvert,
+    },
+  ];
+
+  if (videoCount > 0) {
+    actions.push({
+      id: 'reconstruct-video',
+      icon: <SparklesIcon width={16} height={16} />,
+      label: canReconstructVideo ? t('videoReconGenerate3d') : t('videoReconSingleVideoOnly'),
+      ariaLabel: canReconstructVideo ? t('videoReconGenerate3d') : t('videoReconSingleVideoOnly'),
+      tooltip: canReconstructVideo ? t('videoReconGenerate3d') : t('videoReconSingleVideoOnly'),
+      disabled: isConverting || !canReconstructVideo,
+      variant: 'primary',
+      onClick: onReconstructVideo,
+    });
   }
 
+  actions.push({
+    id: 'download',
+    icon: <DownloadIcon width={16} height={16} />,
+    ariaLabel: isDownloading ? t('photoDownloadingSelected') : t('photoDownloadSelected'),
+    tooltip: isDownloading ? t('photoDownloadingSelected') : t('photoDownloadSelected'),
+    disabled: isDownloading,
+    busy: isDownloading,
+    onClick: onDownload,
+  });
+
   return (
-    <div
-      className={[styles.bar, videoCount > 0 ? styles.withVideo : ''].filter(Boolean).join(' ')}
-      role="status"
-      aria-live="polite"
-    >
-      <span className={styles.count} aria-label={t('photoSelectedCount', { count: selectedCount })}>
-        <strong>{selectedCount}</strong>
-        <span>{t('photoSelectedLabel')}</span>
-      </span>
-      <button
-        className={styles.primaryBtn}
-        onClick={onConvert}
-        disabled={isConverting || !canConvert}
-        data-tooltip={canConvert ? t('photoConvertSelected') : t('photoConvertPhotosOnly')}
-        type="button"
-      >
-        <SparklesIcon width={16} height={16} />
-        <span>
-          {isConverting
-            ? t('converting')
-            : canConvert
-              ? t('photoConvertSelectedShort', { count: convertCount })
-              : t('photoConvertPhotosOnly')}
-        </span>
-      </button>
-      {videoCount > 0 ? (
-        <button
-          className={styles.primaryBtn}
-          onClick={onReconstructVideo}
-          disabled={isConverting || !canReconstructVideo}
-          data-tooltip={canReconstructVideo ? t('videoReconGenerate3d') : t('videoReconSingleVideoOnly')}
-          type="button"
-        >
-          <SparklesIcon width={16} height={16} />
-          <span>
-            {canReconstructVideo
-              ? t('videoReconGenerate3d')
-              : t('videoReconSingleVideoOnly')}
-          </span>
-        </button>
-      ) : null}
-      <button
-        className={styles.iconBtn}
-        onClick={onDownload}
-        disabled={isDownloading}
-        type="button"
-        data-tooltip={isDownloading ? t('photoDownloadingSelected') : t('photoDownloadSelected')}
-        aria-label={isDownloading ? t('photoDownloadingSelected') : t('photoDownloadSelected')}
-      >
-        <DownloadIcon width={16} height={16} />
-      </button>
-      <button className={styles.clearBtn} onClick={onClear} type="button" aria-label={t('photoClearSelection')}>
-        <CloseIcon width={16} height={16} />
-      </button>
-    </div>
+    <SelectionActionBar
+      selectedCount={selectedCount}
+      selectedLabel={t('photoSelectedLabel')}
+      countAriaLabel={t('photoSelectedCount', { count: selectedCount })}
+      actions={actions}
+      clearLabel={t('photoClearSelection')}
+      onClear={onClear}
+    />
   );
 }

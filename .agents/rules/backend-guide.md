@@ -18,9 +18,9 @@
 ### LAN access-control tiers
 
 - **Public**: `/`, React assets/root static files, `/api/auth/status`, `/api/auth/login`.
-- **Unlocked**: valid HttpOnly access session or localhost owner. Covers gallery/task reads, model/photo previews, downloads, exports, photo album reads, and `/files/*`.
+- **Unlocked**: valid HttpOnly access session or localhost owner. Covers gallery/model-asset/task reads, model/photo previews, downloads, exports, photo album reads, and `/files/*`.
 - **Owner**: real localhost request with allowed Host. Covers settings writes, folder management, deletes, restart, batch conversion, task cancel, and access-control management.
-- **Conditional**: `/api/generate` and `/api/photo-conversions` are Owner by default; when `access_control.enabled=true` and `access_control.allow_remote_generation=true`, Unlocked remote devices may submit them.
+- **Conditional**: `/api/generate`, `/api/photo-conversions`, model asset imports/profile writes/cover writes are Owner by default; when `access_control.enabled=true` and `access_control.allow_remote_generation=true`, Unlocked remote devices may submit them.
 
 When `access_control.enabled=false`, private read resources fall back to the old open LAN browsing behavior, but Owner endpoints must still enforce real localhost access. Disabling the gate must not make delete, settings, restart, folder management, batch conversion, or task cancellation remote-accessible.
 
@@ -65,12 +65,20 @@ Do not grant owner permissions from `X-Forwarded-For`, `Forwarded`, `X-Real-IP`,
 | POST | `/api/video-reconstructions/upload` | 从拖入/上传的视频文件创建视频 3DGS 重建任务 | Owner / Conditional |
 | GET | `/api/video-reconstructions/status` | 读取视频重建默认配置与依赖诊断状态，支持 `?refresh=1` 触发后台重扫 | Unlocked |
 | GET | `/api/gallery/<item_id>/source-video` | 预览视频重建模型对应的原视频（来自 sidecar 元数据解析） | Unlocked |
+| GET | `/api/model-assets` | 游标式获取模型资产列表，支持来源/格式/标签筛选、排序和计数 | Unlocked |
+| GET | `/api/model-assets/<asset_id>` | 获取模型资产详情、可用格式、封面、源媒体和可解析元数据 | Unlocked |
+| POST | `/api/model-assets/import` | 导入 `.ply/.spz/.splat/.rad` 模型到受控资产目录 | Owner / Conditional |
+| POST / PATCH | `/api/model-assets/<asset_id>` | 更新模型资产名称、标签、备注等用户编辑信息；POST 为现有前端兼容方法 | Owner / Conditional |
+| POST | `/api/model-assets/<asset_id>/cover` | 上传或更新模型资产封面 | Owner / Conditional |
+| POST | `/api/model-assets/<asset_id>/cover/refresh` | 重新生成或刷新模型资产封面状态 | Owner / Conditional |
+| GET | `/api/model-assets/<asset_id>/download` | 按默认格式或指定格式下载模型资产文件 | Unlocked |
+| DELETE | `/api/model-assets/<asset_id>` | 删除模型资产索引项和受控导入文件；生成结果删除仍遵守原模型删除策略 | Owner |
 
 ### 新增端点规则
 
 1. **路由前缀**：必须使用 `/api/` 前缀
 2. **返回格式**：统一返回 JSON（`jsonify()`）
-3. **错误响应**：返回 `{"error": "描述"}` + 对应 HTTP 状态码
+3. **错误响应**：统一至少返回 `{"error": "描述"}` + 对应 HTTP 状态码；模型资产及新增结构化端点还应提供 `{"code": "stable_error_code"}`。批量接口可附带逐项 `failed[]`，但全批失败时仍必须保留顶层 `error` / `code`，不能让客户端只得到通用 HTTP 状态文本
 4. **路由位置**：在 `backend/routes/` 选择对应业务模块；必要时新增 `backend/services/` 服务函数，避免把大段业务流程写在 route 中
 5. **权限控制**：在 `backend/security/access_control.py` 的 `get_required_access_level()` 中明确 Public / Unlocked / Owner / Conditional；owner 判断只能使用真实 `request.remote_addr` + 允许的 Host，不能相信转发头
 6. **测试覆盖**：新增或调整 pytest，至少覆盖 route map、权限矩阵或相关服务纯函数
@@ -122,6 +130,8 @@ pending → running → processing → completed
 - **取消机制**：`process.terminate()` 终止子进程
 - **自动清理**：已完成任务 1 小时后自动从内存中移除（`TASK_RETENTION_SECONDS`）
 - **导入无副作用**：`create_app()` 和 `from app import app` 默认不启动 worker/cleanup 线程，便于 pytest 和工具导入
+- **工作区互斥**：服务进程在 `TaskManager.start_workers()` 中取得 `{workspace}/.sharp-gui.lock` 的操作系统级独占锁；只有成功持锁后才能执行图片任务协调和视频残留清理
+- **切换预检**：Settings 保存不同的 `workspace_folder` 前必须短暂取得并释放目标工作区锁；占用时返回 `409 workspace_in_use`，不得修改配置或触发重启
 
 视频重建任务的阶段应保持用户可读，不要求前端阅读完整日志即可知道状态：`video_prepare`、`video_extract_frames`、`video_estimate_geometry`、`video_train_splats`、`video_export_splats`、`video_cleanup_splats`、`video_convert_spz`、`completed` / `failed` / `cancelled`。
 
@@ -154,21 +164,33 @@ photo_catalog_file = os.path.join(photo_gallery_cache_folder, 'catalog.json')
 photo_album_index_folder = os.path.join(photo_gallery_cache_folder, 'albums')
 photo_thumbnail_folder = os.path.join(photo_gallery_cache_folder, 'thumbnails')
 video_poster_folder = os.path.join(photo_gallery_cache_folder, 'video-posters')
+model_asset_folder = os.path.join(workspace_folder, 'model-assets')
+model_asset_import_folder = os.path.join(model_asset_folder, 'imports')
+model_asset_thumbnail_folder = os.path.join(model_asset_folder, 'thumbnails')
+model_asset_library_folder = os.path.join(workspace_folder, '.model-asset-library')
+model_asset_index_file = os.path.join(model_asset_library_folder, 'index.json')
 video_reconstruction_folder = os.path.join(workspace_folder, '.video-reconstruction')
 video_reconstruction_jobs_folder = os.path.join(video_reconstruction_folder, 'jobs')
+video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 'uploads')
 ```
 
 ### 规则
 
 - 使用 `os.path` 构造绝对路径，不使用字符串拼接
 - `secure_filename()` 处理用户上传的文件名
+- 新增持久化目录时，先归类为 workspace 绑定用户数据、项目根配置/密钥、依赖目录或构建缓存；workspace 绑定数据必须由 `PathContext` 或基于 `PathContext.workspace_folder` 的 helper 派生，不得硬编码在项目根
+- 新增运行时目录必须同步更新 `.agents/rules/project-overview.md` 的“用户数据与运行时目录总表”、README 工作目录说明和 `.gitignore`
 - 缩略图存储在 `{workspace}/inputs/.thumbnails/`
+- 模型资产导入文件存储在 `{workspace}/model-assets/imports/`，封面缓存存储在 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息存储在 `{workspace}/.model-asset-library/index.json`
+- 这些模型资产路径必须始终由当前 `PathContext.workspace_folder` 派生；Settings 切换工作目录后需要重启服务重建 `PathContext`，不得把模型资产索引或导入目录保存在项目根的全局位置
 - 本地媒体图库 catalog、每相册索引、照片缩略图、视频 poster 和批量下载临时 ZIP 存储在 `{workspace}/.photo-gallery-cache/`
-- 视频重建中间文件、Nerfstudio 数据、日志和拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/`
+- 视频重建中间文件、Nerfstudio 数据、日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
 - 输出目录同时保留 `.ply` 原始模型和自动生成的 `.spz` 紧凑模型
 - 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、引擎和受控源视频引用；JSON 响应不得暴露 `source_video_path`
-- 配置文件 `config.json` 位于项目根目录（`BASE_DIR`）
+- 配置文件 `config.json` 位于项目根目录（`BASE_DIR`），不随 workspace 切换；证书、私钥、日志和依赖目录同样是项目根运行时/部署状态，不得通过 `/files/*` 暴露
 - 本地媒体图库 API 只接受 photo/media/video id，不接受任意绝对路径；后端必须从索引反查原始文件并再次校验 root
+- 模型资产 API 只接受 asset id 与受支持扩展名，不接受前端传入的服务器绝对路径；导入、封面和下载路径必须从资产索引或受控目录反查并再次校验 root
+- 模型资产的受控根需要两级校验：先确认 `imports/`、`thumbnails/`、`outputs/` 等根的真实路径仍位于真实 workspace 内，再确认目标真实路径位于对应受控根内；根目录本身是 symlink、junction 或其它 reparse point 且指向 workspace 外时也必须安全失败
 - 本地媒体图库正常读路径不得依赖全局可变索引文件：相册列表读 `catalog.json`，相册分页/筛选/排序读 `albums/<album_id>.json`，媒体解析通过可解析 media id 定位相册索引
 - 视频响应优先使用 `send_from_directory(..., conditional=True, download_name=...)`，交给 Werkzeug 生成兼容中文文件名的响应头，不要手写 `Content-Disposition`
 - `/api/video-play/<video_id>/<play_token>/<filename>` 的 token 只授权短期 inline 播放，不能绕过 `/api/video-original/<video_id>?download=1` 的 Unlocked 下载权限
@@ -211,6 +233,8 @@ video_reconstruction_jobs_folder = os.path.join(video_reconstruction_folder, 'jo
   }
 }
 ```
+
+`.sharp-gui.lock` 文件存在不代表工作区正在使用，判断必须以 `WorkspaceInstanceLock.acquire()` 的结果为准；不得通过删除锁文件绕过活跃实例。进程结束或服务停止后应释放锁，但锁文件本身可留在 workspace 中供下次复用。
 
 ### 兼容性
 
@@ -278,11 +302,11 @@ def after_request(response):
 
 `/files/<path>` 由 `serve_files` 提供，**收敛到白名单服务根**，不再以 `BASE_DIR` 为默认根：
 
-- 仅允许 `ALLOWED_FILE_SERVE_ROOTS`（`outputs/` 模型与 `inputs/.thumbnails/` 历史缩略图）内的文件。
+- 仅允许 `ALLOWED_FILE_SERVE_ROOTS`（`outputs/` 模型、`inputs/.thumbnails/` 历史缩略图、`model-assets/imports/` 导入模型与 `model-assets/thumbnails/` 封面缓存）内的文件。
 - 解析后的真实路径用 `is_real_path_inside` 校验（基于 `realpath` + `commonpath`），落在白名单外、相对穿越、绝对路径或符号链接逃逸一律 404。
 - 命中敏感清单（`config.json`、`*.pem`、`*.key`、`app.py`、`.env` 等）一律 404，**不区分“不存在”与“被禁”**以避免信息泄露。
 - 该校验独立于门禁开关：即便 `access_control.enabled=false`，敏感系统文件也不会通过 `/files/*` 暴露。
-- 新增需要对外提供的静态目录时，必须显式加入 `ALLOWED_FILE_SERVE_ROOTS`，不要放宽回 `BASE_DIR`。
+- 新增需要对外提供的静态目录时，必须显式加入 `ALLOWED_FILE_SERVE_ROOTS`，不要放宽回 `BASE_DIR`；`.model-asset-library/` 索引目录不得加入静态白名单。
 
 ---
 
@@ -307,6 +331,9 @@ def after_request(response):
 - **必须** 使用 `secure_filename()` 清理用户上传的文件名
 - **必须** 校验文件扩展名白名单（`.jpg`, `.jpeg`, `.png`, `.webp`）
 - **禁止** 直接拼接用户输入到文件路径（防路径遍历）
+- 模型资产导入只允许 `.ply`, `.spz`, `.splat`, `.rad`；当前上限为单批 64 个文件、单文件 2 GiB、整批 10 GiB。除服务层流式计数外，还必须设置请求级总大小上限，避免 Werkzeug 在进入 service 前先解析无界 multipart；失败或索引提交失败时清理本批未提交文件
+- 模型资产导入应保留规范化后的原始 basename 作为展示/下载名称，再为物理存储分配安全唯一名；不要用 `secure_filename()` 的 ASCII 结果覆盖用户的 Unicode 名称。物理文件名的分配与落盘必须具备并发原子性，优先使用 UUID 名或在同一锁域内完成保留
+- 模型资产封面上传只允许受支持图片格式，当前单文件上限为 10 MiB；必须校验实际图片格式、像素维度和目标路径，保存到 `{workspace}/model-assets/thumbnails/`，不得覆盖索引目录或原始模型文件
 
 ```python
 # ✅ 正确
@@ -321,11 +348,11 @@ full_path = os.path.join(input_folder, request.form['filename'])
 ### 路径构造
 
 - 使用 `os.path.join()` 而非字符串拼接
-- 涉及用户输入的路径，用 `os.path.abspath()` + `startswith()` 验证不会逃逸工作目录：
+- 涉及用户输入或索引反查的路径，统一使用 `os.path.abspath()`、`os.path.realpath()`、`os.path.commonpath()` 和平台大小写归一化验证；优先复用 `is_real_path_inside()`，不要使用容易被同前缀目录和符号链接绕过的 `startswith()`：
 
 ```python
-resolved = os.path.abspath(os.path.join(workspace, user_input))
-if not resolved.startswith(os.path.abspath(workspace)):
+resolved = os.path.realpath(os.path.abspath(os.path.join(workspace, user_input)))
+if not is_real_path_inside(resolved, workspace):
     return jsonify({"error": "Invalid path"}), 403
 ```
 
@@ -351,6 +378,22 @@ if not resolved.startswith(os.path.abspath(workspace)):
 - 旧全局 `index.json` 只能作为迁移源。迁移应一次性折算 catalog 并归档旧索引；旧索引不存在后，不得回退读取所有 `albums/*.json` 来重建全局索引。
 - 视频元数据和图片尺寸复用是性能优化，不是正确性前提；归档后首扫重新计算可接受，但结果必须正确并可继续按需生成缩略图/poster。
 - 清理图库缓存只能删除 `.photo-gallery-cache` 内的 catalog、每相册索引、缩略图、poster 和临时 ZIP，绝不能删除用户相册目录中的原始媒体。
+
+### 模型资产库索引与性能
+
+- 普通 `GET /api/model-assets` 应从 workspace 级摘要快照或增量索引使用稳定游标和固定批次返回结果；暖路径、后续游标页、筛选和排序不得同步 `os.listdir` / `os.walk` 完整 `outputs/`，也不得逐资产重复 `stat`、读取 sidecar 或生成封面。
+- 首次迁移、显式刷新或冷启动可建立摘要；生成任务完成、导入、删除、资料和封面写入应增量更新或精确失效。列表读取应容忍文件并发出现/消失，单个资产的 `stat` / `open` 失败只能跳过或标记不可用，不能让整页 500。
+- 筛选、排序和格式选择在资产摘要上完成；PLY/SPLAT 头部解析、SPZ/RAD 高级元数据读取只在详情请求或受控后台任务执行。游标只是响应分页协议，不能用“已分页”掩盖每个请求仍全量扫描的实现。
+- `.model-asset-library/index.json` 是导入资产稳定 ID、物理文件映射和用户编辑信息的持久化真相源，不是可随意删除的缓存。只有 `missing` 状态可初始化空索引；`corrupt` / schema 非法状态必须保留并隔离原文件、返回稳定诊断或进入显式恢复，任何写操作都不得把它当空索引静默覆盖。
+- 生成资产的文件派生摘要可从 `outputs/` 恢复，但生成资产的用户编辑和导入资产的稳定 ID、名称、资料不能仅由文件名无损重建。若提供“重建索引”，必须明确恢复范围和资料损失，并在用户确认前保持原索引与导入文件不变。
+- 所有索引 read-modify-write 使用同一锁和临时文件原子替换。导入的唯一物理名分配、文件提交与索引提交必须形成并发安全事务；索引落盘失败应回滚本批新文件，不能留下 UI 无法管理的孤儿文件。
+- 资料更新、封面上传/刷新和删除在提交前必须在同一临界区重新确认资产仍存在、来源类型和身份字段未变化；先读后长时间处理的旧快照不得在删除后复活幽灵索引项或孤立封面。
+- 封面必须先写独立临时文件并完成大小、真实格式、像素和 Pillow 校验，再在锁内原子替换正式文件与索引。替换或恢复系统封面后应清理同 asset id 的旧 JPG/PNG/WebP 变体；失败上传必须保留原有效封面，共享旧记录不能被半成品覆盖。
+- 删除只有在受控文件、封面和索引达到一致状态后才能返回成功；磁盘删除或索引写入失败应返回稳定错误并保留可恢复记录，不能吞掉异常后把资产从索引移除。删除生成资产仍应遵守原有 `outputs/` 策略，不能误删本地媒体图库原始文件或视频来源文件。
+- 每次 list/detail/download/delete 最终使用文件前都要重新做真实路径 root 校验，生成文件也不能只依赖规范化 asset id。`outputs/` 内文件 symlink、受控根自身的 junction/reparse point 和跨盘符逃逸都必须拒绝。
+- 源文件缺失或不可读时返回 `available=false`、`files=[]`、`formats=[]`、`default_open_url=null` 和 `download_url=null`；不得继续暴露指向不存在文件的打开或下载地址。
+- 用户设置中的 PLY/SPZ 偏好由前端解析后显式传 `format`；后端未指定格式时仅使用兼容兜底顺序 `SPZ → PLY → SPLAT → RAD`。两者不得混写成索引中的“默认格式”。下载名使用用户展示名与已验证扩展名，并交给 Werkzeug `download_name` 生成 Unicode 兼容响应头。
+- 详情字段中无法从文件或 sidecar 明确得到的点数、包围盒、坐标系、压缩、版本等信息应返回未知/空值，前端不得把占位字段显示成真实计算结果。
 
 ### 其他
 

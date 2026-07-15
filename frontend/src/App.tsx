@@ -1,37 +1,66 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
+import type { TFunction } from 'i18next';
 
 import {
   ApiError,
   fetchAuthStatus,
-  fetchGallery,
+  fetchModelAssets,
   fetchSettings,
   fetchTasks,
   generateFromImages,
+  importModelAssets,
 } from '@/api';
 import { AccessGate, AccessSetupPrompt } from '@/components/auth';
-import { GalleryList } from '@/components/gallery';
 import { ImageViewer, Loading } from '@/components/common';
+import { CloseIcon, CloudUploadIcon } from '@/components/common/Icons';
 import { ParticleBackground } from '@/components/common/ParticleBackground';
 import { GlobalTooltip } from '@/components/common/Tooltip';
 import { Settings, Sidebar } from '@/components/layout';
 import { Help } from '@/components/layout/Help/Help';
+import {
+  ModelAssetImportDialog,
+  ModelAssetLibraryView,
+  ModelAssetSidebarPanel,
+} from '@/components/modelAssets';
 import {
   PhotoAlbumList,
   PhotoGalleryView,
   VideoReconstructionDialog,
   VideoReconstructionGuide,
 } from '@/components/photoGallery';
+import { ViewerCanvas } from '@/components/viewer/ViewerCanvas/ViewerCanvas';
 import { useTaskQueue } from '@/hooks/useTaskQueue';
 import { useAppStore } from '@/store';
-import { ViewerCanvas } from '@/components/viewer/ViewerCanvas/ViewerCanvas';
+import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
+import type {
+  ModelAssetImportFileEntry,
+  ModelAssetImportPhase,
+} from '@/components/modelAssets';
 
 import './App.css';
 
 const ACCESS_SETUP_PROMPT_SUPPRESSED_KEY = 'sharp-access-setup-prompt-suppressed';
 type DroppedModelFormat = 'ply' | 'splat' | 'spz' | 'rad';
+type ModelAssetImportOrigin = 'library' | 'preview' | 'main-batch';
+
+interface TemporaryModelPreview {
+  file: File;
+  format: DroppedModelFormat;
+  url: string;
+}
+
+interface ModelAssetImportDialogState {
+  origin: ModelAssetImportOrigin;
+  phase: ModelAssetImportPhase;
+  progress: number;
+  files: ModelAssetImportFileEntry[];
+  importedCount: number;
+  failedCount: number;
+  errorMessage: string | null;
+}
 
 function toFileArray(files: FileList | File[]): File[] {
   return Array.from(files);
@@ -54,6 +83,64 @@ function isVideoUpload(file: File): boolean {
   return file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm)$/i.test(file.name);
 }
 
+function getImportErrorMessage(error: unknown, t: TFunction): string {
+  if (error instanceof ApiError) {
+    return localizeModelAssetError(t, error.data?.code, error.data?.error ?? error.message);
+  }
+  return error instanceof Error ? error.message : t('modelAssetGenericError');
+}
+
+function createImportFileEntries(files: File[]): ModelAssetImportFileEntry[] {
+  return files.map((file, index) => ({
+    id: `${index}-${file.name}-${file.size}-${file.lastModified}`,
+    name: file.name,
+    status: 'pending',
+  }));
+}
+
+function completeImportFileEntries(
+  files: File[],
+  failures: Array<{ filename: string; code?: string; error?: string }>,
+  t: TFunction,
+): ModelAssetImportFileEntry[] {
+  const batchFailure = failures.find((failure) => !failure.filename);
+  if (batchFailure) {
+    return createImportFileEntries(files).map((entry) => ({
+      ...entry,
+      status: 'error',
+      error: localizeModelAssetError(t, batchFailure.code, batchFailure.error),
+    }));
+  }
+
+  const failuresByName = new Map<string, string[]>();
+  failures.forEach((failure) => {
+    const queued = failuresByName.get(failure.filename) ?? [];
+    queued.push(localizeModelAssetError(t, failure.code, failure.error));
+    failuresByName.set(failure.filename, queued);
+  });
+
+  return createImportFileEntries(files).map((entry) => {
+    const queued = failuresByName.get(entry.name);
+    const error = queued?.shift();
+    return error
+      ? { ...entry, status: 'error', error }
+      : { ...entry, status: 'success' };
+  });
+}
+
+function getImportFailuresFromError(
+  error: unknown,
+): Array<{ filename: string; code?: string; error?: string }> {
+  if (!(error instanceof ApiError) || !Array.isArray(error.data?.failed)) {
+    return [];
+  }
+  return error.data.failed.filter((item): item is { filename: string; code?: string; error?: string } => (
+    Boolean(item)
+    && typeof item === 'object'
+    && typeof (item as { filename?: unknown }).filename === 'string'
+  ));
+}
+
 function shouldShowAccessSetupPrompt(status: {
   is_owner: boolean;
   setup_recommended: boolean;
@@ -72,6 +159,10 @@ function shouldShowAccessSetupPrompt(status: {
 function App() {
   const { t } = useTranslation();
   const [showAccessSetupPrompt, setShowAccessSetupPrompt] = useState(false);
+  const [modelAssetLibraryOpen, setModelAssetLibraryOpen] = useState(false);
+  const [temporaryModelPreview, setTemporaryModelPreview] = useState<TemporaryModelPreview | null>(null);
+  const temporaryModelPreviewRef = useRef<TemporaryModelPreview | null>(null);
+  const [modelAssetImportDialog, setModelAssetImportDialog] = useState<ModelAssetImportDialogState | null>(null);
   const { 
     isBooting, 
     bootError,
@@ -81,17 +172,20 @@ function App() {
     sidebarCollapsed,
     activeView,
     authStatus,
+    authPermissionError,
     isAuthenticated,
     isOwnerAccess,
     setBootComplete, 
     setBootError,
     setAuthStatus,
-    setGalleryItems,
+    setModelAssets,
+    mergeModelAssetRefresh,
     setTasks,
     upsertTasks,
     setLocalAccess,
     setLoading,
     currentModelUrl,
+    setSidebarOpen,
     toggleSidebar,
     setServerModelFormat,
     setCurrentModel,
@@ -99,6 +193,10 @@ function App() {
     setSettingsModalOpen,
     setVideoReconstructionStatus,
     setLoadingProgress,
+    modelAssetImporting,
+    setModelAssetImporting,
+    modelAssetBatchSize,
+    preferredModelFormat,
     openVideoReconstructionFileDialog,
   } = useAppStore(
     useShallow((state) => ({
@@ -110,17 +208,20 @@ function App() {
       sidebarCollapsed: state.sidebarCollapsed,
       activeView: state.activeView,
       authStatus: state.authStatus,
+      authPermissionError: state.authPermissionError,
       isAuthenticated: state.isAuthenticated,
       isOwnerAccess: state.isOwnerAccess,
       setBootComplete: state.setBootComplete,
       setBootError: state.setBootError,
       setAuthStatus: state.setAuthStatus,
-      setGalleryItems: state.setGalleryItems,
+      setModelAssets: state.setModelAssets,
+      mergeModelAssetRefresh: state.mergeModelAssetRefresh,
       setTasks: state.setTasks,
       upsertTasks: state.upsertTasks,
       setLocalAccess: state.setLocalAccess,
       setLoading: state.setLoading,
       currentModelUrl: state.currentModelUrl,
+      setSidebarOpen: state.setSidebarOpen,
       toggleSidebar: state.toggleSidebar,
       setServerModelFormat: state.setServerModelFormat,
       setCurrentModel: state.setCurrentModel,
@@ -128,22 +229,54 @@ function App() {
       setSettingsModalOpen: state.setSettingsModalOpen,
       setVideoReconstructionStatus: state.setVideoReconstructionStatus,
       setLoadingProgress: state.setLoadingProgress,
+      modelAssetImporting: state.modelAssetImporting,
+      setModelAssetImporting: state.setModelAssetImporting,
+      modelAssetBatchSize: state.modelAssetBatchSize,
+      preferredModelFormat: state.localModelFormat ?? state.serverModelFormat,
       openVideoReconstructionFileDialog: state.openVideoReconstructionFileDialog,
     })),
   );
-  const canGenerateModels = isOwnerAccess || Boolean(authStatus?.allow_remote_generation);
+  const canGenerateModels = isOwnerAccess || Boolean(
+    authStatus?.access_control_enabled
+    && isAuthenticated
+    && authStatus.allow_remote_generation,
+  );
+  const canWriteModelAssets = canGenerateModels;
+  const canDeleteModelAssets = isOwnerAccess;
 
-  useEffect(() => {
-    if (!currentModelUrl?.startsWith('blob:')) {
-      return undefined;
+  const replaceTemporaryModelPreview = useCallback((next: TemporaryModelPreview | null) => {
+    const previous = temporaryModelPreviewRef.current;
+    if (previous && previous.url !== next?.url) {
+      URL.revokeObjectURL(previous.url);
     }
+    temporaryModelPreviewRef.current = next;
+    setTemporaryModelPreview(next);
+  }, []);
 
-    return () => URL.revokeObjectURL(currentModelUrl);
-  }, [currentModelUrl]);
+  useEffect(() => () => {
+    const preview = temporaryModelPreviewRef.current;
+    if (preview) {
+      URL.revokeObjectURL(preview.url);
+      temporaryModelPreviewRef.current = null;
+    }
+  }, []);
+
+  const openModelAssetLibrary = useCallback(() => {
+    setCurrentModel(null, null);
+    replaceTemporaryModelPreview(null);
+    setModelAssetLibraryOpen(true);
+    setSidebarOpen(false);
+  }, [replaceTemporaryModelPreview, setCurrentModel, setSidebarOpen]);
+
+  const closeModelAssetLibrary = useCallback(() => {
+    replaceTemporaryModelPreview(null);
+    setModelAssetLibraryOpen(false);
+    setSidebarOpen(false);
+  }, [replaceTemporaryModelPreview, setSidebarOpen]);
 
   const loadPrivateData = useCallback(async () => {
-    const gallery = await fetchGallery();
-    setGalleryItems(gallery);
+    const modelAssets = await fetchModelAssets({ limit: modelAssetBatchSize });
+    setModelAssets(modelAssets);
 
     const tasksData = await fetchTasks();
     setTasks(tasksData.tasks, tasksData.has_active);
@@ -154,7 +287,14 @@ function App() {
       setServerModelFormat(settings.model_format);
     }
     setVideoReconstructionStatus(null, settings.video_reconstruction);
-  }, [setGalleryItems, setTasks, setLocalAccess, setServerModelFormat, setVideoReconstructionStatus]);
+  }, [
+    modelAssetBatchSize,
+    setLocalAccess,
+    setModelAssets,
+    setServerModelFormat,
+    setTasks,
+    setVideoReconstructionStatus,
+  ]);
 
   useEffect(() => {
     async function init() {
@@ -205,19 +345,170 @@ function App() {
   const handlePreviewModelFile = useCallback((file: File, format: DroppedModelFormat) => {
     console.log('📦 Loading dropped model:', file.name, 'format:', format);
     const blobUrl = URL.createObjectURL(file);
-    setCurrentModel(file.name, blobUrl, format, file.size);
-  }, [setCurrentModel]);
+    replaceTemporaryModelPreview({ file, format, url: blobUrl });
+    setModelAssetLibraryOpen(false);
+    setCurrentModel(file.name, blobUrl, format, file.size, 'temporary');
+  }, [replaceTemporaryModelPreview, setCurrentModel]);
 
   const showGenerationPermissionError = useCallback(() => {
     const message = t('ownerOnlyAction');
     setAuthPermissionError(message);
-    alert(message);
   }, [t, setAuthPermissionError]);
+
+  const showModelAssetWritePermissionError = useCallback(() => {
+    setAuthPermissionError(t('modelAssetWritePermissionRequired'));
+  }, [setAuthPermissionError, t]);
+
+  const importModelFileArray = useCallback(async (
+    files: File[],
+    origin: ModelAssetImportOrigin,
+  ) => {
+    if (files.length === 0 || useAppStore.getState().modelAssetImporting) {
+      return;
+    }
+    if (!canGenerateModels) {
+      showModelAssetWritePermissionError();
+      return;
+    }
+
+    setModelAssetImporting(true);
+    setModelAssetImportDialog({
+      origin,
+      phase: 'uploading',
+      progress: 0,
+      files: createImportFileEntries(files),
+      importedCount: 0,
+      failedCount: 0,
+      errorMessage: null,
+    });
+
+    try {
+      const result = await importModelAssets(files, {
+        onUploadProgress: ({ percent }) => {
+          setModelAssetImportDialog((current) => {
+            if (!current || (percent < 100 && percent - current.progress < 4)) {
+              return current;
+            }
+            return { ...current, progress: percent };
+          });
+        },
+      });
+      const completedFiles = completeImportFileEntries(files, result.failed, t);
+      const failedCount = completedFiles.filter((entry) => entry.status === 'error').length;
+
+      if (result.assets.length > 0) {
+        try {
+          const assetState = useAppStore.getState();
+          const modelAssets = await fetchModelAssets({
+            source: assetState.modelAssetSource,
+            format: assetState.modelAssetFormat,
+            tag: assetState.modelAssetTag,
+            sort: assetState.modelAssetSort,
+            limit: modelAssetBatchSize,
+          });
+          mergeModelAssetRefresh(modelAssets);
+        } catch (refreshError) {
+          console.warn('Model assets imported, but the library refresh failed:', refreshError);
+        }
+      }
+
+      const firstAsset = result.assets[0];
+      const firstModelSource = firstAsset ? resolveModelAssetSource(firstAsset, preferredModelFormat) : null;
+      if (
+        firstAsset
+        && firstModelSource?.url
+        && firstModelSource.format
+        && (origin === 'preview' || origin === 'main-batch')
+      ) {
+        setModelAssetLibraryOpen(false);
+        setCurrentModel(
+          firstAsset.id,
+          firstModelSource.url,
+          firstModelSource.format,
+          firstModelSource.size,
+          firstAsset.is_imported ? 'model-asset-imported' : 'model-asset-generated',
+        );
+        replaceTemporaryModelPreview(null);
+      }
+      setModelAssetImporting(false);
+      setModelAssetImportDialog({
+        origin,
+        phase: result.assets.length > 0 || failedCount === 0 ? 'complete' : 'error',
+        progress: 100,
+        files: completedFiles,
+        importedCount: result.assets.length,
+        failedCount,
+        errorMessage: null,
+      });
+    } catch (error) {
+      const message = getImportErrorMessage(error, t);
+      const failures = getImportFailuresFromError(error);
+      const completedFiles = failures.length > 0
+        ? completeImportFileEntries(files, failures, t)
+        : createImportFileEntries(files).map((entry) => ({
+            ...entry,
+            status: 'error' as const,
+            error: message,
+          }));
+      if (error instanceof ApiError && error.status === 403) {
+        showModelAssetWritePermissionError();
+      }
+      setModelAssetImporting(false);
+      setModelAssetImportDialog({
+        origin,
+        phase: 'error',
+        progress: 0,
+        files: completedFiles,
+        importedCount: 0,
+        failedCount: files.length,
+        errorMessage: `${t('modelAssetImportFailed')}: ${message}`,
+      });
+    } finally {
+      setModelAssetImporting(false);
+    }
+  }, [
+    canGenerateModels,
+    modelAssetBatchSize,
+    mergeModelAssetRefresh,
+    preferredModelFormat,
+    replaceTemporaryModelPreview,
+    setCurrentModel,
+    setModelAssetImporting,
+    showModelAssetWritePermissionError,
+    t,
+  ]);
+
+  const closeModelAssetImportDialog = useCallback(() => {
+    if (useAppStore.getState().modelAssetImporting) {
+      return;
+    }
+    setModelAssetImportDialog(null);
+  }, []);
+
+  const openLibraryFromImportDialog = useCallback(() => {
+    if (useAppStore.getState().modelAssetImporting) {
+      return;
+    }
+    setModelAssetImportDialog(null);
+    openModelAssetLibrary();
+  }, [openModelAssetLibrary]);
+
+  const addTemporaryPreviewToLibrary = useCallback(() => {
+    if (!temporaryModelPreview) {
+      return;
+    }
+    void importModelFileArray([temporaryModelPreview.file], 'preview');
+  }, [importModelFileArray, temporaryModelPreview]);
 
   // Handle image/video upload or direct model preview
   const handleUpload = useCallback(async (files: FileList | File[]) => {
     const fileArray = toFileArray(files);
     if (fileArray.length === 0) {
+      return;
+    }
+
+    if (activeView === 'models' && modelAssetLibraryOpen && !currentModelUrl) {
+      await importModelFileArray(fileArray, 'library');
       return;
     }
 
@@ -227,14 +518,22 @@ function App() {
     const imageFiles = fileArray.filter(isImageUpload);
     const videoFiles = fileArray.filter(isVideoUpload);
 
-    if (fileArray.length === 1 && modelFiles.length === 1) {
-      handlePreviewModelFile(modelFiles[0].file, modelFiles[0].format);
+    if (modelFiles.length > 0) {
+      if (modelFiles.length !== fileArray.length) {
+        setAuthPermissionError(t('unsupportedFormat'));
+        return;
+      }
+      if (modelFiles.length === 1) {
+        handlePreviewModelFile(modelFiles[0].file, modelFiles[0].format);
+        return;
+      }
+      await importModelFileArray(modelFiles.map((entry) => entry.file), 'main-batch');
       return;
     }
 
     if (videoFiles.length > 0) {
       if (videoFiles.length !== 1 || imageFiles.length > 0 || modelFiles.length > 0 || fileArray.length !== 1) {
-        alert(t('videoReconSingleVideoOnly'));
+        setAuthPermissionError(t('videoReconSingleVideoOnly'));
         return;
       }
       if (!canGenerateModels) {
@@ -246,7 +545,7 @@ function App() {
     }
 
     if (imageFiles.length === 0 || imageFiles.length !== fileArray.length) {
-      alert(t('unsupportedFormat'));
+      setAuthPermissionError(t('unsupportedFormat'));
       return;
     }
 
@@ -272,13 +571,18 @@ function App() {
         showGenerationPermissionError();
         return;
       }
-      alert(`${t('uploadFailed')}: ${message}`);
+      setAuthPermissionError(`${t('uploadFailed')}: ${message}`);
     }
   }, [
+    activeView,
     canGenerateModels,
+    currentModelUrl,
     handlePreviewModelFile,
+    importModelFileArray,
+    modelAssetLibraryOpen,
     openVideoReconstructionFileDialog,
     showGenerationPermissionError,
+    setAuthPermissionError,
     t,
     setLoading,
     setLoadingProgress,
@@ -343,7 +647,15 @@ function App() {
         onGenerationBlocked={showGenerationPermissionError}
         onUpload={handleUpload}
       >
-        {activeView === 'photos' ? <PhotoAlbumList /> : <GalleryList />}
+        {activeView === 'photos' ? (
+          <PhotoAlbumList />
+        ) : (
+          <ModelAssetSidebarPanel
+            canDeleteAssets={canDeleteModelAssets}
+            onOpenLibrary={openModelAssetLibrary}
+            onOpenModel={closeModelAssetLibrary}
+          />
+        )}
       </Sidebar>
       
       {/* Main content */}
@@ -355,36 +667,67 @@ function App() {
         {activeView === 'models' ? <ParticleBackground /> : null}
         
         {activeView === 'photos' ? <PhotoGalleryView /> : (
-        <div className="viewer-container">
-          {/* Empty state - shown when no model selected */}
-          {!currentModelUrl && (
-            <>
-              <div className="empty-state">
-                <svg className="empty-icon" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
-                </svg>
-                <h3>{t('emptyStateTitle')}</h3>
-                <p>{t('emptyStateHint')}</p>
-              </div>
-
-              {/* PC Desktop Hint for drag & drop model generation */}
-              {!sidebarCollapsed && (
-                <div className="drag-to-sidebar-hint">
-                  <svg className="hint-arrow" viewBox="0 0 60 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M 58 12 L 12 12" strokeDasharray="4 4" />
-                    <path d="M 20 4 L 12 12 L 20 20" />
-                  </svg>
-                  <div className="hint-text">
-                    {t('dragToSidebarHint')}
-                  </div>
+          modelAssetLibraryOpen && !currentModelUrl ? (
+            <ModelAssetLibraryView
+              canWriteAssets={canWriteModelAssets}
+              canDeleteAssets={canDeleteModelAssets}
+              onImportBlocked={showModelAssetWritePermissionError}
+              onImportFiles={(files) => void importModelFileArray(files, 'library')}
+            />
+          ) : (
+            <div className="viewer-container">
+              {currentModelUrl && (modelAssetLibraryOpen || temporaryModelPreview) ? (
+                <div className="viewer-library-actions">
+                  {modelAssetLibraryOpen ? (
+                    <button
+                      className="viewer-library-back"
+                      type="button"
+                      onClick={() => setCurrentModel(null, null)}
+                    >
+                      {t('modelAssetBackToLibrary')}
+                    </button>
+                  ) : null}
+                  {temporaryModelPreview ? (
+                    <button
+                      className="viewer-library-add"
+                      type="button"
+                      disabled={modelAssetImporting}
+                      onClick={addTemporaryPreviewToLibrary}
+                    >
+                      <CloudUploadIcon width={16} height={16} aria-hidden="true" />
+                      {t('modelAssetAddToLibrary')}
+                    </button>
+                  ) : null}
                 </div>
-              )}
-            </>
-          )}
+              ) : null}
 
-          {/* Viewer with internal empty state handling */}
-          <ViewerCanvas />
-        </div>
+              {!currentModelUrl ? (
+                <>
+                  <div className="empty-state">
+                    <svg className="empty-icon" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9" />
+                    </svg>
+                    <h3>{t('emptyStateTitle')}</h3>
+                    <p>{t('emptyStateHint')}</p>
+                  </div>
+
+                  {!sidebarCollapsed ? (
+                    <div className="drag-to-sidebar-hint">
+                      <svg className="hint-arrow" viewBox="0 0 60 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M 58 12 L 12 12" strokeDasharray="4 4" />
+                        <path d="M 20 4 L 12 12 L 20 20" />
+                      </svg>
+                      <div className="hint-text">
+                        {t('dragToSidebarHint')}
+                      </div>
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
+
+              <ViewerCanvas />
+            </div>
+          )
         )}
 
         {/* Loading overlay */}
@@ -417,6 +760,33 @@ function App() {
       <VideoReconstructionDialog />
 
       <VideoReconstructionGuide />
+
+      <ModelAssetImportDialog
+        isOpen={Boolean(modelAssetImportDialog)}
+        phase={modelAssetImportDialog?.phase ?? 'uploading'}
+        progress={modelAssetImportDialog?.progress ?? 0}
+        files={modelAssetImportDialog?.files ?? []}
+        importedCount={modelAssetImportDialog?.importedCount ?? 0}
+        failedCount={modelAssetImportDialog?.failedCount ?? 0}
+        errorMessage={modelAssetImportDialog?.errorMessage}
+        showViewLibrary={modelAssetImportDialog?.origin !== 'library'}
+        onClose={closeModelAssetImportDialog}
+        onOpenLibrary={openLibraryFromImportDialog}
+      />
+
+      {authPermissionError ? (
+        <div className="app-notice app-notice-error" role="alert" aria-live="assertive">
+          <span>{authPermissionError}</span>
+          <button
+            type="button"
+            aria-label={t('close')}
+            data-tooltip={t('close')}
+            onClick={() => setAuthPermissionError(null)}
+          >
+            <CloseIcon width={14} height={14} />
+          </button>
+        </div>
+      ) : null}
 
       <GlobalTooltip />
     </div>

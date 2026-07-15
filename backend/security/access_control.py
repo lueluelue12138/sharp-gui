@@ -279,6 +279,12 @@ def get_required_access_level(access_config=None):
         return ACCESS_OWNER
     if path.startswith("/api/delete/"):
         return ACCESS_OWNER
+    if path.startswith("/api/model-assets/") and method == "DELETE":
+        return ACCESS_OWNER
+    if path == "/api/model-asset-deletions":
+        return ACCESS_OWNER
+    if path == "/api/model-asset-downloads" or path.startswith("/api/model-asset-downloads/"):
+        return ACCESS_UNLOCKED
     if path.startswith("/api/task/") and path.endswith("/cancel"):
         access_config = access_config or get_access_control_config(persist_missing=False)
         if not is_access_control_enabled(access_config):
@@ -312,10 +318,16 @@ def get_required_access_level(access_config=None):
         return ACCESS_UNLOCKED
     if path in {
         "/api/generate",
+        "/api/model-assets/import",
         "/api/photo-conversions",
         "/api/video-reconstructions",
         "/api/video-reconstructions/upload",
     }:
+        access_config = access_config or get_access_control_config(persist_missing=False)
+        if not is_access_control_enabled(access_config):
+            return ACCESS_OWNER
+        return ACCESS_UNLOCKED if coerce_bool(access_config.get("allow_remote_generation"), False) else ACCESS_OWNER
+    if path.startswith("/api/model-assets/") and method in {"POST", "PATCH", "PUT"}:
         access_config = access_config or get_access_control_config(persist_missing=False)
         if not is_access_control_enabled(access_config):
             return ACCESS_OWNER

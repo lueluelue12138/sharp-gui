@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from flask import Flask
 
 from backend import runtime
@@ -25,6 +27,7 @@ def create_app(start_background_workers=False):
         template_folder=runtime.TEMPLATES_DIR,
         static_folder=runtime.STATIC_DIR,
     )
+    app.config["SERVER_INSTANCE_ID"] = uuid4().hex
 
     config = load_config()
     _, access_config_changed = normalize_access_control_config(config)

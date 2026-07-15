@@ -1,8 +1,12 @@
 import os
+import zipfile
 from io import BytesIO
+from urllib.parse import quote
 
+from backend.services import model_gallery
 from backend.services.photo_gallery import photo_meta_from_path, save_photo_index
-from tests.conftest import write_config
+
+from tests.conftest import make_png_bytes, write_config
 
 
 def test_core_read_apis_return_expected_shapes(client, app):
@@ -39,12 +43,266 @@ def test_core_read_apis_return_expected_shapes(client, app):
     assert settings.status_code == 200
     settings_payload = settings.get_json()
     assert settings_payload["model_format"] == "spz"
+    assert settings_payload["server_instance_id"] == app.config["SERVER_INSTANCE_ID"]
     assert settings_payload["workspace_folder"] == paths.workspace_folder
     assert settings_payload["video_reconstruction"]["default_quality"] == "high"
 
     video_status = client.get("/api/video-reconstructions/status")
     assert video_status.status_code == 200
     assert "dependencies" in video_status.get_json()
+
+
+def test_restart_api_returns_current_instance_id(client, app, monkeypatch):
+    restart_calls = []
+    monkeypatch.setattr(
+        "backend.routes.settings.restart_process_later",
+        lambda: restart_calls.append(True),
+    )
+
+    response = client.post("/api/restart")
+
+    assert response.status_code == 200
+    assert response.get_json()["server_instance_id"] == app.config["SERVER_INSTANCE_ID"]
+    assert restart_calls == [True]
+
+
+def test_model_assets_api_lists_imports_edits_covers_and_downloads(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    model_path = os.path.join(paths.output_folder, "demo.ply")
+    spz_path = os.path.join(paths.output_folder, "demo.spz")
+    with open(model_path, "wb") as f:
+        f.write(b"fake-ply")
+    with open(spz_path, "wb") as f:
+        f.write(b"fake-spz")
+
+    list_response = client.get("/api/model-assets")
+    assert list_response.status_code == 200
+    payload = list_response.get_json()
+    assert payload["total"] == 1
+    assert payload["total_size"] == len(b"fake-ply") + len(b"fake-spz")
+    assert payload["items"][0]["id"] == "demo"
+    assert payload["items"][0]["formats"] == ["spz", "ply"]
+    assert payload["items"][0]["default_open_url"].startswith("/files/")
+    assert payload["counts"]["generated"] == 1
+
+    detail = client.get("/api/model-assets/demo")
+    assert detail.status_code == 200
+    detail_payload = detail.get_json()
+    assert detail_payload["files"][0]["format"] == "spz"
+
+    imported = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"imported-ply"), "../Imported Model.ply")},
+        content_type="multipart/form-data",
+    )
+    assert imported.status_code == 200
+    imported_payload = imported.get_json()
+    assert imported_payload["success"] is True
+    imported_asset = imported_payload["assets"][0]
+    assert imported_asset["source_type"] == "imported"
+    assert imported_asset["default_open_url"].startswith("/files/workspace/model-assets/imports/")
+    assert ".." not in imported_asset["default_open_url"]
+
+    asset_id = imported_asset["id"]
+    edited = client.post(
+        f"/api/model-assets/{asset_id}",
+        json={"display_name": "Imported Meadow", "tags": ["scan", "spz"], "note": "Ready"},
+    )
+    assert edited.status_code == 200
+    edited_payload = edited.get_json()
+    assert edited_payload["name"] == "Imported Meadow"
+    assert edited_payload["tags"] == ["scan", "spz"]
+
+    cover = client.post(
+        f"/api/model-assets/{asset_id}/cover",
+        data={"cover": (make_png_bytes(), "cover.png")},
+        content_type="multipart/form-data",
+    )
+    assert cover.status_code == 200
+    cover_payload = cover.get_json()
+    assert cover_payload["thumbnail_state"] == "ready"
+    assert cover_payload["thumb_url"].startswith("/files/workspace/model-assets/thumbnails/")
+
+    refreshed_cover = client.post(f"/api/model-assets/{asset_id}/cover/refresh")
+    assert refreshed_cover.status_code == 200
+    refreshed_payload = refreshed_cover.get_json()
+    assert refreshed_payload["thumbnail_state"] == "pending"
+    assert refreshed_payload["thumbnail_kind"] == "system"
+    assert refreshed_payload["thumb_url"] is None
+
+    download = client.get(f"/api/model-assets/{asset_id}/download?format=ply")
+    assert download.status_code == 200
+    assert download.data == b"imported-ply"
+
+    legacy_gallery = client.get("/api/gallery")
+    assert legacy_gallery.status_code == 200
+    assert legacy_gallery.get_json()[0]["id"] == "demo"
+
+
+def test_model_asset_batch_download_and_delete_report_partial_results(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    with open(os.path.join(paths.output_folder, "first.ply"), "wb") as file:
+        file.write(b"first-model")
+    with open(os.path.join(paths.output_folder, "second.ply"), "wb") as file:
+        file.write(b"second-model")
+    model_gallery.write_model_metadata(paths, "first", {"display_name": "Shared Name"})
+    model_gallery.write_model_metadata(paths, "second", {"display_name": "Shared Name"})
+
+    prepared = client.post(
+        "/api/model-asset-downloads",
+        json={
+            "asset_ids": ["first", "second", "missing", "first"],
+            "preferred_format": "spz",
+        },
+    )
+
+    assert prepared.status_code == 200
+    payload = prepared.get_json()
+    assert payload["downloaded"] == 2
+    assert payload["failed"] == [{"id": "missing", "code": "model_asset_file_not_found"}]
+
+    download = client.get(payload["download_url"])
+    assert download.status_code == 200
+    assert download.mimetype == "application/zip"
+    with zipfile.ZipFile(BytesIO(download.data)) as archive:
+        assert archive.namelist() == ["Shared Name.ply", "Shared Name-2.ply"]
+        assert archive.read("Shared Name.ply") == b"first-model"
+        assert archive.read("Shared Name-2.ply") == b"second-model"
+        assert all(info.compress_type == zipfile.ZIP_STORED for info in archive.infolist())
+    download.close()
+    assert client.get(payload["download_url"]).status_code == 404
+
+    deleted = client.post(
+        "/api/model-asset-deletions",
+        json={"asset_ids": ["first", "missing"]},
+    )
+    assert deleted.status_code == 200
+    delete_payload = deleted.get_json()
+    assert delete_payload == {
+        "success": False,
+        "deleted_ids": ["first"],
+        "failed": [{"id": "missing", "code": "model_asset_not_found"}],
+    }
+    assert not os.path.exists(os.path.join(paths.output_folder, "first.ply"))
+    assert os.path.exists(os.path.join(paths.output_folder, "second.ply"))
+
+
+def test_model_asset_download_uses_unicode_name_and_rejects_generated_traversal(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    model_id = "img-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    with open(os.path.join(paths.output_folder, f"{model_id}.ply"), "wb") as file:
+        file.write(b"generated-ply")
+    model_gallery.write_model_metadata(
+        paths,
+        model_id,
+        {
+            "display_name": "测试图片",
+            "source_media_type": "image",
+            "source_name": "测试图片.jpg",
+        },
+    )
+
+    generated = client.get(f"/api/model-assets/{model_id}/download?format=ply")
+
+    assert generated.status_code == 200
+    assert generated.data == b"generated-ply"
+    assert f"filename*=UTF-8''{quote('测试图片.ply')}" in generated.headers["Content-Disposition"]
+
+    imported = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"imported-ply"), r"..\导入模型.PLY")},
+        content_type="multipart/form-data",
+    )
+    assert imported.status_code == 200
+    imported_asset = imported.get_json()["assets"][0]
+    assert imported_asset["name"] == "导入模型"
+    assert imported_asset["source_name"] == "导入模型.PLY"
+    assert imported_asset["files"][0]["filename"].endswith(".ply")
+
+    imported_download = client.get(
+        f"/api/model-assets/{imported_asset['id']}/download?format=ply",
+    )
+    assert imported_download.status_code == 200
+    assert f"filename*=UTF-8''{quote('导入模型.ply')}" in (
+        imported_download.headers["Content-Disposition"]
+    )
+
+    edited = client.patch(
+        f"/api/model-assets/{imported_asset['id']}",
+        json={"display_name": "收藏 模型"},
+    )
+    assert edited.status_code == 200
+    edited_download = client.get(
+        f"/api/model-assets/{imported_asset['id']}/download?format=ply",
+    )
+    assert f"filename*=UTF-8''{quote('收藏 模型.ply')}" in (
+        edited_download.headers["Content-Disposition"]
+    )
+
+    with open(os.path.join(paths.workspace_folder, "outside.ply"), "wb") as file:
+        file.write(b"outside-ply")
+    escaped = client.get("/api/model-assets/..%5Coutside/download?format=ply")
+    assert escaped.status_code == 404
+    assert escaped.get_json()["code"] == "model_asset_file_not_found"
+
+
+def test_model_asset_import_rejects_oversized_request_before_parsing(client, monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.model_assets.MAX_IMPORT_REQUEST_BYTES",
+        1,
+    )
+
+    response = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"model"), "scan.ply")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 413
+    payload = response.get_json()
+    assert payload["success"] is False
+    assert payload["code"] == "import_request_too_large"
+    assert payload["assets"] == []
+    assert payload["failed"][0]["code"] == "import_request_too_large"
+
+
+def test_model_asset_all_failed_import_has_stable_top_level_error(client):
+    response = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"text"), "notes.txt")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload["success"] is False
+    assert payload["assets"] == []
+    assert payload["code"] == "unsupported_format"
+    assert payload["error"]
+    assert payload["failed"] == [{
+        "filename": "notes.txt",
+        "code": "unsupported_format",
+        "error": "Unsupported model format",
+    }]
+
+
+def test_model_asset_cover_rejects_oversized_request_before_parsing(client, monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.model_assets.MAX_COVER_REQUEST_BYTES",
+        1,
+    )
+
+    response = client.post(
+        "/api/model-assets/missing/cover",
+        data={"cover": (BytesIO(b"image"), "cover.png")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 413
+    assert response.get_json() == {
+        "error": "Cover image is too large",
+        "code": "cover_too_large",
+    }
 
 
 def test_export_missing_model_returns_json_error(client):

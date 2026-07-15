@@ -462,6 +462,12 @@ class TaskManager:
                     return
 
             self._update_image_metadata_status(task_id, "completed")
+            try:
+                from backend.services import model_assets
+
+                model_assets.sync_generated_model_asset(self.paths, name_without_ext)
+            except Exception as exc:
+                runtime.log("WARN", f"Model asset catalog sync failed after task {task_id}: {exc}")
             with self.task_lock:
                 if self.task_status.get(task_id, {}).get("status") == "cancelled":
                     return

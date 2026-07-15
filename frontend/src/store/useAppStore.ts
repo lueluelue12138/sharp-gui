@@ -16,6 +16,13 @@ import type {
   AppView,
   AuthStatusResponse,
   GalleryItem,
+  ModelAsset,
+  ModelAssetDensity,
+  ModelAssetFormatFilter,
+  ModelAssetListCounts,
+  ModelAssetListResponse,
+  ModelAssetSort,
+  ModelAssetSourceFilter,
   ModelFormat,
   PhotoAlbum,
   PhotoItem,
@@ -56,6 +63,13 @@ const DEFAULT_PHOTO_MEDIA_COUNTS: PhotoMediaCounts = {
   photo: 0,
   video: 0,
 };
+const DEFAULT_MODEL_ASSET_COUNTS: ModelAssetListCounts = {
+  all: 0,
+  generated: 0,
+  imported: 0,
+  video: 0,
+};
+const DEFAULT_MODEL_ASSET_BATCH_SIZE = 12;
 const DEFAULT_VIDEO_RECONSTRUCTION_CONFIG: VideoReconstructionConfig = {
   default_quality: 'high',
   default_engine: 'auto',
@@ -388,6 +402,12 @@ const initialViewerQualityState = getViewerQualityFromPreset(
 );
 const initialModelViewerOverrides = getLocalQuickOverrides(initialViewerQualityState);
 
+type CurrentModelSource =
+  | 'gallery'
+  | 'model-asset-generated'
+  | 'model-asset-imported'
+  | 'temporary';
+
 interface AppState {
   // UI State
   sidebarOpen: boolean;
@@ -412,7 +432,28 @@ interface AppState {
   currentModelUrl: string | null;
   currentModelFormat: ViewerModelFormat; // Format hint for blob URLs
   currentModelSize: number | null;
+  currentModelSource: CurrentModelSource | null;
   previewImage: GalleryItem | null; // For image lightbox
+  modelAssets: ModelAsset[];
+  modelAssetTotal: number;
+  modelAssetNextCursor: string | null;
+  modelAssetCounts: ModelAssetListCounts;
+  modelAssetAvailableTags: string[];
+  modelAssetSource: ModelAssetSourceFilter;
+  modelAssetFormat: ModelAssetFormatFilter;
+  modelAssetTag: string | null;
+  modelAssetSort: ModelAssetSort;
+  modelAssetDensity: ModelAssetDensity;
+  modelAssetBatchSize: number;
+  modelAssetCacheReady: boolean;
+  modelAssetScrollTop: number;
+  selectedModelAssetId: string | null;
+  modelAssetSelectionMode: boolean;
+  selectedModelAssetIds: string[];
+  modelAssetLoading: boolean;
+  modelAssetImporting: boolean;
+  modelAssetEditing: boolean;
+  modelAssetError: string | null;
 
   // Photo Gallery
   activeView: AppView;
@@ -504,8 +545,28 @@ interface AppState {
     url: string | null,
     format?: ViewerModelFormat,
     size?: number | null,
+    source?: CurrentModelSource | null,
   ) => void;
   setPreviewImage: (item: GalleryItem | null) => void;
+  setModelAssets: (response: ModelAssetListResponse, append?: boolean) => void;
+  mergeModelAssetRefresh: (response: ModelAssetListResponse) => void;
+  setModelAssetLoading: (loading: boolean) => void;
+  setModelAssetError: (message: string | null) => void;
+  setModelAssetFilters: (filters: Partial<{
+    source: ModelAssetSourceFilter;
+    format: ModelAssetFormatFilter;
+    tag: string | null;
+    sort: ModelAssetSort;
+  }>) => void;
+  setModelAssetDensity: (density: ModelAssetDensity) => void;
+  setModelAssetScrollTop: (scrollTop: number) => void;
+  setSelectedModelAsset: (id: string | null) => void;
+  upsertModelAssets: (items: ModelAsset[]) => void;
+  removeModelAsset: (id: string) => void;
+  setModelAssetSelectionMode: (enabled: boolean) => void;
+  toggleSelectedModelAsset: (id: string) => void;
+  setModelAssetImporting: (importing: boolean) => void;
+  setModelAssetEditing: (editing: boolean) => void;
 
   setActiveView: (view: AppView) => void;
   setPhotoAlbums: (albums: PhotoAlbum[]) => void;
@@ -599,7 +660,28 @@ export const useAppStore = create<AppState>((set, get) => ({
   currentModelUrl: null,
   currentModelFormat: null,
   currentModelSize: null,
+  currentModelSource: null,
   previewImage: null,
+  modelAssets: [],
+  modelAssetTotal: 0,
+  modelAssetNextCursor: null,
+  modelAssetCounts: { ...DEFAULT_MODEL_ASSET_COUNTS },
+  modelAssetAvailableTags: [],
+  modelAssetSource: 'all',
+  modelAssetFormat: 'all',
+  modelAssetTag: null,
+  modelAssetSort: 'modified_desc',
+  modelAssetDensity: 'comfortable',
+  modelAssetBatchSize: DEFAULT_MODEL_ASSET_BATCH_SIZE,
+  modelAssetCacheReady: false,
+  modelAssetScrollTop: 0,
+  selectedModelAssetId: null,
+  modelAssetSelectionMode: false,
+  selectedModelAssetIds: [],
+  modelAssetLoading: false,
+  modelAssetImporting: false,
+  modelAssetEditing: false,
+  modelAssetError: null,
 
   activeView: 'models',
   photoAlbums: [],
@@ -692,7 +774,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   setGalleryItems: (items) => set((state) => {
     const nextGalleryItems = reconcileGalleryItems(state.galleryItems, items);
-    const selectedItem = state.currentModelId
+    const tracksGallerySelection = state.currentModelSource === 'gallery';
+    const selectedItem = tracksGallerySelection && state.currentModelId
       ? nextGalleryItems.find((item) => item.id === state.currentModelId) ?? null
       : null;
     const previewImage = state.previewImage
@@ -703,13 +786,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     let currentModelUrl = state.currentModelUrl;
     let currentModelFormat = state.currentModelFormat;
     let currentModelSize = state.currentModelSize;
+    let currentModelSource = state.currentModelSource;
 
-    if (state.currentModelId && !selectedItem) {
+    if (tracksGallerySelection && state.currentModelId && !selectedItem) {
       currentModelId = null;
       currentModelUrl = null;
       currentModelFormat = null;
       currentModelSize = null;
+      currentModelSource = null;
     } else if (
+      tracksGallerySelection &&
       selectedItem &&
       state.currentModelFormat !== 'splat' &&
       state.currentModelFormat !== 'rad' &&
@@ -731,7 +817,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelId === state.currentModelId &&
       currentModelUrl === state.currentModelUrl &&
       currentModelFormat === state.currentModelFormat &&
-      currentModelSize === state.currentModelSize;
+      currentModelSize === state.currentModelSize &&
+      currentModelSource === state.currentModelSource;
     const previewUnchanged = previewImage === state.previewImage;
 
     if (galleryUnchanged && selectionUnchanged && previewUnchanged) {
@@ -744,6 +831,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelUrl,
       currentModelFormat,
       currentModelSize,
+      currentModelSource,
       previewImage,
     };
   }),
@@ -755,13 +843,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nextGalleryItems = state.galleryItems.filter((item) => item.id !== id);
     const previewImage = state.previewImage?.id === id ? null : state.previewImage;
 
-    if (state.currentModelId === id) {
+    if (state.currentModelSource === 'gallery' && state.currentModelId === id) {
       return {
         galleryItems: nextGalleryItems,
         currentModelId: null,
         currentModelUrl: null,
         currentModelFormat: null,
         currentModelSize: null,
+        currentModelSource: null,
         previewImage,
       };
     }
@@ -771,7 +860,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       previewImage,
     };
   }),
-  setCurrentModel: (id, url, format = null, size = null) => set((state) => {
+  setCurrentModel: (id, url, format = null, size = null, source = null) => set((state) => {
     const fallbackQuality = getViewerQualityFromPreset(state.lodPreset, state.isLodEnabled);
     const fallbackOverride = getDefaultViewerOverride(fallbackQuality);
     const override = id ? state.modelViewerOverrides[id] : undefined;
@@ -786,6 +875,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelSize: typeof size === 'number' && Number.isFinite(size) && size > 0
         ? size
         : null,
+      currentModelSource: id && url ? source ?? 'gallery' : null,
       viewerTransformDraft: resolved.transform,
       viewerTransformApplied: resolved.transform,
       viewerInteractionDraft: resolved.interaction,
@@ -796,6 +886,153 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
   }),
   setPreviewImage: (item) => set({ previewImage: item }),
+  setModelAssets: (response, append = false) => set((state) => {
+    const nextItems = append
+      ? [
+          ...state.modelAssets,
+          ...response.items.filter((item) =>
+            !state.modelAssets.some((existing) => existing.id === item.id),
+          ),
+        ]
+      : response.items;
+    const selectedStillExists = state.selectedModelAssetId
+      ? nextItems.some((item) => item.id === state.selectedModelAssetId)
+      : false;
+
+    return {
+      modelAssets: nextItems,
+      modelAssetTotal: response.total,
+      modelAssetNextCursor: response.next_cursor,
+      modelAssetCounts: response.counts,
+      modelAssetAvailableTags: response.available_tags,
+      modelAssetSource: response.source,
+      modelAssetFormat: response.format,
+      modelAssetTag: response.tag ?? null,
+      modelAssetSort: response.sort,
+      modelAssetCacheReady: true,
+      selectedModelAssetId: selectedStillExists
+        ? state.selectedModelAssetId
+        : nextItems[0]?.id ?? null,
+      selectedModelAssetIds: state.selectedModelAssetIds.filter((id) =>
+        nextItems.some((item) => item.id === id),
+      ),
+      modelAssetLoading: false,
+      modelAssetError: null,
+    };
+  }),
+  mergeModelAssetRefresh: (response) => set((state) => {
+    const queryMatches = response.source === state.modelAssetSource
+      && response.format === state.modelAssetFormat
+      && (response.tag ?? null) === state.modelAssetTag
+      && response.sort === state.modelAssetSort;
+    if (!queryMatches || !state.modelAssetCacheReady) {
+      return {
+        modelAssets: response.items,
+        modelAssetTotal: response.total,
+        modelAssetNextCursor: response.next_cursor,
+        modelAssetCounts: response.counts,
+        modelAssetAvailableTags: response.available_tags,
+        modelAssetSource: response.source,
+        modelAssetFormat: response.format,
+        modelAssetTag: response.tag ?? null,
+        modelAssetSort: response.sort,
+        modelAssetCacheReady: true,
+        selectedModelAssetId: response.items.some((item) => item.id === state.selectedModelAssetId)
+          ? state.selectedModelAssetId
+          : response.items[0]?.id ?? null,
+        selectedModelAssetIds: state.selectedModelAssetIds.filter((id) =>
+          response.items.some((item) => item.id === id),
+        ),
+        modelAssetLoading: false,
+        modelAssetError: null,
+      };
+    }
+
+    const refreshedIds = new Set(response.items.map((item) => item.id));
+    const nextItems = [
+      ...response.items,
+      ...state.modelAssets.filter((item) => !refreshedIds.has(item.id)),
+    ].slice(0, response.total);
+    return {
+      modelAssets: nextItems,
+      modelAssetTotal: response.total,
+      modelAssetNextCursor: nextItems.length < response.total ? String(nextItems.length) : null,
+      modelAssetCounts: response.counts,
+      modelAssetAvailableTags: response.available_tags,
+      modelAssetCacheReady: true,
+      selectedModelAssetId: state.selectedModelAssetId
+        && nextItems.some((item) => item.id === state.selectedModelAssetId)
+        ? state.selectedModelAssetId
+        : nextItems[0]?.id ?? null,
+      selectedModelAssetIds: state.selectedModelAssetIds.filter((id) =>
+        nextItems.some((item) => item.id === id),
+      ),
+      modelAssetLoading: false,
+      modelAssetError: null,
+    };
+  }),
+  setModelAssetLoading: (loading) => set({ modelAssetLoading: loading }),
+  setModelAssetError: (message) => set({ modelAssetError: message, modelAssetLoading: false }),
+  setModelAssetFilters: (filters) => set((state) => ({
+    modelAssetSource: filters.source ?? state.modelAssetSource,
+    modelAssetFormat: filters.format ?? state.modelAssetFormat,
+    modelAssetTag: Object.prototype.hasOwnProperty.call(filters, 'tag')
+      ? filters.tag ?? null
+      : state.modelAssetTag,
+    modelAssetSort: filters.sort ?? state.modelAssetSort,
+    modelAssets: [],
+    modelAssetTotal: 0,
+    modelAssetNextCursor: null,
+    modelAssetCacheReady: false,
+    modelAssetScrollTop: 0,
+    selectedModelAssetIds: [],
+    modelAssetSelectionMode: false,
+  })),
+  setModelAssetDensity: (density) => set({ modelAssetDensity: density }),
+  setModelAssetScrollTop: (scrollTop) => set({
+    modelAssetScrollTop: Math.max(0, Number.isFinite(scrollTop) ? scrollTop : 0),
+  }),
+  setSelectedModelAsset: (id) => set({ selectedModelAssetId: id }),
+  upsertModelAssets: (items) => set((state) => {
+    if (items.length === 0) {
+      return state;
+    }
+    const byId = new Map(state.modelAssets.map((item) => [item.id, item]));
+    items.forEach((item) => {
+      byId.set(item.id, { ...byId.get(item.id), ...item });
+    });
+    const nextItems = Array.from(byId.values());
+    return {
+      modelAssets: nextItems,
+      modelAssetTotal: Math.max(state.modelAssetTotal, nextItems.length),
+      selectedModelAssetId: state.selectedModelAssetId ?? items[0]?.id ?? null,
+    };
+  }),
+  removeModelAsset: (id) => set((state) => {
+    const nextItems = state.modelAssets.filter((item) => item.id !== id);
+    return {
+      modelAssets: nextItems,
+      modelAssetTotal: Math.max(0, state.modelAssetTotal - 1),
+      selectedModelAssetId: state.selectedModelAssetId === id
+        ? nextItems[0]?.id ?? null
+        : state.selectedModelAssetId,
+      selectedModelAssetIds: state.selectedModelAssetIds.filter((selectedId) => selectedId !== id),
+    };
+  }),
+  setModelAssetSelectionMode: (enabled) => set({
+    modelAssetSelectionMode: enabled,
+    selectedModelAssetIds: enabled ? get().selectedModelAssetIds : [],
+  }),
+  toggleSelectedModelAsset: (id) => set((state) => {
+    const exists = state.selectedModelAssetIds.includes(id);
+    return {
+      selectedModelAssetIds: exists
+        ? state.selectedModelAssetIds.filter((selectedId) => selectedId !== id)
+        : [...state.selectedModelAssetIds, id],
+    };
+  }),
+  setModelAssetImporting: (importing) => set({ modelAssetImporting: importing }),
+  setModelAssetEditing: (editing) => set({ modelAssetEditing: editing }),
 
   setActiveView: (view) => set({ activeView: view }),
   setPhotoAlbums: (albums) => set((state) => {

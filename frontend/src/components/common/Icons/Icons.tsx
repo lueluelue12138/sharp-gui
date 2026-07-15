@@ -114,6 +114,15 @@ export function EyeIcon(props: IconProps) {
   );
 }
 
+// Info/details icon
+export function InfoIcon(props: IconProps) {
+  return (
+    <svg fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" {...props}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 17v-5m0-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+  );
+}
+
 // Help icon (question mark)
 export function HelpIcon(props: IconProps) {
   return (

@@ -40,10 +40,17 @@ async function fetchWithTimeout(
   url: string,
   options: FetchOptions = {}
 ): Promise<Response> {
-  const { timeout = 30000, ...fetchOptions } = options;
+  const { timeout = 30000, signal: externalSignal, ...fetchOptions } = options;
 
   const controller = new AbortController();
   const id = setTimeout(() => controller.abort(), timeout);
+  const forwardAbort = () => controller.abort();
+
+  if (externalSignal?.aborted) {
+    controller.abort();
+  } else {
+    externalSignal?.addEventListener('abort', forwardAbort, { once: true });
+  }
 
   try {
     const response = await fetch(url, {
@@ -54,6 +61,7 @@ async function fetchWithTimeout(
     return response;
   } finally {
     clearTimeout(id);
+    externalSignal?.removeEventListener('abort', forwardAbort);
   }
 }
 
@@ -71,8 +79,8 @@ async function throwApiError(response: Response): Promise<never> {
   );
 }
 
-export async function apiGet<T>(url: string): Promise<T> {
-  const response = await fetchWithTimeout(url);
+export async function apiGet<T>(url: string, options?: FetchOptions): Promise<T> {
+  const response = await fetchWithTimeout(url, options);
   
   if (!response.ok) {
     await throwApiError(response);

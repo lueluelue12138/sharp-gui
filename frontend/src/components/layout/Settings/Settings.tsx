@@ -83,6 +83,7 @@ export const Settings: React.FC = () => {
         currentModelUrl,
         currentModelFormat: storeModelFormat,
         currentModelSize,
+        currentModelSource,
         setCurrentModel,
         authStatus,
         setAuthStatus,
@@ -125,7 +126,13 @@ export const Settings: React.FC = () => {
         if (currentModelId && currentModelUrl) {
             const fmt = storeModelFormat;
             setCurrentModel(null, null);
-            setTimeout(() => setCurrentModel(currentModelId, currentModelUrl, fmt, currentModelSize), 50);
+            setTimeout(() => setCurrentModel(
+                currentModelId,
+                currentModelUrl,
+                fmt,
+                currentModelSize,
+                currentModelSource,
+            ), 50);
         }
     };
 
@@ -329,13 +336,13 @@ export const Settings: React.FC = () => {
                 handleClose();
                 setLoading(true, t('lanBindRestarting'));
                 try {
-                    await restartServer();
-                } catch {
-                    // 重启会断开连接，属预期行为
-                }
-                setTimeout(() => {
+                    await restartServer(workspaceChanged ? workspaceFolder : originalWorkspace);
                     window.location.reload();
-                }, 3000);
+                } catch (error) {
+                    console.error('Failed to restart server:', error);
+                    setLoading(false);
+                    alert(t('serverRestartFailed'));
+                }
             } else {
                 handleClose();
             }

@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 import { useAppStore } from '@/store/useAppStore';
 
-import { fetchTasks, fetchGallery } from '@/api';
+import { fetchTasks, fetchModelAssets } from '@/api';
 import {
     createTaskStatusMap,
     hasActiveTask,
@@ -18,10 +18,23 @@ export const useTaskQueue = () => {
     const tasks = useAppStore((state) => state.tasks);
     const hasActiveTasks = useAppStore((state) => state.hasActiveTasks);
     const canUsePrivateApi = useAppStore((state) => state.isAuthenticated || state.isOwnerAccess);
-    const { setTasks, setGalleryItems } = useAppStore(
+    const {
+        setTasks,
+        mergeModelAssetRefresh,
+        modelAssetBatchSize,
+        modelAssetSource,
+        modelAssetFormat,
+        modelAssetTag,
+        modelAssetSort,
+    } = useAppStore(
         useShallow((state) => ({
             setTasks: state.setTasks,
-            setGalleryItems: state.setGalleryItems,
+            mergeModelAssetRefresh: state.mergeModelAssetRefresh,
+            modelAssetBatchSize: state.modelAssetBatchSize,
+            modelAssetSource: state.modelAssetSource,
+            modelAssetFormat: state.modelAssetFormat,
+            modelAssetTag: state.modelAssetTag,
+            modelAssetSort: state.modelAssetSort,
         })),
     );
     
@@ -51,12 +64,18 @@ export const useTaskQueue = () => {
             );
 
             // A completed model is publishable independently of other queued
-            // tasks, so refresh even while the queue remains active. Fetch it
-            // before committing the completed state so a transient gallery
-            // error leaves polling active and can be retried automatically.
+            // tasks, so refresh even while the queue remains active. The
+            // backend refreshes the durable asset catalog before publishing
+            // the completed state, so this stays a warm catalog read.
             if (shouldRefreshGallery) {
-                const gallery = await fetchGallery();
-                setGalleryItems(gallery);
+                const modelAssets = await fetchModelAssets({
+                    source: modelAssetSource,
+                    format: modelAssetFormat,
+                    tag: modelAssetTag,
+                    sort: modelAssetSort,
+                    limit: modelAssetBatchSize,
+                });
+                mergeModelAssetRefresh(modelAssets);
             }
 
             const nextTasks = reconcileTaskSnapshot(
@@ -71,7 +90,16 @@ export const useTaskQueue = () => {
         } finally {
             pollInFlightRef.current = false;
         }
-    }, [canUsePrivateApi, setTasks, setGalleryItems]);
+    }, [
+        canUsePrivateApi,
+        mergeModelAssetRefresh,
+        modelAssetBatchSize,
+        modelAssetFormat,
+        modelAssetSort,
+        modelAssetSource,
+        modelAssetTag,
+        setTasks,
+    ]);
 
     // Start/stop polling based on hasActiveTasks
     useEffect(() => {
