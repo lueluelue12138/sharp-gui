@@ -4,6 +4,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import uuid
 from urllib.parse import quote
 
@@ -30,6 +31,7 @@ MODEL_EXTENSIONS = (".ply", ".spz", ".splat", ".rad")
 MODEL_FORMAT_PRIORITY = ("ply", "spz", "splat", "rad")
 IMAGE_ASSET_ID_PREFIX = "img-"
 INTERRUPTED_IMAGE_TASK_STATUSES = {"pending", "processing", "cancelled"}
+thumbnail_cache_lock = threading.RLock()
 
 
 def normalize_model_item_id(item_id):
@@ -95,8 +97,10 @@ def make_unique_image_input_filename(paths, filename):
 
 def generate_thumbnail(paths, input_path, filename):
     """生成缩略图 (200px 宽度, JPEG 80% 质量)。"""
+    thumb_path = os.path.join(paths.thumbnail_folder, os.path.splitext(filename)[0] + ".jpg")
+    temp_path = f"{thumb_path}.tmp-{uuid.uuid4().hex[:8]}.jpg"
     try:
-        thumb_path = os.path.join(paths.thumbnail_folder, os.path.splitext(filename)[0] + ".jpg")
+        os.makedirs(paths.thumbnail_folder, exist_ok=True)
         with Image.open(input_path) as img:
             if img.mode in ("RGBA", "P"):
                 img = img.convert("RGB")
@@ -104,11 +108,21 @@ def generate_thumbnail(paths, input_path, filename):
             ratio = width / img.width
             height = int(img.height * ratio)
             img_resized = img.resize((width, height), Image.LANCZOS)
-            img_resized.save(thumb_path, "JPEG", quality=80)
+            img_resized.save(temp_path, "JPEG", quality=80)
+        with thumbnail_cache_lock:
+            if os.path.exists(thumb_path):
+                return thumb_path
+            os.replace(temp_path, thumb_path)
         return thumb_path
     except Exception as exc:
         print(f"⚠️ Thumbnail generation failed for {filename}: {exc}")
         return None
+    finally:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
 
 
 def get_thumbnail_path(paths, item_id):
@@ -362,18 +376,25 @@ def find_original_image(paths, item_id):
 
 def ensure_thumbnail_for_item(paths, item_id, allow_generation=False):
     """确保图库条目存在可用缩略图。"""
-    thumb_path = get_thumbnail_path(paths, item_id)
-    if os.path.exists(thumb_path):
-        return thumb_path
+    item_id = normalize_model_item_id(item_id)
+    if not item_id:
+        return None
+    with thumbnail_cache_lock:
+        thumb_path = get_thumbnail_path(paths, item_id)
+        if os.path.exists(thumb_path):
+            return thumb_path
 
     if not allow_generation:
         return None
 
     original_filename, original_path = find_original_image(paths, item_id)
-    if not original_filename or not original_path:
-        return None
+    if original_filename and original_path:
+        return generate_thumbnail(paths, original_path, original_filename)
 
-    return generate_thumbnail(paths, original_path, original_filename)
+    source_video = resolve_gallery_source_video(paths, item_id)
+    if source_video:
+        return generate_video_thumbnail(paths, source_video["path"], item_id)
+    return None
 
 
 def generate_video_thumbnail(paths, source_video_path, item_id):
@@ -384,6 +405,9 @@ def generate_video_thumbnail(paths, source_video_path, item_id):
 
     os.makedirs(paths.thumbnail_folder, exist_ok=True)
     thumb_path = get_thumbnail_path(paths, item_id)
+    with thumbnail_cache_lock:
+        if os.path.exists(thumb_path):
+            return thumb_path
     temp_path = f"{thumb_path}.tmp-{uuid.uuid4().hex[:8]}.jpg"
     try:
         result = subprocess.run(
@@ -411,7 +435,10 @@ def generate_video_thumbnail(paths, source_video_path, item_id):
         )
         if result.returncode != 0 or not os.path.exists(temp_path):
             return None
-        os.replace(temp_path, thumb_path)
+        with thumbnail_cache_lock:
+            if os.path.exists(thumb_path):
+                return thumb_path
+            os.replace(temp_path, thumb_path)
         return thumb_path
     except Exception as exc:
         print(f"⚠️ Video thumbnail generation failed for {item_id}: {exc}")

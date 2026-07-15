@@ -534,12 +534,14 @@ The system auto-creates:
 
 - `inputs/` - Uploaded images; `inputs/.thumbnails/` stores legacy/model thumbnail cache
 - `outputs/` - Generated models and sidecar metadata (`.ply` / `.spz` / `.meta.json`)
-- `model-assets/` - Controlled model asset file area: `imports/` stores imported models, `thumbnails/` stores cached covers
+- `model-assets/` - Controlled model asset area: `imports/` stores imported models, while `thumbnails/` contains both rebuildable system previews and protected manual covers
 - `.model-asset-library/` - Model asset index and user-edited metadata (`index.json`)
 - `.photo-gallery-cache/` - Local media gallery cache: `catalog.json`, `albums/`, `thumbnails/`, `video-posters/`, and temporary ZIP packages
 - `.video-reconstruction/` - Video reconstruction runtime data: `jobs/` and `uploads/`
 
 These workspace runtime folders are user data and are ignored by `.gitignore` by default; they should not be committed. After changing the workspace in Settings and letting the app restart, `inputs/`, `outputs/`, `model-assets/`, `.model-asset-library/`, `.photo-gallery-cache/`, and `.video-reconstruction/` all switch to the new workspace. Switching back to an old workspace restores that workspace's model assets, recent-model index, gallery cache, and task-related state.
+
+Settings → Storage & Cache measures gallery cache, model previews, managed source videos, and related data through a background snapshot, split into “Rebuildable cache” and “Protected workspace content.” Normal opens reuse a short-lived snapshot; only manual refresh forces a new measurement. Cleanup never removes models, source images, manual covers, asset records, video uploads/jobs, in-use downloads, or external album originals.
 
 Project-root `config.json`, `cert.pem` / `key.pem`, `sharp-gui-verbose.log`, `venv/`, `.video-reconstruction-env/`, and `ml-sharp/` are deployment config, certificates, logs, or dependency folders. They do not switch with the workspace; sensitive files are never exposed through `/files/*`.
 

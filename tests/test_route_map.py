@@ -39,6 +39,7 @@ EXPECTED_ROUTES = {
     ("/api/video-reconstructions", ("POST",)),
     ("/api/video-reconstructions/status", ("GET",)),
     ("/api/video-reconstructions/upload", ("POST",)),
+    ("/api/workspace-storage", ("DELETE", "GET")),
     ("/assets/<path:filename>", ("GET",)),
     ("/files/<path:filename>", ("GET",)),
     ("/static/<path:filename>", ("GET",)),

@@ -275,6 +275,8 @@ def get_required_access_level(access_config=None):
 
     if path == "/api/settings":
         return ACCESS_OWNER if method != "GET" else ACCESS_UNLOCKED
+    if path == "/api/workspace-storage":
+        return ACCESS_OWNER
     if path in {"/api/browse-folder", "/api/restart", "/api/convert-all"}:
         return ACCESS_OWNER
     if path.startswith("/api/delete/"):

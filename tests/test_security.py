@@ -49,6 +49,20 @@ def test_owner_only_rejects_remote_when_gate_disabled(client):
     assert response.get_json()["code"] == "OWNER_REQUIRED"
 
 
+def test_workspace_storage_is_owner_only(client):
+    stats = remote_get(client, "/api/workspace-storage")
+    clear = client.delete(
+        "/api/workspace-storage",
+        base_url="http://192.168.1.2",
+        environ_overrides={"REMOTE_ADDR": "192.168.1.50"},
+    )
+
+    assert stats.status_code == 403
+    assert stats.get_json()["code"] == "OWNER_REQUIRED"
+    assert clear.status_code == 403
+    assert clear.get_json()["code"] == "OWNER_REQUIRED"
+
+
 def test_forwarded_headers_do_not_grant_owner(client):
     response = remote_post(
         client,

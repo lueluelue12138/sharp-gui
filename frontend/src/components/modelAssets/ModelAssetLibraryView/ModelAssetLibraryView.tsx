@@ -94,6 +94,7 @@ export function ModelAssetLibraryView({
     modelAssetDensity,
     modelAssetBatchSize,
     modelAssetCacheReady,
+    modelAssetCacheGeneration,
     selectedModelAssetId,
     modelAssetSelectionMode,
     selectedModelAssetIds,
@@ -131,6 +132,7 @@ export function ModelAssetLibraryView({
       modelAssetDensity: state.modelAssetDensity,
       modelAssetBatchSize: state.modelAssetBatchSize,
       modelAssetCacheReady: state.modelAssetCacheReady,
+      modelAssetCacheGeneration: state.modelAssetCacheGeneration,
       selectedModelAssetId: state.selectedModelAssetId,
       modelAssetSelectionMode: state.modelAssetSelectionMode,
       selectedModelAssetIds: state.selectedModelAssetIds,
@@ -301,9 +303,10 @@ export function ModelAssetLibraryView({
     upsertModelAssets([asset]);
   }, [upsertModelAssets]);
 
-  useModelAssetCoverQueue(modelAssets, handleGeneratedCover);
+  useModelAssetCoverQueue(modelAssets, handleGeneratedCover, modelAssetCacheGeneration);
 
   const loadAssets = useCallback(async (cursor: string | null = null, append = false) => {
+    const requestGeneration = modelAssetCacheGeneration;
     try {
       if (assetScrollStateRef.current) {
         assetScrollStateRef.current.isLoading = true;
@@ -317,13 +320,20 @@ export function ModelAssetLibraryView({
         cursor,
         limit: modelAssetBatchSize,
       });
+      if (useAppStore.getState().modelAssetCacheGeneration !== requestGeneration) {
+        return;
+      }
       setModelAssets(response, append);
     } catch (error) {
+      if (useAppStore.getState().modelAssetCacheGeneration !== requestGeneration) {
+        return;
+      }
       setModelAssetError(getErrorMessage(error));
     }
   }, [
     modelAssetFormat,
     modelAssetBatchSize,
+    modelAssetCacheGeneration,
     modelAssetSort,
     modelAssetSource,
     modelAssetTag,

@@ -6,3 +6,4 @@ export * from './settings';
 export * from './photoGallery';
 export * from './auth';
 export * from './videoReconstruction';
+export * from './workspaceStorage';

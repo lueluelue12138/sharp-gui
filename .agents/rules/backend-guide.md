@@ -45,6 +45,8 @@ Do not grant owner permissions from `X-Forwarded-For`, `Forwarded`, `X-Real-IP`,
 | POST | `/api/convert-all` | 批量将既有 PLY 转换为 SPZ | Owner |
 | GET | `/api/settings` | 读取设置 | Unlocked |
 | POST | `/api/settings` | 写入设置 | Owner |
+| GET | `/api/workspace-storage` | 读取当前工作区缓存与受保护内容的后台统计快照 | Owner |
+| DELETE | `/api/workspace-storage` | 清理可重建缓存，保留用户资产与活跃临时下载 | Owner |
 | POST | `/api/restart` | 重启服务器 | Owner |
 | POST | `/api/browse-folder` | 原生文件夹选择 | Owner |
 | GET | `/api/export/<id>` | 导出为 Spark 2.0 独立 HTML（支持 `?format=spz|ply`） | Unlocked |
@@ -181,7 +183,7 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 - 新增持久化目录时，先归类为 workspace 绑定用户数据、项目根配置/密钥、依赖目录或构建缓存；workspace 绑定数据必须由 `PathContext` 或基于 `PathContext.workspace_folder` 的 helper 派生，不得硬编码在项目根
 - 新增运行时目录必须同步更新 `.agents/rules/project-overview.md` 的“用户数据与运行时目录总表”、README 工作目录说明和 `.gitignore`
 - 缩略图存储在 `{workspace}/inputs/.thumbnails/`
-- 模型资产导入文件存储在 `{workspace}/model-assets/imports/`，封面缓存存储在 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息存储在 `{workspace}/.model-asset-library/index.json`
+- 模型资产导入文件存储在 `{workspace}/model-assets/imports/`，模型封面存储在 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息存储在 `{workspace}/.model-asset-library/index.json`；封面目录混合 `manual` 用户封面与 `system` 可重建预览，统计和清理必须按索引分类，不能整目录删除
 - 这些模型资产路径必须始终由当前 `PathContext.workspace_folder` 派生；Settings 切换工作目录后需要重启服务重建 `PathContext`，不得把模型资产索引或导入目录保存在项目根的全局位置
 - 本地媒体图库 catalog、每相册索引、照片缩略图、视频 poster 和批量下载临时 ZIP 存储在 `{workspace}/.photo-gallery-cache/`
 - 视频重建中间文件、Nerfstudio 数据、日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
@@ -384,6 +386,17 @@ if not resolved.startswith(os.path.abspath(workspace)):
 - 写入 `.model-asset-library/index.json` 时使用原子替换，用户编辑字段不得覆盖模型文件本身的身份；索引损坏时应安全降级并可重建，而不是阻塞整个应用启动。
 - 删除受控导入资产可删除 `model-assets/imports/` 中对应文件和封面；删除生成资产仍应遵守原有 `outputs/` 删除规则，不能误删本地媒体图库原始文件或视频来源文件。
 - 详情字段中无法从文件或 sidecar 明确得到的点数、包围盒、坐标系、压缩、版本等信息应返回未知/空值，前端不得把占位字段显示成真实计算结果。
+
+### 工作区缓存统计与清理
+
+- `/api/workspace-storage` 仅允许 localhost owner 触发；应用启动、普通模型/相册列表和远程设备不得发起存储扫描。
+- Settings 打开时 GET 立即返回已有快照；冷态或 60 秒快照过期时只启动一个后台扫描，重复请求与手动刷新必须 single-flight 去重，不能在 Flask 请求线程同步递归统计。
+- 深度扫描仅覆盖真正可重建的缓存目录和受控的 `uploads/<id>/` 源视频子树；`inputs/`、`outputs/`、导入模型与资产索引只做顶层计量，外部相册 root 与 `.video-reconstruction/jobs/` 不参与自动扫描。
+- 扫描使用 `os.scandir()` 且不跟随文件符号链接或 junction；文件消失、权限错误等跳过项必须通过 `incomplete` / `skipped_entries` 暴露，不能仍把结果伪装成完整统计。
+- 各分桶必须互斥并从同一组原始 bytes 计算总计。模型系统封面可归入可重建缓存；手动封面、索引缺失/损坏时无法可靠分类的封面、模型文件、源图、资产资料和视频工作文件均为受保护内容。
+- 清理只删除 `.photo-gallery-cache/`、`inputs/.thumbnails/` 与明确为 `system` 的模型封面；活跃下载用进程内登记保护，近期 ZIP 作为崩溃/竞态兜底也归入受保护分桶。system 封面清理后一次性把索引状态改回 `pending`，并推进 cover epoch 拒绝清理前已启动但尚未提交的旧上传。
+- 清理与旧扫描失效时仍只能存在一个实际扫描 worker；generation/token 只用于阻止旧结果写回，不能通过错误重置状态制造并发双扫。
+- 清理图库索引后，相册 bootstrap 必须通过单个低优先级队列串行重建，禁止按相册创建并发全盘扫描线程。
 
 ### 其他
 

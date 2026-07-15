@@ -9,6 +9,10 @@ from backend.config import (
 )
 from backend.services.folder_picker import browse_folder_native
 from backend.services.photo_gallery import migrate_photo_gallery_roots_config
+from backend.services.workspace_storage import (
+    clear_rebuildable_workspace_cache,
+    request_workspace_storage_stats,
+)
 from backend.services.workspace_lock import WorkspaceInUseError, WorkspaceInstanceLock
 from backend.server import restart_process_later
 
@@ -20,6 +24,21 @@ def _workspace_paths_match(first, second):
     first_path = os.path.normcase(os.path.realpath(os.path.abspath(first)))
     second_path = os.path.normcase(os.path.realpath(os.path.abspath(second)))
     return first_path == second_path
+
+
+@bp.route("/api/workspace-storage", methods=["GET", "DELETE"])
+def workspace_storage():
+    """按需统计工作区存储；扫描在后台执行，缓存清理仅限本机 owner。"""
+    if not g.is_owner:
+        return jsonify({"error": "Workspace storage can only be inspected from localhost"}), 403
+
+    paths = current_app.config["PATH_CONTEXT"]
+    if request.method == "DELETE":
+        result = clear_rebuildable_workspace_cache(paths)
+        return jsonify(result), 200 if result.get("success") else 500
+
+    refresh = request.args.get("refresh", "0").strip().lower() in {"1", "true", "yes"}
+    return jsonify(request_workspace_storage_stats(paths, refresh=refresh))
 
 
 @bp.route("/api/settings", methods=["GET", "POST"])

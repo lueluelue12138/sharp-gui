@@ -15,6 +15,7 @@ from backend.services.static_files import get_relative_files_path, is_real_path_
 # 资产索引是单一 JSON 文件的 read-modify-write，局域网多设备可能并发导入/编辑，
 # 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
 _INDEX_LOCK = threading.RLock()
+_COVER_CACHE_EPOCHS = {}
 
 # 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
 IMPORTED_IDENTITY_KEYS = ("model_path", "format", "original_name", "imported_at", "created_at")
@@ -91,26 +92,72 @@ def normalize_upload_filename(filename):
     return str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
 
 
-def read_asset_index(paths):
+def is_safe_model_asset_thumbnail_root(paths):
+    root = paths.model_asset_thumbnail_folder
+    return (
+        not os.path.islink(root)
+        and not getattr(os.path, "isjunction", lambda _path: False)(root)
+        and is_real_path_inside(root, paths.workspace_folder)
+    )
+
+
+def _cover_cache_key(paths):
+    return os.path.normcase(os.path.realpath(os.path.abspath(paths.workspace_folder)))
+
+
+def _get_cover_cache_epoch(paths):
+    return _COVER_CACHE_EPOCHS.get(_cover_cache_key(paths), 0)
+
+
+def _advance_cover_cache_epoch(paths):
+    key = _cover_cache_key(paths)
+    _COVER_CACHE_EPOCHS[key] = _COVER_CACHE_EPOCHS.get(key, 0) + 1
+    return _COVER_CACHE_EPOCHS[key]
+
+
+def read_asset_index_with_status(paths):
+    """读取资产索引并保留可靠性信息，供会删除文件的流程做保守判断。"""
+    index_root = os.path.dirname(paths.model_asset_index_file)
+    if (
+        os.path.islink(index_root)
+        or getattr(os.path, "isjunction", lambda _path: False)(index_root)
+        or not is_real_path_inside(paths.model_asset_index_file, paths.workspace_folder)
+    ):
+        return {"version": 1, "assets": {}}, "invalid"
     try:
         with open(paths.model_asset_index_file, "r", encoding="utf-8") as file:
             data = json.load(file)
     except FileNotFoundError:
-        return {"version": 1, "assets": {}}
+        return {"version": 1, "assets": {}}, "missing"
     except Exception:
-        return {"version": 1, "assets": {}}
+        return {"version": 1, "assets": {}}, "invalid"
 
     if not isinstance(data, dict):
-        return {"version": 1, "assets": {}}
+        return {"version": 1, "assets": {}}, "invalid"
     assets = data.get("assets")
     if not isinstance(assets, dict):
         data["assets"] = {}
+        return data, "invalid"
+    if any(not isinstance(record, dict) for record in assets.values()):
+        return {"version": 1, "assets": {}}, "invalid"
     data.setdefault("version", 1)
+    return data, "valid"
+
+
+def read_asset_index(paths):
+    data, _status = read_asset_index_with_status(paths)
     return data
 
 
 def write_asset_index(paths, data):
-    os.makedirs(os.path.dirname(paths.model_asset_index_file), exist_ok=True)
+    index_root = os.path.dirname(paths.model_asset_index_file)
+    if (
+        os.path.islink(index_root)
+        or getattr(os.path, "isjunction", lambda _path: False)(index_root)
+        or not is_real_path_inside(paths.model_asset_index_file, paths.workspace_folder)
+    ):
+        raise ValueError("Model asset index path is outside workspace")
+    os.makedirs(index_root, exist_ok=True)
     payload = {
         "version": 1,
         "updated_at": utc_now_iso(),
@@ -834,10 +881,17 @@ def validate_cover_image(path):
 
 
 def save_model_asset_cover(paths, asset_id, file_storage, kind=THUMBNAIL_MANUAL):
+    with _INDEX_LOCK:
+        cover_cache_epoch = _get_cover_cache_epoch(paths)
     asset = get_model_asset(paths, asset_id, include_details=False)
     if not asset:
         return None, {"error": "Model asset not found", "code": "model_asset_not_found"}, 404
     asset_id = asset["id"]
+    asset_identity = (
+        asset.get("source_type"),
+        asset.get("default_open_url"),
+        asset.get("updated_at"),
+    )
 
     original_name = file_storage.filename or ""
     extension = os.path.splitext(original_name)[1].lower()
@@ -845,40 +899,66 @@ def save_model_asset_cover(paths, asset_id, file_storage, kind=THUMBNAIL_MANUAL)
     if not normalized_extension:
         return None, {"error": "Unsupported cover image type", "code": "unsupported_cover_type"}, 400
 
+    if not is_safe_model_asset_thumbnail_root(paths):
+        return None, {"error": "Invalid cover target", "code": "invalid_cover_target"}, 400
     os.makedirs(paths.model_asset_thumbnail_folder, exist_ok=True)
     target_name = f"{safe_asset_filename(asset_id)}.{normalized_extension}"
     target_path = os.path.realpath(os.path.join(paths.model_asset_thumbnail_folder, target_name))
     if not is_real_path_inside(target_path, paths.model_asset_thumbnail_folder):
         return None, {"error": "Invalid cover target", "code": "invalid_cover_target"}, 400
+    temp_path = f"{target_path}.tmp-{uuid.uuid4().hex[:8]}"
 
     try:
-        save_file_storage(file_storage, target_path, MAX_COVER_BYTES)
-        validate_cover_image(target_path)
+        save_file_storage(file_storage, temp_path, MAX_COVER_BYTES)
+        validate_cover_image(temp_path)
     except ValueError as exc:
+        try:
+            os.remove(temp_path)
+        except OSError:
+            pass
         return None, {"error": str(exc), "code": "cover_too_large"}, 413
     except Exception:
         try:
-            if os.path.exists(target_path):
-                os.remove(target_path)
+            os.remove(temp_path)
         except OSError:
             pass
         return None, {"error": "Invalid cover image", "code": "invalid_cover_image"}, 400
 
-    with _INDEX_LOCK:
-        index = read_asset_index(paths)
-        assets = index.setdefault("assets", {})
-        existing = get_user_record(index, asset_id)
-        record = dict(existing)
-        record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
-        if asset.get("is_imported"):
-            carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
-        record["asset_id"] = asset_id
-        record["cover_path"] = workspace_relative_path(paths, target_path)
-        record["cover_kind"] = kind
-        record["cover_status"] = "ready"
-        record["updated_at"] = utc_now_iso()
-        assets[asset_id] = record
-        write_asset_index(paths, index)
+    try:
+        with _INDEX_LOCK:
+            if _get_cover_cache_epoch(paths) != cover_cache_epoch:
+                return None, {"error": "Model cover cache changed", "code": "cover_cache_changed"}, 409
+            current_asset = get_model_asset(paths, asset_id, include_details=False)
+            current_identity = (
+                current_asset.get("source_type") if current_asset else None,
+                current_asset.get("default_open_url") if current_asset else None,
+                current_asset.get("updated_at") if current_asset else None,
+            )
+            if not current_asset:
+                return None, {"error": "Model asset not found", "code": "model_asset_not_found"}, 404
+            if current_identity != asset_identity:
+                return None, {"error": "Model asset changed", "code": "model_asset_changed"}, 409
+            os.replace(temp_path, target_path)
+            index = read_asset_index(paths)
+            assets = index.setdefault("assets", {})
+            existing = get_user_record(index, asset_id)
+            record = dict(existing)
+            record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
+            if asset.get("is_imported"):
+                carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
+            record["asset_id"] = asset_id
+            record["cover_path"] = workspace_relative_path(paths, target_path)
+            record["cover_kind"] = kind
+            record["cover_status"] = "ready"
+            record["updated_at"] = utc_now_iso()
+            assets[asset_id] = record
+            write_asset_index(paths, index)
+    finally:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
     return get_model_asset(paths, asset_id, include_details=True), None, 200
 
 
@@ -889,6 +969,7 @@ def refresh_model_asset_cover(paths, asset_id):
     asset_id = asset["id"]
 
     with _INDEX_LOCK:
+        _advance_cover_cache_epoch(paths)
         index = read_asset_index(paths)
         assets = index.setdefault("assets", {})
         existing = get_user_record(index, asset_id)
@@ -913,6 +994,110 @@ def refresh_model_asset_cover(paths, asset_id):
     return get_model_asset(paths, asset_id, include_details=True)
 
 
+def clear_rebuildable_model_asset_covers(paths):
+    """清理明确可重建的系统封面；手动或无法分类的文件始终保留。"""
+    removed = {"files": 0, "bytes": 0}
+
+    with _INDEX_LOCK:
+        _advance_cover_cache_epoch(paths)
+        index, index_status = read_asset_index_with_status(paths)
+        if index_status != "valid":
+            return removed
+        thumbnail_root = paths.model_asset_thumbnail_folder
+        if not is_safe_model_asset_thumbnail_root(paths):
+            return removed
+        assets = index.get("assets", {})
+        if not isinstance(assets, dict):
+            return removed
+
+        manual_paths = set()
+        system_paths = set()
+        manual_names = set()
+        output_root_is_safe = (
+            not os.path.islink(paths.output_folder)
+            and not getattr(os.path, "isjunction", lambda _path: False)(paths.output_folder)
+            and is_real_path_inside(paths.output_folder, paths.workspace_folder)
+        )
+        system_names = {
+            f"{safe_asset_filename(asset_id)}.jpg"
+            for asset_id in collect_generated_file_groups(paths)
+        } if output_root_is_safe else set()
+        system_records = []
+        for asset_id, raw_record in assets.items():
+            if not isinstance(raw_record, dict):
+                continue
+            fallback_name = f"{safe_asset_filename(asset_id)}.jpg"
+            cover_kind = raw_record.get("cover_kind")
+            is_system = cover_kind == THUMBNAIL_SYSTEM
+            if is_system:
+                system_names.add(fallback_name)
+            elif cover_kind:
+                manual_names.add(fallback_name)
+            cover_path = resolve_workspace_relative_path(paths, raw_record.get("cover_path"))
+            normalized_path = None
+            if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder):
+                normalized_path = os.path.normcase(os.path.abspath(cover_path))
+                if is_system:
+                    system_paths.add(normalized_path)
+                else:
+                    manual_paths.add(normalized_path)
+            if is_system:
+                system_records.append((raw_record, fallback_name, normalized_path))
+
+        system_paths.difference_update(manual_paths)
+        system_names.difference_update(manual_names)
+
+        cleared_paths = set()
+        cleared_names = set()
+        is_junction = getattr(os.path, "isjunction", lambda _path: False)
+        try:
+            entries = os.scandir(paths.model_asset_thumbnail_folder)
+        except OSError:
+            entries = None
+        if entries is not None:
+            with entries:
+                for entry in entries:
+                    normalized_path = os.path.normcase(os.path.abspath(entry.path))
+                    is_system = (
+                        normalized_path not in manual_paths
+                        and entry.name not in manual_names
+                        and (normalized_path in system_paths or entry.name in system_names)
+                    )
+                    if not is_system:
+                        continue
+                    try:
+                        if entry.is_symlink() or is_junction(entry.path) or not entry.is_file(follow_symlinks=False):
+                            continue
+                        stat = entry.stat(follow_symlinks=False)
+                        os.unlink(entry.path)
+                    except OSError:
+                        continue
+                    removed["files"] += 1
+                    removed["bytes"] += stat.st_size
+                    cleared_paths.add(normalized_path)
+                    cleared_names.add(entry.name)
+
+        changed = False
+        for record, fallback_name, normalized_path in system_records:
+            path_missing = bool(normalized_path and not os.path.lexists(normalized_path))
+            if (
+                normalized_path not in cleared_paths
+                and fallback_name not in cleared_names
+                and not path_missing
+            ):
+                continue
+            record.pop("cover_path", None)
+            record["cover_kind"] = THUMBNAIL_SYSTEM
+            record["cover_status"] = THUMBNAIL_PENDING
+            record["updated_at"] = utc_now_iso()
+            changed = True
+
+        if changed:
+            write_asset_index(paths, index)
+
+    return removed
+
+
 def delete_model_asset(paths, asset_id):
     asset = get_model_asset(paths, asset_id, include_details=True)
     if not asset:
@@ -920,6 +1105,7 @@ def delete_model_asset(paths, asset_id):
     asset_id = asset["id"]
 
     with _INDEX_LOCK:
+        _advance_cover_cache_epoch(paths)
         index = read_asset_index(paths)
         record = get_user_record(index, asset_id)
         cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))

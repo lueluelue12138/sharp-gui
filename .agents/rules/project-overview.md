@@ -122,19 +122,19 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | 路径 | 内容 | 备注 |
 |------|------|------|
 | `{workspace}/inputs/` | 上传图片、照片转 3D 队列输入副本 | 原始相册媒体不会直接搬进来，只有提交生成时复制 |
-| `{workspace}/inputs/.thumbnails/` | 历史/模型缩略图缓存 | 属于 `/files/*` 允许服务根之一 |
+| `{workspace}/inputs/.thumbnails/` | 历史/模型缩略图缓存 | 可重建；属于 `/files/*` 允许服务根之一 |
 | `{workspace}/outputs/` | 生成模型文件 | 当前主要包含 `.ply`、自动转换的 `.spz` 和同名 sidecar |
 | `{workspace}/outputs/*.meta.json` | 生成模型来源元数据 | 记录视频来源、质量、引擎、受控源引用；响应不得暴露绝对磁盘路径 |
 | `{workspace}/model-assets/imports/` | 导入的模型资产文件 | 只保存白名单格式，属于 `/files/*` 允许服务根之一 |
-| `{workspace}/model-assets/thumbnails/` | 模型资产封面缓存 | 属于 `/files/*` 允许服务根之一 |
+| `{workspace}/model-assets/thumbnails/` | 模型资产封面 | 同时包含 `system` 可重建预览与 `manual` 用户封面；后者受保护，属于 `/files/*` 允许服务根之一 |
 | `{workspace}/.model-asset-library/index.json` | 模型资产索引、默认格式、标签、备注、用户编辑信息 | 敏感状态文件，不得加入静态服务白名单 |
 | `{workspace}/.photo-gallery-cache/catalog.json` | 本地媒体图库相册摘要 | 进入图库后按需读写，可重建 |
 | `{workspace}/.photo-gallery-cache/albums/` | 单相册媒体索引 | 普通分页/筛选/排序只读对应相册索引 |
 | `{workspace}/.photo-gallery-cache/thumbnails/` | 照片缩略图缓存 | 可删除后重建，不影响原图 |
 | `{workspace}/.photo-gallery-cache/video-posters/` | 视频 poster 缓存 | 可删除后重建，不影响原视频 |
-| `{workspace}/.photo-gallery-cache/photo-gallery-*.zip` | 批量下载临时 ZIP | 响应结束后清理，启动/创建前可清理过期残留 |
+| `{workspace}/.photo-gallery-cache/photo-gallery-*.zip` | 批量下载临时 ZIP | 响应结束后清理；活跃登记与近期兜底文件受保护，只有非活跃残留属于可清理缓存 |
 | `{workspace}/.photo-gallery-cache/index.json` | 旧版图库缓存索引 | 仅作为兼容迁移来源，不应新增依赖 |
-| `{workspace}/.video-reconstruction/jobs/` | 视频重建每任务工作目录 | 包含抽帧、位姿、训练、导出、中间日志；按保留策略清理 |
+| `{workspace}/.video-reconstruction/jobs/` | 视频重建每任务工作目录 | 包含抽帧、位姿、训练、导出、中间日志；按保留策略清理，不参与 Settings 自动存储扫描或通用缓存清理 |
 | `{workspace}/.video-reconstruction/uploads/` | 拖入/上传视频的受控缓存 | 删除对应生成模型时可清理；本地相册源视频必须保持只读 |
 | `{workspace}/.sharp-gui.lock` | 工作区实例锁 | 运行时互斥文件；是否占用以操作系统文件锁为准，残留文件可复用且必须忽略提交 |
 
@@ -157,6 +157,8 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - 新增持久化用户数据目录时，必须先判断是否应随 workspace 切换；如果应切换，统一从 `PathContext` 派生，并同步更新本表、`.gitignore`、README 和相关后端路径规则。
 - 新增项目根配置、密钥、日志、依赖或构建输出时，必须在本表说明“不随 workspace 切换”的原因，并确认 `.gitignore` 覆盖。
 - `/files/*` 白名单只表示允许浏览器读取的公开资源根，不等于用户数据目录清单；索引、配置、证书、源码和日志不得为了省事加入静态服务根。
+- Settings 的“存储与缓存”只在打开时读取 owner-only 后台快照：深扫可重建缓存及受控视频 uploads 子树，其他受保护工作区目录只做顶层计量；绝不扫描外部相册原图或视频重建 jobs。普通打开复用 60 秒快照，手动刷新也必须与在途扫描去重。
+- 通用缓存清理必须保留模型/源图/导入资产/资产索引/manual 封面/视频 uploads 与 jobs；模型封面目录不能整目录删除，无法从索引可靠判定所有权时默认按受保护内容处理。
 - Settings 切换到不同 workspace 前必须先尝试取得并释放目标工作区锁；目标已被其他实例占用时返回 409，且不得先修改 `config.json`。
 - 图片与视频残留清理只能在 `TaskManager` 成功取得当前 workspace 的独占锁后执行；`create_app()`、模块导入及锁获取失败路径不得提前清理运行时文件。
 

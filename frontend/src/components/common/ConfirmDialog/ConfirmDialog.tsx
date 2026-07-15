@@ -29,13 +29,18 @@ export function ConfirmDialog({
   onClose,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
+  const handleClose = () => {
+    if (!isBusy) {
+      onClose();
+    }
+  };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title={title} size="sm">
+    <Modal isOpen={isOpen} onClose={handleClose} title={title} size="sm">
       <div className={styles.body}>
         <p>{message}</p>
         <div className={styles.actions}>
-          <Button variant="secondary" onClick={onClose} disabled={isBusy} type="button">
+          <Button variant="secondary" onClick={handleClose} disabled={isBusy} type="button">
             {cancelLabel ?? t('cancel')}
           </Button>
           <Button

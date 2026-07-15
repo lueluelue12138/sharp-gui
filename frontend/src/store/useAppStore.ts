@@ -446,6 +446,7 @@ interface AppState {
   modelAssetDensity: ModelAssetDensity;
   modelAssetBatchSize: number;
   modelAssetCacheReady: boolean;
+  modelAssetCacheGeneration: number;
   modelAssetScrollTop: number;
   selectedModelAssetId: string | null;
   modelAssetSelectionMode: boolean;
@@ -550,6 +551,7 @@ interface AppState {
   setPreviewImage: (item: GalleryItem | null) => void;
   setModelAssets: (response: ModelAssetListResponse, append?: boolean) => void;
   mergeModelAssetRefresh: (response: ModelAssetListResponse) => void;
+  invalidateModelAssetCache: () => void;
   setModelAssetLoading: (loading: boolean) => void;
   setModelAssetError: (message: string | null) => void;
   setModelAssetFilters: (filters: Partial<{
@@ -674,6 +676,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelAssetDensity: 'comfortable',
   modelAssetBatchSize: DEFAULT_MODEL_ASSET_BATCH_SIZE,
   modelAssetCacheReady: false,
+  modelAssetCacheGeneration: 0,
   modelAssetScrollTop: 0,
   selectedModelAssetId: null,
   modelAssetSelectionMode: false,
@@ -971,6 +974,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       modelAssetError: null,
     };
   }),
+  invalidateModelAssetCache: () => set((state) => ({
+    modelAssetCacheReady: false,
+    modelAssetCacheGeneration: state.modelAssetCacheGeneration + 1,
+    modelAssetLoading: false,
+    modelAssetError: null,
+  })),
   setModelAssetLoading: (loading) => set({ modelAssetLoading: loading }),
   setModelAssetError: (message) => set({ modelAssetError: message, modelAssetLoading: false }),
   setModelAssetFilters: (filters) => set((state) => ({

@@ -8,6 +8,7 @@ import tempfile
 import threading
 import uuid
 import zipfile
+from collections import deque
 from shutil import which
 from urllib.parse import quote
 
@@ -59,6 +60,37 @@ album_snapshot_cache = {}
 thumbnail_generation_semaphore = threading.BoundedSemaphore(2)
 bootstrap_lock = threading.Lock()
 bootstrap_album_ids = set()
+bootstrap_queue = deque()
+bootstrap_worker_running = False
+photo_download_lock = threading.Lock()
+active_photo_download_paths = set()
+
+
+def _normalized_real_path(path):
+    return os.path.normcase(os.path.realpath(os.path.abspath(path)))
+
+
+def _is_link_like(path):
+    return os.path.islink(path) or getattr(os.path, "isjunction", lambda _path: False)(path)
+
+
+def _is_safe_workspace_cache_path(paths, path):
+    return not _is_link_like(path) and is_real_path_inside(path, paths.workspace_folder)
+
+
+def register_active_photo_download(path):
+    with photo_download_lock:
+        active_photo_download_paths.add(_normalized_real_path(path))
+
+
+def unregister_active_photo_download(path):
+    with photo_download_lock:
+        active_photo_download_paths.discard(_normalized_real_path(path))
+
+
+def is_active_photo_download(path):
+    with photo_download_lock:
+        return _normalized_real_path(path) in active_photo_download_paths
 
 
 def get_album_lock(album_id):
@@ -930,31 +962,54 @@ def scan_photo_album(paths, album):
 
 
 def schedule_album_bootstrap(paths, album):
-    """低优先级后台建立相册索引；普通读取不等待它。"""
+    """串行后台建立相册索引；普通读取不等待，也不会形成多盘并发扫描。"""
+    global bootstrap_worker_running
     album_id = album.get("id")
     if not album_id:
         return False
     if load_album_index(paths, album_id):
         return False
+    bootstrap_key = (normalize_workspace_key(paths.workspace_folder), album_id)
 
     with bootstrap_lock:
-        if album_id in bootstrap_album_ids:
+        if bootstrap_key in bootstrap_album_ids:
             return False
-        bootstrap_album_ids.add(album_id)
+        bootstrap_album_ids.add(bootstrap_key)
+        bootstrap_queue.append((bootstrap_key, paths, dict(album)))
+        if bootstrap_worker_running:
+            return True
+        bootstrap_worker_running = True
 
     def worker():
-        try:
-            scan_photo_album(paths, album)
-        finally:
+        global bootstrap_worker_running
+        while True:
             with bootstrap_lock:
-                bootstrap_album_ids.discard(album_id)
+                if not bootstrap_queue:
+                    bootstrap_worker_running = False
+                    return
+                queued_key, queued_paths, queued_album = bootstrap_queue.popleft()
+            try:
+                scan_photo_album(queued_paths, queued_album)
+            except Exception as exc:
+                print(f"⚠️ Photo gallery bootstrap failed for {queued_album.get('id')}: {exc}")
+            finally:
+                with bootstrap_lock:
+                    bootstrap_album_ids.discard(queued_key)
 
     thread = threading.Thread(
         target=worker,
-        name=f"photo-gallery-bootstrap-{album_id}",
+        name="photo-gallery-bootstrap",
         daemon=True,
     )
-    thread.start()
+    try:
+        thread.start()
+    except Exception:
+        with bootstrap_lock:
+            bootstrap_worker_running = False
+            queued_keys = {item[0] for item in bootstrap_queue}
+            bootstrap_queue.clear()
+            bootstrap_album_ids.difference_update(queued_keys)
+        raise
     return True
 
 
@@ -1657,7 +1712,10 @@ def make_unique_archive_name(filename, used_names):
 def cleanup_expired_photo_download_zips(paths, max_age_seconds=PHOTO_DOWNLOAD_ZIP_TTL_SECONDS):
     """清理中断下载或异常退出遗留的临时图库 ZIP。"""
     cache_folder = paths.photo_gallery_cache_folder
-    if not os.path.isdir(cache_folder):
+    if (
+        not _is_safe_workspace_cache_path(paths, cache_folder)
+        or not os.path.isdir(cache_folder)
+    ):
         return
 
     now = datetime.datetime.now().timestamp()
@@ -1671,6 +1729,8 @@ def cleanup_expired_photo_download_zips(paths, max_age_seconds=PHOTO_DOWNLOAD_ZI
             continue
 
         zip_path = os.path.join(cache_folder, filename)
+        if is_active_photo_download(zip_path):
+            continue
         try:
             stat = os.stat(zip_path)
         except OSError:
@@ -1688,6 +1748,8 @@ def cleanup_expired_photo_download_zips(paths, max_age_seconds=PHOTO_DOWNLOAD_ZI
 
 def create_photo_download_zip(paths, photo_ids):
     photo_ids = [str(photo_id) for photo_id in photo_ids[:PHOTO_MAX_DOWNLOAD_BATCH]]
+    if not _is_safe_workspace_cache_path(paths, paths.photo_gallery_cache_folder):
+        return None, {"error": "Unsafe photo gallery cache path"}, 409
     os.makedirs(paths.photo_gallery_cache_folder, exist_ok=True)
     cleanup_expired_photo_download_zips(paths)
     fd, zip_path = tempfile.mkstemp(
@@ -1696,6 +1758,7 @@ def create_photo_download_zip(paths, photo_ids):
         dir=paths.photo_gallery_cache_folder,
     )
     os.close(fd)
+    register_active_photo_download(zip_path)
 
     added_count = 0
     failed = []
@@ -1715,6 +1778,7 @@ def create_photo_download_zip(paths, photo_ids):
                 added_count += 1
 
         if added_count == 0:
+            unregister_active_photo_download(zip_path)
             try:
                 os.remove(zip_path)
             except OSError:
@@ -1729,6 +1793,7 @@ def create_photo_download_zip(paths, photo_ids):
             "failed": failed,
         }, None, 200
     except Exception as exc:
+        unregister_active_photo_download(zip_path)
         try:
             os.remove(zip_path)
         except OSError:
@@ -1777,9 +1842,13 @@ def convert_photos_to_models(paths, task_manager, photo_ids):
     }
 
 
-def collect_cache_folder_stats(folder, predicate=None):
+def collect_cache_folder_stats(folder, predicate=None, *, allowed_root=None):
     stats = {"files": 0, "bytes": 0}
-    if not os.path.isdir(folder):
+    if (
+        not os.path.isdir(folder)
+        or _is_link_like(folder)
+        or (allowed_root and not is_real_path_inside(folder, allowed_root))
+    ):
         return stats
 
     for current_root, _dirnames, filenames in os.walk(folder):
@@ -1787,6 +1856,8 @@ def collect_cache_folder_stats(folder, predicate=None):
             if predicate and not predicate(filename):
                 continue
             path = os.path.join(current_root, filename)
+            if _is_link_like(path):
+                continue
             try:
                 stat = os.stat(path)
             except OSError:
@@ -1798,7 +1869,19 @@ def collect_cache_folder_stats(folder, predicate=None):
 
 def get_photo_gallery_cache_stats(paths):
     index_stats = {"files": 0, "bytes": 0}
+    if not _is_safe_workspace_cache_path(paths, paths.photo_gallery_cache_folder):
+        return {
+            "success": True,
+            "index_version": PHOTO_INDEX_VERSION,
+            "indexes": index_stats,
+            "thumbnails": {"files": 0, "bytes": 0},
+            "video_posters": {"files": 0, "bytes": 0},
+            "downloads": {"files": 0, "bytes": 0},
+            "total": {"files": 0, "bytes": 0},
+        }
     for path in (paths.photo_catalog_file, paths.photo_index_file, f"{paths.photo_index_file}.bak"):
+        if not _is_safe_workspace_cache_path(paths, path):
+            continue
         try:
             stat = os.stat(path)
         except OSError:
@@ -1809,15 +1892,23 @@ def get_photo_gallery_cache_stats(paths):
     album_index_stats = collect_cache_folder_stats(
         paths.photo_album_index_folder,
         lambda filename: filename.endswith(".json"),
+        allowed_root=paths.workspace_folder,
     )
     index_stats["files"] += album_index_stats["files"]
     index_stats["bytes"] += album_index_stats["bytes"]
 
-    thumbnail_stats = collect_cache_folder_stats(paths.photo_thumbnail_folder)
-    poster_stats = collect_cache_folder_stats(paths.video_poster_folder)
+    thumbnail_stats = collect_cache_folder_stats(
+        paths.photo_thumbnail_folder,
+        allowed_root=paths.workspace_folder,
+    )
+    poster_stats = collect_cache_folder_stats(
+        paths.video_poster_folder,
+        allowed_root=paths.workspace_folder,
+    )
     download_stats = collect_cache_folder_stats(
         paths.photo_gallery_cache_folder,
         lambda filename: filename.startswith("photo-gallery-") and filename.endswith(".zip"),
+        allowed_root=paths.workspace_folder,
     )
     total = {
         "files": index_stats["files"] + thumbnail_stats["files"] + poster_stats["files"] + download_stats["files"],
@@ -1842,6 +1933,8 @@ def remove_tree_contents(folder):
     for current_root, dirnames, filenames in os.walk(folder, topdown=False):
         for filename in filenames:
             path = os.path.join(current_root, filename)
+            if _is_link_like(path):
+                continue
             try:
                 stat = os.stat(path)
                 os.remove(path)
@@ -1871,6 +1964,8 @@ def remove_matching_cache_files(folder, predicate):
         if not predicate(filename):
             continue
         path = os.path.join(folder, filename)
+        if _is_link_like(path):
+            continue
         try:
             stat = os.stat(path)
             if os.path.isfile(path):
@@ -1887,17 +1982,34 @@ def merge_removed_stats(target, source):
     target["bytes"] += source["bytes"]
 
 
+def invalidate_photo_gallery_memory_cache():
+    """清空依赖磁盘索引的进程内快照，供缓存清理流程复用。"""
+    with album_index_cache_lock:
+        album_index_cache.clear()
+        album_snapshot_cache.clear()
+
+
 def clear_photo_gallery_cache(paths, scope="generated"):
     """清理图库生成缓存；永远不删除配置相册中的原始媒体。"""
     normalized_scope = str(scope or "generated").strip().lower()
     allowed_scopes = {"generated", "indexes", "thumbnails", "posters", "downloads", "all"}
     if normalized_scope not in allowed_scopes:
         return {"success": False, "error": "Unsupported cache cleanup scope"}, 400
+    managed_roots = (
+        paths.photo_gallery_cache_folder,
+        paths.photo_album_index_folder,
+        paths.photo_thumbnail_folder,
+        paths.video_poster_folder,
+    )
+    if any(not _is_safe_workspace_cache_path(paths, path) for path in managed_roots):
+        return {"success": False, "error": "Unsafe cache path"}, 409
 
     removed = {"files": 0, "bytes": 0}
 
     if normalized_scope in {"generated", "all", "indexes"}:
         for path in (paths.photo_catalog_file, paths.photo_index_file, f"{paths.photo_index_file}.bak"):
+            if not _is_safe_workspace_cache_path(paths, path):
+                continue
             try:
                 stat = os.stat(path)
                 os.remove(path)
@@ -1906,9 +2018,7 @@ def clear_photo_gallery_cache(paths, scope="generated"):
             except OSError:
                 pass
         merge_removed_stats(removed, remove_tree_contents(paths.photo_album_index_folder))
-        with album_index_cache_lock:
-            album_index_cache.clear()
-            album_snapshot_cache.clear()
+        invalidate_photo_gallery_memory_cache()
 
     if normalized_scope in {"generated", "all", "thumbnails"}:
         merge_removed_stats(removed, remove_tree_contents(paths.photo_thumbnail_folder))

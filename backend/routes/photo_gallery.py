@@ -2,7 +2,7 @@ import os
 
 from flask import Blueprint, current_app, g, jsonify, request, send_file, send_from_directory
 
-from backend.services import photo_gallery
+from backend.services import photo_gallery, workspace_storage
 
 bp = Blueprint("photo_gallery", __name__)
 
@@ -61,6 +61,8 @@ def photo_gallery_cache():
         data = request.get_json(silent=True) or {}
         scope = data.get("scope", "generated")
     payload, status_code = photo_gallery.clear_photo_gallery_cache(paths, scope)
+    if status_code < 400 and payload.get("success"):
+        workspace_storage.invalidate_workspace_storage_stats(paths)
     return jsonify(payload), status_code
 
 
@@ -198,19 +200,28 @@ def download_photos():
     if error_payload:
         return jsonify(error_payload), status_code
 
-    response = send_file(
-        result["zip_path"],
-        as_attachment=True,
-        download_name=result["download_name"],
-        mimetype="application/zip",
-        max_age=0,
-        conditional=False,
-    )
+    try:
+        response = send_file(
+            result["zip_path"],
+            as_attachment=True,
+            download_name=result["download_name"],
+            mimetype="application/zip",
+            max_age=0,
+            conditional=False,
+        )
+    except Exception:
+        photo_gallery.unregister_active_photo_download(result["zip_path"])
+        try:
+            os.remove(result["zip_path"])
+        except OSError:
+            pass
+        raise
     response.headers["X-Photo-Download-Count"] = str(result["added_count"])
     response.headers["X-Photo-Download-Failed"] = str(len(result["failed"]))
 
     @response.call_on_close
     def cleanup_zip():
+        photo_gallery.unregister_active_photo_download(result["zip_path"])
         try:
             os.remove(result["zip_path"])
         except OSError:

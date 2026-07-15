@@ -535,12 +535,14 @@ rm -rf sharp-gui/
 
 - `inputs/` - 上传图片；`inputs/.thumbnails/` 保存历史/模型缩略图缓存
 - `outputs/` - 生成模型和 sidecar 元数据（`.ply` / `.spz` / `.meta.json`）
-- `model-assets/` - 模型资产受控文件区：`imports/` 保存导入模型，`thumbnails/` 保存封面缓存
+- `model-assets/` - 模型资产受控文件区：`imports/` 保存导入模型，`thumbnails/` 同时保存可重建的系统预览与受保护的手动封面
 - `.model-asset-library/` - 模型资产索引与用户编辑信息（`index.json`）
 - `.photo-gallery-cache/` - 本地媒体图库缓存：`catalog.json`、`albums/`、`thumbnails/`、`video-posters/` 和临时打包 ZIP
 - `.video-reconstruction/` - 视频重建运行时数据：`jobs/` 和 `uploads/`
 
 这些工作区运行时目录属于用户数据，默认已在 `.gitignore` 中排除，不应提交到仓库。切换 Settings 中的工作目录并自动重启后，`inputs/`、`outputs/`、`model-assets/`、`.model-asset-library/`、`.photo-gallery-cache/` 和 `.video-reconstruction/` 都会切到新工作目录；切回旧工作目录即可找回对应的模型资产、近期模型索引、相册缓存和任务相关状态。
+
+Settings 的“存储与缓存”会在打开时通过后台快照统计图库缓存、模型预览、受控源视频等内容，并明确区分“可重建缓存”和“受保护的工作区内容”。普通打开复用短期快照，手动刷新才强制重算；清理不会删除模型、源图片、手动封面、资产资料、视频 uploads/jobs、正在使用的下载或外部相册原图。
 
 项目根目录下的 `config.json`、`cert.pem` / `key.pem`、`sharp-gui-verbose.log` 以及 `venv/`、`.video-reconstruction-env/`、`ml-sharp/` 是部署配置、证书、日志或依赖目录，不随 workspace 切换；其中敏感文件不会通过 `/files/*` 暴露。
 

@@ -95,7 +95,7 @@
     font-size: 12px;
     font-weight: 500;
     color: var(--text-secondary);
-    margin-bottom: 6px;
+    margin: 0 0 6px;
 }
 
 .inputWrapper {
@@ -158,6 +158,12 @@
     background: rgba(255, 255, 255, 0.8);
     border-color: var(--accent-blue);
     color: var(--accent-blue);
+}
+
+.browseBtn:focus-visible,
+.dangerBtn:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: 2px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -440,6 +446,10 @@
     background: rgba(255, 255, 255, 0.4);
 }
 
+.protectedStorageCard {
+    margin-top: 10px;
+}
+
 .cacheHeader,
 .cacheFooter {
     display: flex;
@@ -465,8 +475,13 @@
     line-height: 1.45;
 }
 
+.cacheFooter small {
+    font: inherit;
+}
+
 .cacheTitle {
     display: block;
+    margin: 0;
     color: var(--text-primary);
     font-size: 14px;
     font-weight: 700;
@@ -477,23 +492,85 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     margin: 14px 0;
+    padding: 0;
 }
 
-.cacheStats span {
+.storageRefreshBtn {
+    min-width: 76px;
+}
+
+.cacheStats > div {
     min-height: 50px;
     padding: 10px;
     border-radius: var(--radius-md);
     background: rgba(255, 255, 255, 0.36);
+    display: grid;
+    grid-template-areas:
+        "value"
+        "label";
+    align-content: center;
+    gap: 2px;
+}
+
+.cacheStats dt {
+    grid-area: label;
+    margin: 0;
     color: var(--text-muted);
     font-size: 11px;
     line-height: 1.35;
 }
 
-.cacheStats strong {
-    display: block;
-    margin-bottom: 2px;
+.cacheStats dd {
+    grid-area: value;
+    margin: 0;
     color: var(--text-primary);
     font-size: 14px;
+    font-weight: 700;
+    line-height: 1.35;
+}
+
+.cacheStatLoading dd {
+    width: 58%;
+    min-height: 16px;
+    border-radius: 999px;
+    color: transparent;
+    background: linear-gradient(
+        90deg,
+        rgba(127, 127, 127, 0.12),
+        rgba(127, 127, 127, 0.26),
+        rgba(127, 127, 127, 0.12)
+    );
+    background-size: 200% 100%;
+    animation: cache-shimmer 1.4s ease-in-out infinite;
+}
+
+.protectedPill {
+    flex: 0 0 auto;
+    padding: 5px 9px;
+    border-radius: 999px;
+    color: var(--success-color);
+    background: rgba(52, 199, 89, 0.12);
+    font-size: 10px;
+    font-weight: 700;
+}
+
+.protectedStorageFooter {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--text-muted);
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.protectedStorageFooter span {
+    color: var(--text-secondary);
+    font-weight: 600;
+}
+
+@keyframes cache-shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
 }
 
 .cacheFooter .dangerBtn {
@@ -619,7 +696,7 @@
 
 @media (prefers-color-scheme: dark) {
     .cacheCard,
-    .cacheStats span,
+    .cacheStats > div,
     .dependencyRow {
         border-color: rgba(255, 255, 255, 0.1);
         background: rgba(255, 255, 255, 0.05);
@@ -627,6 +704,12 @@
 
     .videoToggleRow {
         border-top-color: rgba(255, 255, 255, 0.1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .cacheStatLoading dd {
+        animation: none;
     }
 }
 
@@ -643,6 +726,10 @@
     .dependencyFooter,
     .dependencyFooter .browseBtn {
         width: 100%;
+    }
+
+    .protectedPill {
+        align-self: flex-start;
     }
 
     .dependencyFooter {

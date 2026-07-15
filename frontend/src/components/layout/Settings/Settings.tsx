@@ -1,13 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/store/useAppStore';
 import {
     ApiError,
     fetchAuthStatus,
-    fetchPhotoGalleryCacheStats,
+    fetchWorkspaceStorageStats,
     fetchSettings,
     fetchVideoReconstructionStatus,
-    clearPhotoGalleryCache,
+    clearWorkspaceCache,
     logoutAccessSession,
     restartServer,
     revokeAccessSessions,
@@ -21,7 +21,8 @@ import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import type {
     AuthStatusResponse,
     ModelFormat,
-    PhotoGalleryCacheStats,
+    WorkspaceStorageBucket,
+    WorkspaceStorageSnapshot,
     VideoReconstructionConfig,
     VideoReconstructionDependencies,
     VideoReconstructionEngine,
@@ -47,9 +48,10 @@ const DEFAULT_VIDEO_CONFIG: VideoReconstructionConfig = {
     vram_budget: '12gb',
     keep_intermediate_files: false,
 };
+const WORKSPACE_STORAGE_POLL_TIMEOUT_MS = 30_000;
 
 export const Settings: React.FC = () => {
-    const { t } = useTranslation();
+    const { t, i18n } = useTranslation();
     const {
         settingsModalOpen,
         setSettingsModalOpen,
@@ -89,6 +91,7 @@ export const Settings: React.FC = () => {
         setAuthStatus,
         setVideoReconstructionStatus,
         openVideoReconstructionGuide,
+        invalidateModelAssetCache,
     } = useAppStore();
     const [workspaceFolder, setWorkspaceFolder] = useState('');
     const [modelFormat, setModelFormat] = useState<ModelFormat>('spz');
@@ -108,16 +111,20 @@ export const Settings: React.FC = () => {
     const [isRevokingSessions, setIsRevokingSessions] = useState(false);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const [accessMessage, setAccessMessage] = useState<string | null>(null);
-    const [photoCacheStats, setPhotoCacheStats] = useState<PhotoGalleryCacheStats | null>(null);
-    const [isPhotoCacheLoading, setIsPhotoCacheLoading] = useState(false);
-    const [isPhotoCacheClearing, setIsPhotoCacheClearing] = useState(false);
-    const [photoCacheMessage, setPhotoCacheMessage] = useState<string | null>(null);
-    const [photoCacheConfirmOpen, setPhotoCacheConfirmOpen] = useState(false);
+    const [workspaceStorageSnapshot, setWorkspaceStorageSnapshot] = useState<WorkspaceStorageSnapshot | null>(null);
+    const [isWorkspaceStorageLoading, setIsWorkspaceStorageLoading] = useState(false);
+    const [isWorkspaceStorageRefreshing, setIsWorkspaceStorageRefreshing] = useState(false);
+    const [isWorkspaceCacheClearing, setIsWorkspaceCacheClearing] = useState(false);
+    const [workspaceStorageMessage, setWorkspaceStorageMessage] = useState<string | null>(null);
+    const [workspaceCacheConfirmOpen, setWorkspaceCacheConfirmOpen] = useState(false);
     const [videoConfig, setVideoConfig] = useState<VideoReconstructionConfig>(DEFAULT_VIDEO_CONFIG);
     const [savedVideoConfig, setSavedVideoConfig] = useState<VideoReconstructionConfig>(DEFAULT_VIDEO_CONFIG);
     const [videoDependencies, setVideoDependencies] = useState<VideoReconstructionDependencies | null>(null);
     const [videoStatusLoading, setVideoStatusLoading] = useState(false);
     const [videoMessage, setVideoMessage] = useState<string | null>(null);
+    const workspaceStorageRequestIdRef = useRef(0);
+    const workspaceStoragePollTimerRef = useRef<number | null>(null);
+    const settingsModalOpenRef = useRef(settingsModalOpen);
 
     // Track if workspace_folder changed (needs restart)
     const [originalWorkspace, setOriginalWorkspace] = useState('');
@@ -185,20 +192,79 @@ export const Settings: React.FC = () => {
         }
     }, [applyAccessStatus]);
 
-    const loadPhotoCacheStats = useCallback(async () => {
-        if (!isLocalAccess) return;
-        setIsPhotoCacheLoading(true);
-        try {
-            const stats = await fetchPhotoGalleryCacheStats();
-            setPhotoCacheStats(stats);
-            setPhotoCacheMessage(null);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : t('photoCacheLoadFailed');
-            setPhotoCacheMessage(message);
-        } finally {
-            setIsPhotoCacheLoading(false);
+    const cancelWorkspaceStoragePolling = useCallback(() => {
+        workspaceStorageRequestIdRef.current += 1;
+        if (workspaceStoragePollTimerRef.current !== null) {
+            window.clearTimeout(workspaceStoragePollTimerRef.current);
+            workspaceStoragePollTimerRef.current = null;
         }
-    }, [isLocalAccess, t]);
+    }, []);
+
+    const loadWorkspaceStorageStats = useCallback(async (
+        forceRefresh = false,
+        preserveMessage = false,
+    ) => {
+        if (!isLocalAccess) return;
+        cancelWorkspaceStoragePolling();
+        const requestId = workspaceStorageRequestIdRef.current;
+        setIsWorkspaceStorageLoading(true);
+        if (forceRefresh) {
+            setIsWorkspaceStorageRefreshing(true);
+        }
+        const pollStartedAt = Date.now();
+        let pollAttempt = 0;
+
+        const poll = async (refresh: boolean): Promise<void> => {
+            try {
+                const response = await fetchWorkspaceStorageStats(refresh);
+                if (workspaceStorageRequestIdRef.current !== requestId) return;
+
+                if (response.snapshot) {
+                    setWorkspaceStorageSnapshot(response.snapshot);
+                    setIsWorkspaceStorageLoading(false);
+                } else {
+                    setIsWorkspaceStorageLoading(response.refreshing);
+                }
+                setIsWorkspaceStorageRefreshing(response.refreshing);
+
+                if (response.status === 'error') {
+                    setWorkspaceStorageMessage(t('workspaceStorageLoadFailed'));
+                } else if (response.snapshot?.scan.incomplete) {
+                    setWorkspaceStorageMessage(t('workspaceStorageScanIncomplete', {
+                        count: response.snapshot.scan.skipped_entries,
+                    }));
+                } else if (response.stale && response.refreshing) {
+                    setWorkspaceStorageMessage(t('workspaceStorageSnapshotStale'));
+                } else if (response.stale) {
+                    setWorkspaceStorageMessage(t('workspaceStorageSnapshotRefreshFailed'));
+                } else if (!preserveMessage) {
+                    setWorkspaceStorageMessage(null);
+                }
+
+                if (response.refreshing) {
+                    if (Date.now() - pollStartedAt >= WORKSPACE_STORAGE_POLL_TIMEOUT_MS) {
+                        setIsWorkspaceStorageLoading(false);
+                        setIsWorkspaceStorageRefreshing(false);
+                        setWorkspaceStorageMessage(t('workspaceStorageRefreshTimedOut'));
+                        return;
+                    }
+                    const baseDelay = Math.max(300, response.retry_after_ms ?? 600);
+                    const retryAfter = Math.min(4000, baseDelay * (2 ** Math.min(pollAttempt, 3)));
+                    pollAttempt += 1;
+                    workspaceStoragePollTimerRef.current = window.setTimeout(() => {
+                        void poll(false);
+                    }, retryAfter);
+                }
+            } catch {
+                if (workspaceStorageRequestIdRef.current !== requestId) return;
+                setIsWorkspaceStorageLoading(false);
+                setIsWorkspaceStorageRefreshing(false);
+                setWorkspaceStorageMessage(t('workspaceStorageLoadFailed'));
+            }
+        };
+
+        await poll(forceRefresh);
+    }, [cancelWorkspaceStoragePolling, isLocalAccess, t]);
 
     const loadVideoReconstructionStatus = useCallback(async (forceRefresh = false) => {
         setVideoStatusLoading(true);
@@ -219,24 +285,32 @@ export const Settings: React.FC = () => {
 
     // Load settings when modal opens
     useEffect(() => {
+        settingsModalOpenRef.current = settingsModalOpen;
         if (settingsModalOpen) {
             setModelFormat(effectiveModelFormat());
             setDefaultRevealEffect(viewerDefaultRevealEffect);
             setAccessMessage(null);
             loadSettings();
-            void loadPhotoCacheStats();
+            void loadWorkspaceStorageStats();
             void loadVideoReconstructionStatus();
+        } else {
+            cancelWorkspaceStoragePolling();
         }
     }, [
         settingsModalOpen,
         effectiveModelFormat,
         viewerDefaultRevealEffect,
         loadSettings,
-        loadPhotoCacheStats,
+        loadWorkspaceStorageStats,
         loadVideoReconstructionStatus,
+        cancelWorkspaceStoragePolling,
     ]);
 
+    useEffect(() => () => cancelWorkspaceStoragePolling(), [cancelWorkspaceStoragePolling]);
+
     const handleClose = () => {
+        settingsModalOpenRef.current = false;
+        cancelWorkspaceStoragePolling();
         setSettingsModalOpen(false);
     };
 
@@ -375,27 +449,34 @@ export const Settings: React.FC = () => {
         }
     };
 
-    const handleClearPhotoCache = async () => {
-        if (!isLocalAccess || isPhotoCacheClearing) return;
-        setIsPhotoCacheClearing(true);
-        setPhotoCacheMessage(null);
+    const handleClearWorkspaceCache = async () => {
+        if (!isLocalAccess || isWorkspaceCacheClearing) return;
+        cancelWorkspaceStoragePolling();
+        invalidateModelAssetCache();
+        setIsWorkspaceCacheClearing(true);
+        setWorkspaceStorageMessage(null);
         try {
-            const result = await clearPhotoGalleryCache('generated');
-            setPhotoCacheStats(result.stats);
-            setPhotoCacheMessage(t('photoCacheClearComplete', {
+            const result = await clearWorkspaceCache();
+            setWorkspaceStorageMessage(t('workspaceCacheClearComplete', {
                 files: result.removed.files,
-                size: formatCacheSize(result.removed.bytes),
+                size: formatCacheSize(result.removed.bytes, i18n.resolvedLanguage),
             }));
-            setPhotoCacheConfirmOpen(false);
+            invalidateModelAssetCache();
+            setWorkspaceCacheConfirmOpen(false);
+            if (settingsModalOpenRef.current) {
+                void loadWorkspaceStorageStats(false, true);
+            }
         } catch (error) {
+            invalidateModelAssetCache();
             const message = error instanceof ApiError && error.status === 403
                 ? t('ownerOnlyAction')
-                : error instanceof Error
-                    ? error.message
-                    : t('photoCacheClearFailed');
-            setPhotoCacheMessage(message);
+                : t('workspaceCacheClearFailed');
+            setWorkspaceStorageMessage(message);
+            if (settingsModalOpenRef.current) {
+                void loadWorkspaceStorageStats(true, true);
+            }
         } finally {
-            setIsPhotoCacheClearing(false);
+            setIsWorkspaceCacheClearing(false);
         }
     };
 
@@ -519,6 +600,26 @@ export const Settings: React.FC = () => {
             setIsLoggingOut(false);
         }
     };
+
+    const clearableCache = workspaceStorageSnapshot?.clearable_cache;
+    const protectedStorage = workspaceStorageSnapshot?.protected_storage;
+    const protectedModelFiles = sumStorageBuckets(
+        protectedStorage?.generated_models,
+        protectedStorage?.imported_models,
+    );
+    const protectedAssetRecords = sumStorageBuckets(
+        protectedStorage?.asset_library,
+        protectedStorage?.asset_covers,
+    );
+    const workspaceStorageBusy = isWorkspaceStorageLoading || isWorkspaceStorageRefreshing;
+    const renderStorageMetric = (bucket: WorkspaceStorageBucket | undefined, label: string) => (
+        <div className={!bucket && workspaceStorageBusy ? styles.cacheStatLoading : undefined}>
+            <dt>{label}</dt>
+            <dd title={bucket ? formatExactBytes(bucket.bytes, i18n.resolvedLanguage) : undefined}>
+                {bucket ? formatCacheSize(bucket.bytes, i18n.resolvedLanguage) : '—'}
+            </dd>
+        </div>
+    );
 
     return (
         <div
@@ -735,65 +836,112 @@ export const Settings: React.FC = () => {
                 )}
 
                 {isLocalAccess && (
-                    <div className={styles.group}>
-                        <label className={styles.label}>{t('photoCacheTitle')}</label>
-                        <div className={styles.cacheCard}>
+                    <section className={styles.group} aria-labelledby="workspace-storage-title">
+                        <h4 id="workspace-storage-title" className={styles.label}>{t('workspaceStorageTitle')}</h4>
+                        <div
+                            className={styles.cacheCard}
+                            aria-busy={isWorkspaceStorageLoading || isWorkspaceStorageRefreshing}
+                        >
                             <div className={styles.cacheHeader}>
                                 <div>
-                                    <span className={styles.cacheTitle}>{t('photoCacheGenerated')}</span>
-                                    <p>{t('photoCacheDescription')}</p>
+                                    <h5 className={styles.cacheTitle}>{t('workspaceCacheRebuildable')}</h5>
+                                    <p>{t('workspaceCacheDescription')}</p>
                                 </div>
                                 <button
                                     type="button"
-                                    className={styles.browseBtn}
-                                    onClick={loadPhotoCacheStats}
-                                    disabled={isPhotoCacheLoading || isPhotoCacheClearing}
+                                    className={`${styles.browseBtn} ${styles.storageRefreshBtn}`}
+                                    onClick={() => void loadWorkspaceStorageStats(true)}
+                                    disabled={isWorkspaceStorageRefreshing || isWorkspaceCacheClearing}
                                 >
-                                    {isPhotoCacheLoading ? t('loading') : t('photoCacheRefresh')}
+                                    {isWorkspaceStorageRefreshing ? t('workspaceStorageRefreshing') : t('workspaceStorageRefresh')}
                                 </button>
                             </div>
 
-                            <div className={styles.cacheStats}>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.indexes.bytes ?? 0)}</strong>
-                                    {t('photoCacheIndexes')}
-                                </span>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.thumbnails.bytes ?? 0)}</strong>
-                                    {t('photoCacheThumbnails')}
-                                </span>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.video_posters.bytes ?? 0)}</strong>
-                                    {t('photoCachePosters')}
-                                </span>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.downloads.bytes ?? 0)}</strong>
-                                    {t('photoCacheDownloads')}
-                                </span>
-                            </div>
+                            <dl className={styles.cacheStats}>
+                                {renderStorageMetric(clearableCache?.gallery_indexes, t('workspaceCacheIndexes'))}
+                                {renderStorageMetric(clearableCache?.photo_thumbnails, t('workspaceCachePhotoThumbnails'))}
+                                {renderStorageMetric(clearableCache?.video_posters, t('workspaceCacheVideoPosters'))}
+                                {renderStorageMetric(clearableCache?.model_previews, t('workspaceCacheModelPreviews'))}
+                                {renderStorageMetric(clearableCache?.temporary_downloads, t('workspaceCacheDownloads'))}
+                                {renderStorageMetric(clearableCache?.other, t('workspaceCacheOther'))}
+                            </dl>
 
                             <div className={styles.cacheFooter}>
-                                <span>
-                                    {photoCacheStats
-                                        ? t('photoCacheTotal', {
-                                            files: photoCacheStats.total.files,
-                                            size: formatCacheSize(photoCacheStats.total.bytes),
+                                <span
+                                    aria-live="polite"
+                                    title={clearableCache ? formatExactBytes(clearableCache.total.bytes, i18n.resolvedLanguage) : undefined}
+                                >
+                                    {clearableCache
+                                        ? t('workspaceCacheTotal', {
+                                            files: clearableCache.total.files,
+                                            size: formatCacheSize(clearableCache.total.bytes, i18n.resolvedLanguage),
                                         })
-                                        : t('photoCacheNotLoaded')}
+                                        : workspaceStorageBusy
+                                            ? t('workspaceStorageChecking')
+                                            : t('workspaceStorageUnavailable')}
+                                    {workspaceStorageSnapshot ? (
+                                        <small>
+                                            {' · '}{t('workspaceStorageUpdatedAt', {
+                                                time: formatSnapshotTime(
+                                                    workspaceStorageSnapshot.computed_at,
+                                                    i18n.resolvedLanguage,
+                                                ),
+                                            })}
+                                        </small>
+                                    ) : null}
                                 </span>
                                 <button
                                     type="button"
                                     className={styles.dangerBtn}
-                                    onClick={() => setPhotoCacheConfirmOpen(true)}
-                                    disabled={isPhotoCacheLoading || isPhotoCacheClearing}
+                                    onClick={() => setWorkspaceCacheConfirmOpen(true)}
+                                    disabled={isWorkspaceStorageLoading || isWorkspaceStorageRefreshing || isWorkspaceCacheClearing}
                                 >
-                                    {isPhotoCacheClearing ? t('saving') : t('photoCacheClear')}
+                                    {isWorkspaceCacheClearing ? t('saving') : t('workspaceCacheClear')}
                                 </button>
                             </div>
 
-                            {photoCacheMessage ? <p className={styles.message}>{photoCacheMessage}</p> : null}
+                            {workspaceStorageMessage ? (
+                                <p className={styles.message} role="status" aria-live="polite">
+                                    {workspaceStorageMessage}
+                                </p>
+                            ) : null}
                         </div>
-                    </div>
+
+                        <div
+                            className={`${styles.cacheCard} ${styles.protectedStorageCard}`}
+                            aria-busy={workspaceStorageBusy}
+                        >
+                            <div className={styles.cacheHeader}>
+                                <div>
+                                    <h5 className={styles.cacheTitle}>{t('workspaceProtectedStorage')}</h5>
+                                    <p>{t('workspaceProtectedStorageDescription')}</p>
+                                </div>
+                                <span className={styles.protectedPill}>{t('workspaceProtectedPill')}</span>
+                            </div>
+
+                            <dl className={styles.cacheStats}>
+                                {renderStorageMetric(protectedModelFiles, t('workspaceStorageModels'))}
+                                {renderStorageMetric(protectedStorage?.source_images, t('workspaceStorageSourceImages'))}
+                                {renderStorageMetric(protectedAssetRecords, t('workspaceStorageAssetRecords'))}
+                                {renderStorageMetric(protectedStorage?.video_uploads, t('workspaceStorageVideoUploads'))}
+                                {renderStorageMetric(protectedStorage?.active_downloads, t('workspaceStorageActiveDownloads'))}
+                            </dl>
+
+                            <div className={styles.protectedStorageFooter}>
+                                <span title={protectedStorage ? formatExactBytes(protectedStorage.total.bytes, i18n.resolvedLanguage) : undefined}>
+                                    {protectedStorage
+                                        ? t('workspaceProtectedTotal', {
+                                            files: protectedStorage.total.files,
+                                            size: formatCacheSize(protectedStorage.total.bytes, i18n.resolvedLanguage),
+                                        })
+                                        : workspaceStorageBusy
+                                            ? t('workspaceStorageChecking')
+                                            : t('workspaceStorageUnavailable')}
+                                </span>
+                                <small>{t('workspaceStorageScopeHint')}</small>
+                            </div>
+                        </div>
+                    </section>
                 )}
 
                 <div className={styles.group}>
@@ -1285,21 +1433,21 @@ export const Settings: React.FC = () => {
                 </div>
 
                 <ConfirmDialog
-                    isOpen={photoCacheConfirmOpen}
-                    title={t('photoCacheClear')}
-                    message={t('photoCacheClearConfirm')}
-                    confirmLabel={t('photoCacheClear')}
-                    isBusy={isPhotoCacheClearing}
+                    isOpen={workspaceCacheConfirmOpen}
+                    title={t('workspaceCacheClear')}
+                    message={t('workspaceCacheClearConfirm')}
+                    confirmLabel={t('workspaceCacheClear')}
+                    isBusy={isWorkspaceCacheClearing}
                     danger
-                    onConfirm={handleClearPhotoCache}
-                    onClose={() => setPhotoCacheConfirmOpen(false)}
+                    onConfirm={handleClearWorkspaceCache}
+                    onClose={() => setWorkspaceCacheConfirmOpen(false)}
                 />
             </div>
         </div>
     );
 };
 
-function formatCacheSize(bytes: number): string {
+function formatCacheSize(bytes: number, locale?: string): string {
     if (!Number.isFinite(bytes) || bytes <= 0) {
         return '0 B';
     }
@@ -1310,5 +1458,29 @@ function formatCacheSize(bytes: number): string {
         value /= 1024;
         unitIndex += 1;
     }
-    return `${value >= 10 || unitIndex === 0 ? value.toFixed(0) : value.toFixed(1)} ${units[unitIndex]}`;
+    const formatted = new Intl.NumberFormat(locale, {
+        maximumFractionDigits: unitIndex === 0 ? 0 : value < 100 ? 2 : 1,
+    }).format(value);
+    return `${formatted} ${units[unitIndex]}`;
+}
+
+function formatExactBytes(bytes: number, locale?: string): string {
+    return `${new Intl.NumberFormat(locale).format(Math.max(0, Math.round(bytes)))} B`;
+}
+
+function formatSnapshotTime(value: string, locale?: string): string {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return '—';
+    return date.toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' });
+}
+
+function sumStorageBuckets(
+    ...buckets: Array<WorkspaceStorageBucket | undefined>
+): WorkspaceStorageBucket | undefined {
+    const available = buckets.filter((bucket): bucket is WorkspaceStorageBucket => Boolean(bucket));
+    if (available.length === 0) return undefined;
+    return available.reduce<WorkspaceStorageBucket>((total, bucket) => ({
+        files: total.files + bucket.files,
+        bytes: total.bytes + bucket.bytes,
+    }), { files: 0, bytes: 0 });
 }

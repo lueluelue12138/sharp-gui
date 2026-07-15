@@ -227,3 +227,13 @@ def test_gallery_returns_json(client):
 - `/files/*` 只能服务 `outputs/`、历史缩略图、`model-assets/imports/` 和 `model-assets/thumbnails/`，必须拒绝 `.model-asset-library/index.json`、`config.json`、证书、源码、路径穿越和符号链接逃逸。
 - 前端手动烟测：桌面端卡片空白区域直接打开 viewer，详情按钮打开详情面板；移动端点击卡片打开详情卡片；顶部工具栏悬浮玻璃不切断卡片；近期模型列表独立滚动且“查看全部”和“储存占用”固定。
 - 默认模型格式烟测：Settings 切换 SPZ/PLY 后，资产库、近期模型、打开和下载都优先使用对应格式，缺失时自动回退到可用模型文件。
+
+### 工作区存储与缓存 smoke checklist
+
+- 冷态 `GET /api/workspace-storage` 立即返回 `checking`，后台完成后返回快照；60 秒 TTL 内重复打开 Settings 不重复扫盘，`refresh=1` 与清理失效期间最多一个实际扫描 worker。
+- 分桶文件数与 bytes 使用已知大小精确断言，总计严格等于互斥分项；残留 JSON 临时文件、嵌套异常 ZIP、文件消失和不可访问项不会造成无提示的“完整”结果。
+- 扫描不跟随文件 symlink/junction，不访问配置的外部相册 root，也不递归进入 `.video-reconstruction/jobs/`。
+- `DELETE /api/workspace-storage` 只允许 owner；清理后图库缓存、历史模型缩略图和 system 封面移除，system 索引状态回到 `pending`。
+- manual 封面、索引缺失/损坏时无法分类的封面、源图片、生成/导入模型、资产索引、视频 uploads/jobs 和活跃/近期临时下载在清理后保持不变；清理前启动的旧 system cover 上传不得在清理后复活。
+- 前端冷加载显示固定高度占位而非 `0 B`；旧快照后台刷新时不闪空、不被旧请求覆盖，分项使用稳定的至多两位小数并提供精确 bytes 提示，总计显示同源原始 bytes 与统计时间。
+- 清理图库索引后，多相册 bootstrap 只能由一个后台 worker 串行执行；旧图库缓存清理接口也必须失效通用 workspace snapshot。
