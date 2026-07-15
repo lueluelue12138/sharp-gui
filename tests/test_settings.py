@@ -140,6 +140,31 @@ def test_invalid_workspace_folder_is_rejected_without_saving(client, config_file
         assert load_config()["workspace_folder"] == str(workspace)
 
 
+def test_workspace_file_target_is_unavailable_not_in_use(
+    client,
+    config_file,
+    workspace,
+    tmp_path,
+):
+    target_file = tmp_path / "not-a-directory"
+    target_file.write_text("keep", encoding="utf-8")
+    config_before = config_file.read_text(encoding="utf-8")
+
+    response = client.post(
+        "/api/settings",
+        json={"workspace_folder": str(target_file)},
+    )
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["success"] is False
+    assert payload["code"] == "workspace_unavailable"
+    assert "not writable or is not a directory" in payload["error"]
+    assert target_file.read_text(encoding="utf-8") == "keep"
+    assert config_file.read_text(encoding="utf-8") == config_before
+    assert load_config()["workspace_folder"] == str(workspace)
+
+
 def test_saving_current_workspace_does_not_conflict_with_its_live_lock(
     client,
     workspace,

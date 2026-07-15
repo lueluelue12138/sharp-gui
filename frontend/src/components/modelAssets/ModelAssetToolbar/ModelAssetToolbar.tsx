@@ -39,6 +39,7 @@ interface ModelAssetToolbarProps {
   selectionMode: boolean;
   loading: boolean;
   importing: boolean;
+  canImport: boolean;
   mode: ModelAssetToolbarMode;
   onSourceChange: (source: ModelAssetSourceFilter) => void;
   onFormatChange: (format: ModelAssetFormatFilter) => void;
@@ -96,6 +97,7 @@ export function ModelAssetToolbar({
   selectionMode,
   loading,
   importing,
+  canImport,
   mode,
   onSourceChange,
   onFormatChange,
@@ -283,7 +285,9 @@ export function ModelAssetToolbar({
           <button
             className={[styles.textBtn, styles.importAction].join(' ')}
             type="button"
-            disabled={importing}
+            disabled={importing || !canImport}
+            aria-label={canImport ? t('modelAssetImport') : t('modelAssetWritePermissionRequired')}
+            data-tooltip={canImport ? t('modelAssetImport') : t('modelAssetWritePermissionRequired')}
             onClick={onImportClick}
           >
             <CloudUploadIcon width={15} height={15} />

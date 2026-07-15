@@ -2509,6 +2509,14 @@ def run_video_reconstruction_task(task_manager, task_id, task):
             spz_error = str(exc)
             append_task_log(task_manager, task_id, f"SPZ conversion failed: {spz_error}")
 
+        try:
+            from backend.services import model_assets
+
+            model_id = os.path.splitext(os.path.basename(task["output_path"]))[0]
+            model_assets.sync_generated_model_asset(task_manager.paths, model_id)
+        except Exception as exc:
+            runtime.log("WARN", f"Model asset catalog sync failed after video task {task_id}: {exc}")
+
         update_task(
             task_manager,
             task_id,

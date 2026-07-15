@@ -18,6 +18,21 @@
 - **THEN** 系统 SHALL 将该资产标记为不可用
 - **AND** 系统 MUST NOT 返回不存在文件的下载或打开 URL
 
+#### Scenario: 暖索引分页和筛选
+- **WHEN** workspace 摘要已建立且用户请求后续游标页、切换筛选或排序
+- **THEN** 系统 SHALL 从同一摘要快照计算结果
+- **AND** 系统 MUST NOT 再次完整扫描或逐文件 stat `outputs` 目录
+
+#### Scenario: 资产索引损坏
+- **WHEN** 模型资产索引 JSON 损坏、schema 非法或无法读取
+- **THEN** 系统 SHALL 返回稳定的索引诊断错误并保留原文件
+- **AND** 任意导入、编辑、封面或删除写操作 MUST NOT 把损坏索引当作空索引覆盖
+
+#### Scenario: 已索引生成文件在摘要刷新后缺失
+- **WHEN** 生成资产已在摘要中但源模型文件在下一次刷新时缺失
+- **THEN** 系统 SHALL 保留该资产的稳定身份和用户编辑字段并标记为不可用
+- **AND** `files`、`formats` SHALL 为空且打开、下载 URL SHALL 为 null
+
 ### Requirement: 模型资产 SHALL 支持用户手动编辑资料
 系统 SHALL 允许具备写入权限的用户编辑模型资产的显示名称、标签、备注和手动封面，并将编辑内容保存到资产索引或 sidecar 元数据中，同时保持资产稳定 ID 和源模型文件路径不变。
 
@@ -155,6 +170,21 @@
 - **AND** 系统 SHALL 对不受支持或失败的文件返回逐项错误
 - **AND** 成功导入的资产 SHALL 不因其他文件失败而回滚
 
+#### Scenario: 批量导入全部失败
+- **WHEN** 批量中的所有文件都因校验或保存失败而未导入
+- **THEN** 非 2xx 响应 SHALL 同时保留顶层稳定 `error` / `code` 和逐项 `failed[]`
+- **AND** 前端 SHALL 按每项稳定 `code` 本地化失败原因
+
+#### Scenario: 并发导入同名模型
+- **WHEN** 两个客户端并发导入相同显示名称和扩展名的文件
+- **THEN** 系统 SHALL 为它们分配不同的安全物理文件名和稳定资产 ID
+- **AND** 删除其中一个资产 MUST NOT 影响另一个
+
+#### Scenario: 导入索引提交失败
+- **WHEN** 模型文件已写入临时或受控位置但索引提交失败
+- **THEN** 系统 SHALL 回滚本批未提交文件并返回稳定错误
+- **AND** 系统 MUST NOT 留下资产库无法管理的孤儿文件
+
 #### Scenario: 主模型页拖入单个模型进行临时预览
 - **WHEN** 用户在主模型页的空白画布或侧栏拖入单个受支持模型文件
 - **THEN** 系统 SHALL 直接打开该文件的临时预览
@@ -194,6 +224,11 @@
 - **WHEN** 客户端通过资产下载、缩略图或 `/files/*` URL 尝试访问受控根目录之外的路径
 - **THEN** 系统 MUST 拒绝请求
 - **AND** 系统 MUST NOT 返回外部文件内容
+
+#### Scenario: 受控根或模型文件通过链接逃逸
+- **WHEN** `outputs`、导入目录、封面目录本身或其中模型文件通过 symlink、junction 或 reparse point 指向 workspace 外
+- **THEN** 系统 MUST 拒绝列表中的可用 URL、详情、下载、封面和删除操作
+- **AND** 系统 MUST NOT 读取、覆盖或删除 workspace 外文件
 
 #### Scenario: 模型文件超出大小限制
 - **WHEN** 客户端上传超过配置限制的模型文件或批次
@@ -260,6 +295,16 @@
 - **WHEN** 用户在详情面板点击打开、下载、导出或删除
 - **THEN** 系统 SHALL 对当前选中资产执行对应动作
 - **AND** 操作成功或失败状态 SHALL 以本地化反馈呈现
+
+#### Scenario: 导入资产或临时预览显示导出操作
+- **WHEN** 当前模型来源为导入资产或临时 Blob 且没有专用受控导出实现
+- **THEN** UI SHALL 省略或禁用旧导出与分享操作并解释原因
+- **AND** UI MUST NOT 把导入 asset id 或 Blob id 发送到旧 `/api/export/<id>`
+
+#### Scenario: 远程只读用户查看资产操作
+- **WHEN** 已认证远程用户没有模型资产写入或 owner 删除权限
+- **THEN** 导入、资料、封面和删除控件 SHALL 按实际能力隐藏或禁用
+- **AND** 前端 SHALL NOT 依赖必然失败的 403 请求作为正常交互路径
 
 ### Requirement: 模型资产库 MUST 保持中英文文本同步和可访问
 所有新增模型资产库用户可见文本 MUST 同时维护英文和中文 locale 资源；新增控件 SHALL 支持键盘导航、可见焦点、语义标签和非 hover 的触摸操作路径。

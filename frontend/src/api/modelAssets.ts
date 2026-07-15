@@ -29,14 +29,16 @@ function buildModelAssetQuery(params: ModelAssetListParams = {}): string {
   if (params.sort) query.set('sort', params.sort);
   if (params.cursor) query.set('cursor', params.cursor);
   if (params.limit) query.set('limit', String(params.limit));
+  if (params.refresh) query.set('refresh', '1');
   const queryString = query.toString();
   return queryString ? `?${queryString}` : '';
 }
 
 export async function fetchModelAssets(
   params: ModelAssetListParams = {},
+  options?: { signal?: AbortSignal },
 ): Promise<ModelAssetListResponse> {
-  return apiGet<ModelAssetListResponse>(`/api/model-assets${buildModelAssetQuery(params)}`);
+  return apiGet<ModelAssetListResponse>(`/api/model-assets${buildModelAssetQuery(params)}`, options);
 }
 
 export async function fetchModelAsset(id: string): Promise<ModelAsset> {

@@ -1,8 +1,12 @@
 import os
 import json
+import threading
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 
+import pytest
+from PIL import Image
 from werkzeug.datastructures import FileStorage
 
 from backend.config import coerce_bool, coerce_int, normalize_access_control_config
@@ -37,6 +41,13 @@ from backend.services import model_assets, model_gallery, video_reconstruction
 from backend.services.static_files import is_real_path_inside
 from backend.services.task_queue import TaskManager
 from tests.conftest import write_config
+
+
+def _make_cover_bytes(image_format="PNG", color=(255, 0, 0)):
+    buffer = BytesIO()
+    Image.new("RGB", (8, 8), color).save(buffer, format=image_format)
+    buffer.seek(0)
+    return buffer
 
 
 def test_photo_upload_filename_sanitizes_and_rejects_unsupported(tmp_path):
@@ -181,8 +192,18 @@ def test_model_asset_library_state_is_scoped_to_workspace(tmp_path):
     imported_a_asset = imported_a["assets"][0]
     imported_b_asset = imported_b["assets"][0]
     assert imported_a_asset["id"] != imported_b_asset["id"]
-    assert os.path.isfile(os.path.join(paths_a.model_asset_import_folder, "same-name.ply"))
-    assert os.path.isfile(os.path.join(paths_b.model_asset_import_folder, "same-name.ply"))
+    imported_a_path, _ = model_assets.resolve_download_file(
+        paths_a, imported_a_asset["id"], "ply"
+    )
+    imported_b_path, _ = model_assets.resolve_download_file(
+        paths_b, imported_b_asset["id"], "ply"
+    )
+    assert os.path.isfile(imported_a_path)
+    assert os.path.isfile(imported_b_path)
+    assert is_real_path_inside(imported_a_path, paths_a.model_asset_import_folder)
+    assert is_real_path_inside(imported_b_path, paths_b.model_asset_import_folder)
+    assert os.path.basename(imported_a_path) != "same-name.ply"
+    assert os.path.basename(imported_b_path) != "same-name.ply"
 
     names_a = {asset["name"] for asset in model_assets.list_model_assets(paths_a, {})["items"]}
     names_b = {asset["name"] for asset in model_assets.list_model_assets(paths_b, {})["items"]}
@@ -297,6 +318,192 @@ def test_model_asset_download_resolves_controlled_path(tmp_path):
     assert resolved_import is not None
     import_path, _ = resolved_import
     assert is_real_path_inside(import_path, paths.model_asset_import_folder)
+
+
+def test_model_asset_warm_list_uses_catalog_without_rescanning(tmp_path, monkeypatch):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    with open(os.path.join(paths.output_folder, "demo.ply"), "wb") as file:
+        file.write(b"generated-model")
+
+    cold = model_assets.list_model_assets(paths, {"limit": "1"})
+    assert cold["items"][0]["id"] == "demo"
+
+    def unexpected_scan(*_args, **_kwargs):
+        raise AssertionError("warm catalog reads must not scan model directories")
+
+    monkeypatch.setattr(model_assets, "collect_generated_file_groups", unexpected_scan)
+    warm = model_assets.list_model_assets(
+        paths,
+        {"source": "generated", "format": "ply", "sort": "name_asc", "limit": "1"},
+    )
+    assert warm["total"] == 1
+    assert warm["items"][0]["id"] == "demo"
+
+    with open(os.path.join(paths.output_folder, "new-model.ply"), "wb") as file:
+        file.write(b"new-generated-model")
+    synced = model_assets.sync_generated_model_asset(paths, "new-model")
+    assert synced["id"] == "new-model"
+    after_sync = model_assets.list_model_assets(paths, {"sort": "name_asc"})
+    assert [asset["id"] for asset in after_sync["items"]] == ["demo", "new-model"]
+
+
+def test_model_asset_catalog_retains_missing_generated_asset_as_unavailable(tmp_path):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    model_path = os.path.join(paths.output_folder, "demo.ply")
+    with open(model_path, "wb") as file:
+        file.write(b"generated-model")
+
+    assert model_assets.list_model_assets(paths, {})["items"][0]["available"] is True
+    os.remove(model_path)
+
+    refreshed = model_assets.list_model_assets(paths, {"refresh": "1"})
+    assert refreshed["total"] == 1
+    asset = refreshed["items"][0]
+    assert asset["id"] == "demo"
+    assert asset["available"] is False
+    assert asset["formats"] == []
+    assert asset["files"] == []
+    assert asset["default_open_url"] is None
+    assert asset["download_url"] is None
+
+
+def test_model_asset_corrupt_index_blocks_reads_and_rolls_back_import(tmp_path):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    corrupt_contents = "{not-json"
+    with open(paths.model_asset_index_file, "w", encoding="utf-8") as file:
+        file.write(corrupt_contents)
+
+    with pytest.raises(model_assets.ModelAssetIndexError) as exc_info:
+        model_assets.list_model_assets(paths, {})
+    assert exc_info.value.code == "model_asset_index_corrupt"
+
+    result = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"model"), filename="scan.ply")],
+    )
+    assert result["success"] is False
+    assert result["code"] == "model_asset_index_corrupt"
+    assert result["assets"] == []
+    assert list(os.scandir(paths.model_asset_import_folder)) == []
+    with open(paths.model_asset_index_file, encoding="utf-8") as file:
+        assert file.read() == corrupt_contents
+
+
+def test_model_asset_concurrent_same_name_imports_use_distinct_files(tmp_path):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    start_barrier = threading.Barrier(2)
+
+    def import_one(payload):
+        start_barrier.wait(timeout=5)
+        return model_assets.import_model_assets(
+            paths,
+            [FileStorage(stream=BytesIO(payload), filename="same-name.ply")],
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(import_one, (b"first", b"second")))
+
+    assert all(result["success"] for result in results)
+    assets = [result["assets"][0] for result in results]
+    resolved = [model_assets.resolve_download_file(paths, asset["id"], "ply") for asset in assets]
+    physical_paths = [item[0] for item in resolved]
+    assert len(set(physical_paths)) == 2
+    payloads = set()
+    for path in physical_paths:
+        with open(path, "rb") as file:
+            payloads.add(file.read())
+    assert payloads == {b"first", b"second"}
+    assert all(asset["name"] == "same-name" for asset in assets)
+
+
+def test_missing_imported_file_has_no_stale_format_or_action_urls(tmp_path):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    imported = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"model"), filename="scan.ply")],
+    )["assets"][0]
+    model_path, _ = model_assets.resolve_download_file(paths, imported["id"], "ply")
+    os.remove(model_path)
+
+    asset = model_assets.get_model_asset(paths, imported["id"])
+    assert asset["available"] is False
+    assert asset["primary_format"] is None
+    assert asset["formats"] == []
+    assert asset["files"] == []
+    assert asset["default_open_url"] is None
+    assert asset["download_url"] is None
+
+
+def test_model_asset_cover_replacement_is_validated_and_atomic(tmp_path):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    asset_id = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"model"), filename="scan.ply")],
+    )["assets"][0]["id"]
+
+    saved, error, status = model_assets.save_model_asset_cover(
+        paths,
+        asset_id,
+        FileStorage(stream=_make_cover_bytes(), filename="cover.png"),
+    )
+    assert (error, status) == (None, 200)
+    first_record = model_assets.read_asset_index(paths)["assets"][asset_id]
+    first_cover = model_assets.resolve_workspace_relative_path(paths, first_record["cover_path"])
+    with open(first_cover, "rb") as file:
+        first_bytes = file.read()
+
+    _, error, status = model_assets.save_model_asset_cover(
+        paths,
+        asset_id,
+        FileStorage(stream=BytesIO(b"not-an-image"), filename="cover.png"),
+    )
+    assert status == 400
+    assert error["code"] == "invalid_cover_image"
+    with open(first_cover, "rb") as file:
+        assert file.read() == first_bytes
+
+    replaced, error, status = model_assets.save_model_asset_cover(
+        paths,
+        asset_id,
+        FileStorage(stream=_make_cover_bytes("JPEG", (0, 255, 0)), filename="cover.jpg"),
+    )
+    assert (error, status) == (None, 200)
+    replacement_record = model_assets.read_asset_index(paths)["assets"][asset_id]
+    replacement = model_assets.resolve_workspace_relative_path(
+        paths, replacement_record["cover_path"]
+    )
+    assert replacement.endswith(".jpg")
+    assert os.path.isfile(replacement)
+    assert not os.path.exists(first_cover)
+
+
+def test_imported_delete_failure_preserves_index_record(tmp_path, monkeypatch):
+    paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
+    ensure_runtime_directories(paths)
+    imported = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"model"), filename="scan.ply")],
+    )["assets"][0]
+    model_path, _ = model_assets.resolve_download_file(paths, imported["id"], "ply")
+    real_remove = model_assets.os.remove
+
+    def fail_model_remove(path):
+        if os.path.normcase(os.path.abspath(path)) == os.path.normcase(os.path.abspath(model_path)):
+            raise PermissionError("in use")
+        return real_remove(path)
+
+    monkeypatch.setattr(model_assets.os, "remove", fail_model_remove)
+    with pytest.raises(model_assets.ModelAssetServiceError) as exc_info:
+        model_assets.delete_model_asset(paths, imported["id"])
+    assert exc_info.value.code == "model_asset_delete_failed"
+    assert imported["id"] in model_assets.read_asset_index(paths)["assets"]
+    assert model_assets.get_model_asset(paths, imported["id"])["available"] is True
 
 
 def test_real_path_inside_handles_escape(tmp_path):

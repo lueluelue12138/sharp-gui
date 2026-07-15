@@ -13,6 +13,16 @@
 - **THEN** 进入视口的卡片 SHALL 按需呈现封面、加载占位或错误占位
 - **AND** 主界面 SHALL NOT 因离屏卡片渲染而冻结
 
+#### Scenario: 多个模型封面同时排队
+- **WHEN** 多个可见或刚导入资产需要浏览器离屏封面
+- **THEN** 网络处理可以有界并发，但共享 WebGL renderer 的渲染到编码区间 SHALL 串行
+- **AND** 完成回调 SHALL 核对资产身份和挂载代次，不能把一个模型封面写到另一个资产
+
+#### Scenario: 查询响应乱序返回
+- **WHEN** 用户快速切换筛选或排序且旧请求晚于新请求返回
+- **THEN** 只有匹配当前 query signature、generation 和预期 cursor 的响应 SHALL 更新列表状态
+- **AND** 旧响应 MUST NOT 覆盖当前列表、游标、loading 或错误状态
+
 #### Scenario: 用户切换筛选和排序
 - **WHEN** 用户在大模型集合中切换来源筛选、格式筛选或排序方式
 - **THEN** 资产库 SHALL 更新结果集

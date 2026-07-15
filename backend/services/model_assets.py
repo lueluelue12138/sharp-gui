@@ -4,10 +4,10 @@ import os
 import re
 import threading
 import uuid
+from copy import deepcopy
 from urllib.parse import quote
 
 from PIL import Image
-from werkzeug.utils import secure_filename
 
 from backend.services import model_gallery
 from backend.services.static_files import get_relative_files_path, is_real_path_inside, to_url_path
@@ -15,6 +15,7 @@ from backend.services.static_files import get_relative_files_path, is_real_path_
 # 资产索引是单一 JSON 文件的 read-modify-write，局域网多设备可能并发导入/编辑，
 # 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
 _INDEX_LOCK = threading.RLock()
+INDEX_VERSION = 2
 
 # 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
 IMPORTED_IDENTITY_KEYS = ("model_path", "format", "original_name", "imported_at", "created_at")
@@ -50,7 +51,10 @@ MAX_BATCH_SIZE = 96
 MAX_IMPORT_FILES = 64
 MAX_IMPORT_FILE_BYTES = 2 * 1024 * 1024 * 1024
 MAX_IMPORT_BATCH_BYTES = 10 * 1024 * 1024 * 1024
+MAX_IMPORT_REQUEST_BYTES = MAX_IMPORT_BATCH_BYTES + 64 * 1024 * 1024
 MAX_COVER_BYTES = 10 * 1024 * 1024
+MAX_COVER_REQUEST_BYTES = MAX_COVER_BYTES + 1024 * 1024
+MAX_COVER_PIXELS = 40_000_000
 PLY_HEADER_MAX_BYTES = 512 * 1024
 SPLAT_BYTES_PER_POINT = 32
 ALLOWED_COVER_EXTENSIONS = {
@@ -59,6 +63,19 @@ ALLOWED_COVER_EXTENSIONS = {
     ".png": "png",
     ".webp": "webp",
 }
+
+
+class ModelAssetServiceError(RuntimeError):
+    """可安全映射到模型资产 API 的稳定服务错误。"""
+
+    def __init__(self, message, code, status_code=500):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+
+
+class ModelAssetIndexError(ModelAssetServiceError):
+    """资产索引不可安全读取或写入。"""
 
 
 def utc_now_iso():
@@ -91,36 +108,115 @@ def normalize_upload_filename(filename):
     return str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
 
 
+def empty_asset_index():
+    return {"version": INDEX_VERSION, "assets": {}}
+
+
+def validate_asset_index(data):
+    if not isinstance(data, dict):
+        raise ModelAssetIndexError(
+            "Model asset index schema is invalid",
+            "model_asset_index_schema_invalid",
+        )
+
+    assets = data.get("assets")
+    if not isinstance(assets, dict) or any(
+        not isinstance(asset_id, str) or not isinstance(record, dict)
+        for asset_id, record in assets.items()
+    ):
+        raise ModelAssetIndexError(
+            "Model asset index assets are invalid",
+            "model_asset_index_schema_invalid",
+        )
+
+    catalog = data.get("catalog")
+    if catalog is not None:
+        items = catalog.get("items") if isinstance(catalog, dict) else None
+        if not isinstance(items, dict) or any(
+            not isinstance(asset_id, str) or not isinstance(asset, dict)
+            for asset_id, asset in items.items()
+        ):
+            raise ModelAssetIndexError(
+                "Model asset catalog schema is invalid",
+                "model_asset_index_schema_invalid",
+            )
+
+    normalized = dict(data)
+    normalized["version"] = INDEX_VERSION
+    normalized["assets"] = assets
+    return normalized
+
+
 def read_asset_index(paths):
     try:
         with open(paths.model_asset_index_file, "r", encoding="utf-8") as file:
             data = json.load(file)
     except FileNotFoundError:
-        return {"version": 1, "assets": {}}
-    except Exception:
-        return {"version": 1, "assets": {}}
+        return empty_asset_index()
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ModelAssetIndexError(
+            "Model asset index is corrupt",
+            "model_asset_index_corrupt",
+        ) from exc
+    except OSError as exc:
+        raise ModelAssetIndexError(
+            "Model asset index cannot be read",
+            "model_asset_index_unavailable",
+        ) from exc
 
-    if not isinstance(data, dict):
-        return {"version": 1, "assets": {}}
-    assets = data.get("assets")
-    if not isinstance(assets, dict):
-        data["assets"] = {}
-    data.setdefault("version", 1)
-    return data
+    return validate_asset_index(data)
 
 
 def write_asset_index(paths, data):
     os.makedirs(os.path.dirname(paths.model_asset_index_file), exist_ok=True)
+    validated = validate_asset_index(data)
     payload = {
-        "version": 1,
+        "version": INDEX_VERSION,
         "updated_at": utc_now_iso(),
-        "assets": data.get("assets", {}) if isinstance(data, dict) else {},
+        "assets": validated["assets"],
     }
+    if "catalog" in validated:
+        payload["catalog"] = validated["catalog"]
     temp_path = f"{paths.model_asset_index_file}.tmp-{uuid.uuid4().hex[:8]}"
-    with open(temp_path, "w", encoding="utf-8") as file:
-        json.dump(payload, file, ensure_ascii=False, indent=2, sort_keys=True)
-    os.replace(temp_path, paths.model_asset_index_file)
+    try:
+        with open(temp_path, "w", encoding="utf-8") as file:
+            json.dump(payload, file, ensure_ascii=False, indent=2, sort_keys=True)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temp_path, paths.model_asset_index_file)
+    except OSError as exc:
+        try:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        except OSError:
+            pass
+        raise ModelAssetIndexError(
+            "Model asset index cannot be written",
+            "model_asset_index_write_failed",
+        ) from exc
     return paths.model_asset_index_file
+
+
+def is_controlled_root(paths, root):
+    """受控根的真实路径必须仍位于当前 workspace 的真实路径内。"""
+    return is_real_path_inside(root, paths.workspace_folder)
+
+
+def is_controlled_path(paths, path, root):
+    return bool(
+        is_controlled_root(paths, root)
+        and is_real_path_inside(path, root)
+        and is_real_path_inside(path, paths.workspace_folder)
+    )
+
+
+def require_controlled_root(paths, root, code="model_asset_path_invalid"):
+    if not is_controlled_root(paths, root):
+        raise ModelAssetServiceError(
+            "Model asset storage root is outside the workspace",
+            code,
+            409,
+        )
 
 
 def workspace_relative_path(paths, path):
@@ -141,6 +237,19 @@ def resolve_workspace_relative_path(paths, relative_path):
 
 
 def url_for_file(paths, path):
+    if not any(
+        is_controlled_path(paths, path, root)
+        for root in (
+            paths.output_folder,
+            paths.model_asset_import_folder,
+            paths.model_asset_thumbnail_folder,
+        )
+    ):
+        raise ModelAssetServiceError(
+            "Model asset file is outside controlled roots",
+            "model_asset_path_invalid",
+            409,
+        )
     return f"/files/{get_relative_files_path(path, paths)}"
 
 
@@ -156,25 +265,24 @@ def collect_supported_files(folder, stem):
     if not normalized_stem or not os.path.isdir(folder):
         return result
 
-    for filename in os.listdir(folder):
-        path = os.path.join(folder, filename)
-        if not os.path.isfile(path):
-            continue
-        file_stem, extension = os.path.splitext(filename)
-        fmt = SUPPORTED_MODEL_EXTENSIONS.get(extension.lower())
-        if file_stem == normalized_stem and fmt:
+    for extension, fmt in SUPPORTED_MODEL_EXTENSIONS.items():
+        candidate = os.path.join(folder, normalized_stem + extension)
+        path = os.path.realpath(candidate)
+        if is_real_path_inside(path, folder) and os.path.isfile(path):
             result[fmt] = path
     return result
 
 
 def collect_generated_file_groups(paths):
     groups = {}
+    if not is_controlled_root(paths, paths.output_folder):
+        return groups
     if not os.path.isdir(paths.output_folder):
         return groups
 
     for filename in os.listdir(paths.output_folder):
-        path = os.path.join(paths.output_folder, filename)
-        if not os.path.isfile(path):
+        path = os.path.realpath(os.path.join(paths.output_folder, filename))
+        if not is_controlled_path(paths, path, paths.output_folder) or not os.path.isfile(path):
             continue
         fmt = format_for_path(filename)
         if not fmt:
@@ -190,16 +298,19 @@ def build_file_descriptor(paths, path, fmt=None, primary=False):
     resolved_format = fmt or format_for_path(path)
     if not resolved_format:
         return None
-    filename = os.path.basename(path)
-    return {
-        "format": resolved_format,
-        "filename": filename,
-        "size": os.path.getsize(path),
-        "url": url_for_file(paths, path),
-        "download_url": None,
-        "modified_at": file_timestamp(path),
-        "primary": primary,
-    }
+    try:
+        filename = os.path.basename(path)
+        return {
+            "format": resolved_format,
+            "filename": filename,
+            "size": os.path.getsize(path),
+            "url": url_for_file(paths, path),
+            "download_url": None,
+            "modified_at": file_timestamp(path),
+            "primary": primary,
+        }
+    except (OSError, ModelAssetServiceError):
+        return None
 
 
 def select_primary_format(files):
@@ -320,9 +431,24 @@ def derive_model_metadata(files):
     return {}
 
 
+def cover_variant_paths(paths, asset_id):
+    base = safe_asset_filename(asset_id)
+    return [
+        os.path.join(paths.model_asset_thumbnail_folder, f"{base}.{extension}")
+        for extension in ("jpg", "png", "webp")
+    ]
+
+
 def cover_from_record(paths, asset_id, record):
+    if not is_controlled_root(paths, paths.model_asset_thumbnail_folder):
+        return {
+            "thumb_url": None,
+            "thumb_version": None,
+            "thumbnail_state": THUMBNAIL_MISSING,
+            "thumbnail_kind": THUMBNAIL_MISSING,
+        }
     cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
-    if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder) and os.path.isfile(cover_path):
+    if cover_path and is_controlled_path(paths, cover_path, paths.model_asset_thumbnail_folder) and os.path.isfile(cover_path):
         return {
             "thumb_url": url_for_file(paths, cover_path),
             "thumb_version": int(os.path.getmtime(cover_path) * 1000),
@@ -330,14 +456,15 @@ def cover_from_record(paths, asset_id, record):
             "thumbnail_kind": record.get("cover_kind") or THUMBNAIL_MANUAL,
         }
 
-    generated_path = os.path.join(paths.model_asset_thumbnail_folder, f"{safe_asset_filename(asset_id)}.jpg")
-    if os.path.isfile(generated_path):
-        return {
-            "thumb_url": url_for_file(paths, generated_path),
-            "thumb_version": int(os.path.getmtime(generated_path) * 1000),
-            "thumbnail_state": "ready",
-            "thumbnail_kind": record.get("cover_kind") or THUMBNAIL_SYSTEM,
-        }
+    for candidate in cover_variant_paths(paths, asset_id):
+        generated_path = os.path.realpath(candidate)
+        if is_controlled_path(paths, generated_path, paths.model_asset_thumbnail_folder) and os.path.isfile(generated_path):
+            return {
+                "thumb_url": url_for_file(paths, generated_path),
+                "thumb_version": int(os.path.getmtime(generated_path) * 1000),
+                "thumbnail_state": "ready",
+                "thumbnail_kind": record.get("cover_kind") or THUMBNAIL_SYSTEM,
+            }
 
     return {
         "thumb_url": None,
@@ -396,6 +523,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         **(metadata if include_details else {}),
     } if include_details else {}
 
+    file_updated_at = datetime.datetime.fromtimestamp(max(file_timestamps), tz=datetime.timezone.utc).isoformat()
     asset = {
         "id": asset_id,
         "name": record.get("display_name") or metadata.get("display_name") or asset_id,
@@ -407,7 +535,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         "size": total_size,
         "primary_size": primary_descriptor["size"],
         "created_at": file_timestamp(primary_path),
-        "updated_at": datetime.datetime.fromtimestamp(max(file_timestamps), tz=datetime.timezone.utc).isoformat(),
+        "updated_at": max(file_updated_at, str(record.get("updated_at") or "")),
         "default_open_url": primary_descriptor["url"],
         "default_open_format": primary_format,
         "download_url": f"/api/model-assets/{quote(asset_id, safe='')}/download?format={primary_format}",
@@ -440,7 +568,7 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
     available = bool(
         model_path
         and fmt
-        and is_real_path_inside(model_path, paths.model_asset_import_folder)
+        and is_controlled_path(paths, model_path, paths.model_asset_import_folder)
         and os.path.isfile(model_path)
     )
 
@@ -468,16 +596,16 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
         "name": record.get("display_name") or os.path.splitext(record.get("original_name") or asset_id)[0],
         "source_type": SOURCE_IMPORTED,
         "source_label": SOURCE_IMPORTED,
-        "primary_format": fmt,
-        "formats": [fmt] if fmt else [],
+        "primary_format": fmt if available else None,
+        "formats": [fmt] if available and fmt else [],
         "files": descriptors,
         "size": size,
         "primary_size": size,
         "created_at": created_at,
         "updated_at": record.get("updated_at") or modified_at,
         "default_open_url": descriptors[0]["url"] if descriptors else None,
-        "default_open_format": fmt,
-        "download_url": f"/api/model-assets/{quote(asset_id, safe='')}/download?format={fmt}" if fmt else None,
+        "default_open_format": fmt if available else None,
+        "download_url": f"/api/model-assets/{quote(asset_id, safe='')}/download?format={fmt}" if available and fmt else None,
         "available": available,
         "tags": record.get("tags") if isinstance(record.get("tags"), list) else [],
         "note": record.get("note") or "",
@@ -492,30 +620,162 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
         "bounding_box": first_present(record.get("bounding_box"), record_metadata.get("bounding_box"), derived.get("bounding_box")),
         "coordinate_system": first_present(record.get("coordinate_system"), record_metadata.get("coordinate_system"), derived.get("coordinate_system")),
         "attributes": first_present(record.get("attributes"), record_metadata.get("attributes"), derived.get("attributes")),
-        "compression": first_present(record.get("compression"), record_metadata.get("compression"), derived.get("compression"), compression_for_format(fmt)),
+        "compression": first_present(record.get("compression"), record_metadata.get("compression"), derived.get("compression"), compression_for_format(fmt if available else None)),
         "version": first_present(record.get("version"), record_metadata.get("version"), derived.get("version")),
         "metadata": detail_metadata,
         **cover,
     }
 
 
-def build_all_assets(paths, include_details=False):
-    index = read_asset_index(paths)
-    assets = []
+def build_unavailable_generated_asset(paths, asset_id, record=None, previous=None):
+    """保留生成资产身份和用户资料，但清除所有不存在文件的操作 URL。"""
+    record = record or {}
+    asset = deepcopy(previous) if isinstance(previous, dict) else {}
+    asset.update({
+        "id": asset_id,
+        "name": record.get("display_name") or asset.get("name") or asset_id,
+        "source_type": asset.get("source_type") or record.get("source_type") or SOURCE_GENERATED,
+        "source_label": asset.get("source_type") or record.get("source_type") or SOURCE_GENERATED,
+        "primary_format": None,
+        "formats": [],
+        "files": [],
+        "size": 0,
+        "primary_size": 0,
+        "default_open_url": None,
+        "default_open_format": None,
+        "download_url": None,
+        "available": False,
+        "tags": record.get("tags") if isinstance(record.get("tags"), list) else asset.get("tags", []),
+        "note": record.get("note") or asset.get("note") or "",
+        "is_generated": True,
+        "is_imported": False,
+        "updated_at": record.get("updated_at") or asset.get("updated_at") or utc_now_iso(),
+    })
+    asset.update(cover_from_record(paths, asset_id, record))
+    return asset
+
+
+def build_asset_catalog(paths, index):
+    """在冷启动或显式刷新时重建摘要；普通列表请求只读持久化结果。"""
+    previous_items = index.get("catalog", {}).get("items", {})
+    items = {}
     generated_groups = collect_generated_file_groups(paths)
 
     for asset_id, files in generated_groups.items():
         record = get_user_record(index, asset_id)
-        asset = build_generated_asset(paths, asset_id, files, record, include_details=include_details)
+        try:
+            asset = build_generated_asset(paths, asset_id, files, record, include_details=False)
+        except OSError:
+            asset = None
         if asset:
-            assets.append(asset)
+            items[asset_id] = asset
 
     for asset_id, record in index.get("assets", {}).items():
-        if not isinstance(record, dict) or record.get("source_type") != SOURCE_IMPORTED:
+        if record.get("source_type") == SOURCE_IMPORTED:
+            try:
+                items[asset_id] = build_imported_asset(paths, asset_id, record, include_details=False)
+            except OSError:
+                unavailable = dict(record)
+                unavailable["model_path"] = None
+                items[asset_id] = build_imported_asset(paths, asset_id, unavailable, include_details=False)
             continue
-        assets.append(build_imported_asset(paths, asset_id, record, include_details=include_details))
 
-    return assets
+        if asset_id not in items:
+            items[asset_id] = build_unavailable_generated_asset(
+                paths,
+                asset_id,
+                record,
+                previous_items.get(asset_id),
+            )
+
+    for asset_id, previous in previous_items.items():
+        if asset_id in items or previous.get("source_type") == SOURCE_IMPORTED:
+            continue
+        items[asset_id] = build_unavailable_generated_asset(
+            paths,
+            asset_id,
+            get_user_record(index, asset_id),
+            previous,
+        )
+
+    return {
+        "refreshed_at": utc_now_iso(),
+        "items": items,
+    }
+
+
+def refresh_model_asset_catalog(paths):
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        index["catalog"] = build_asset_catalog(paths, index)
+        write_asset_index(paths, index)
+        return list(index["catalog"]["items"].values())
+
+
+def sync_generated_model_asset(paths, asset_id):
+    """Incrementally publish one completed generated asset without scanning the library."""
+    normalized_id = model_gallery.normalize_model_item_id(asset_id)
+    if not normalized_id:
+        raise ModelAssetServiceError(
+            "Generated model asset id is invalid",
+            "model_asset_path_invalid",
+            409,
+        )
+    require_controlled_root(paths, paths.output_folder, "model_asset_path_invalid")
+
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        if "catalog" not in index:
+            index["catalog"] = build_asset_catalog(paths, index)
+        record = get_user_record(index, normalized_id)
+        files = collect_supported_files(paths.output_folder, normalized_id)
+        previous = index.get("catalog", {}).get("items", {}).get(normalized_id)
+        if files:
+            asset = build_generated_asset(
+                paths,
+                normalized_id,
+                files,
+                record,
+                include_details=False,
+            )
+            update_catalog_asset(index, asset)
+        elif record or previous:
+            asset = build_unavailable_generated_asset(
+                paths,
+                normalized_id,
+                record,
+                previous,
+            )
+            update_catalog_asset(index, asset)
+        else:
+            asset = None
+            remove_catalog_asset(index, normalized_id)
+        write_asset_index(paths, index)
+        return deepcopy(asset)
+
+
+def get_catalog_items(paths, refresh=False):
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        if refresh or "catalog" not in index:
+            index["catalog"] = build_asset_catalog(paths, index)
+            write_asset_index(paths, index)
+        return deepcopy(index["catalog"]["items"]), index
+
+
+def update_catalog_asset(index, asset):
+    if not asset:
+        return
+    catalog = index.setdefault("catalog", {"refreshed_at": utc_now_iso(), "items": {}})
+    catalog.setdefault("items", {})[asset["id"]] = asset
+    catalog["updated_at"] = utc_now_iso()
+
+
+def remove_catalog_asset(index, asset_id):
+    catalog = index.get("catalog")
+    if isinstance(catalog, dict) and isinstance(catalog.get("items"), dict):
+        catalog["items"].pop(asset_id, None)
+        catalog["updated_at"] = utc_now_iso()
 
 
 def parse_positive_int(value, fallback, minimum=0, maximum=None):
@@ -601,7 +861,9 @@ def build_asset_counts(assets):
 
 
 def list_model_assets(paths, args):
-    all_assets = build_all_assets(paths, include_details=False)
+    refresh = str(args.get("refresh", "")).strip().lower() in {"1", "true", "yes"}
+    catalog_items, _ = get_catalog_items(paths, refresh=refresh)
+    all_assets = list(catalog_items.values())
     counts, format_counts, tags = build_asset_counts(all_assets)
     source = args.get("source", SOURCE_ALL)
     fmt = args.get("format", "all")
@@ -645,7 +907,10 @@ def get_model_asset(paths, asset_id, include_details=True):
         return None
 
     record = get_user_record(index, generated_asset_id)
-    generated_files = collect_supported_files(paths.output_folder, generated_asset_id)
+    if not is_controlled_root(paths, paths.output_folder):
+        generated_files = {}
+    else:
+        generated_files = collect_supported_files(paths.output_folder, generated_asset_id)
     if generated_files:
         return build_generated_asset(
             paths,
@@ -655,6 +920,9 @@ def get_model_asset(paths, asset_id, include_details=True):
             include_details=include_details,
         )
 
+    previous = index.get("catalog", {}).get("items", {}).get(generated_asset_id)
+    if record or previous:
+        return build_unavailable_generated_asset(paths, generated_asset_id, record, previous)
     return None
 
 
@@ -674,15 +942,16 @@ def normalize_tags(value):
 
 
 def update_model_asset_profile(paths, asset_id, payload):
-    asset = get_model_asset(paths, asset_id, include_details=False)
-    if not asset:
-        return None
-    asset_id = asset["id"]
-
     with _INDEX_LOCK:
         index = read_asset_index(paths)
+        asset = get_model_asset(paths, asset_id, include_details=False)
+        if not asset:
+            return None
+        asset_id = asset["id"]
         assets = index.setdefault("assets", {})
         existing = get_user_record(index, asset_id)
+        if asset.get("is_imported") and existing.get("source_type") != SOURCE_IMPORTED:
+            return None
         record = dict(existing)
         record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
         record["asset_id"] = asset_id
@@ -694,23 +963,26 @@ def update_model_asset_profile(paths, asset_id, payload):
         if asset.get("is_imported"):
             carry_imported_record_fields(existing, record, IMPORTED_IDENTITY_KEYS)
         assets[asset_id] = record
+        if asset.get("is_imported"):
+            updated_asset = build_imported_asset(paths, asset_id, record, include_details=False)
+        else:
+            files = collect_supported_files(paths.output_folder, asset_id) if is_controlled_root(paths, paths.output_folder) else {}
+            updated_asset = (
+                build_generated_asset(paths, asset_id, files, record, include_details=False)
+                if files
+                else build_unavailable_generated_asset(paths, asset_id, record, asset)
+            )
+        update_catalog_asset(index, updated_asset)
         write_asset_index(paths, index)
     return get_model_asset(paths, asset_id, include_details=True)
 
 
 def unique_import_target(paths, filename, extension):
-    """Allocate a safe storage name while preserving the validated model suffix."""
+    """分配与展示名无关的随机安全物理名，天然避免并发同名竞争。"""
     if extension not in SUPPORTED_MODEL_EXTENSIONS:
         raise ValueError("Unsupported model format")
-
-    original_stem = os.path.splitext(normalize_upload_filename(filename))[0]
-    stem = secure_filename(original_stem) or f"model-{uuid.uuid4().hex[:8]}"
-    candidate = f"{stem}{extension}"
-    counter = 1
-    while os.path.exists(os.path.join(paths.model_asset_import_folder, candidate)):
-        candidate = f"{stem}-{counter}{extension}"
-        counter += 1
-    return candidate
+    del filename
+    return f"model-{uuid.uuid4().hex}{extension}"
 
 
 def save_file_storage(file_storage, target_path, max_bytes):
@@ -741,18 +1013,36 @@ def import_model_assets(paths, files):
     if len(files) > MAX_IMPORT_FILES:
         return {
             "success": False,
+            "error": "Too many files in one batch",
+            "code": "too_many_files",
             "assets": [],
             "failed": [{"filename": "", "code": "too_many_files", "error": "Too many files in one batch"}],
         }
 
-    os.makedirs(paths.model_asset_import_folder, exist_ok=True)
-    imported = []
+    try:
+        os.makedirs(paths.model_asset_import_folder, exist_ok=True)
+        require_controlled_root(paths, paths.model_asset_import_folder, "model_asset_import_root_invalid")
+    except OSError as exc:
+        raise ModelAssetServiceError(
+            "Model asset import directory is unavailable",
+            "model_asset_import_root_unavailable",
+            409,
+        ) from exc
+
     failed = []
     new_records = {}
+    saved_paths = []
     batch_bytes = 0
 
     for file_storage in files:
         original_name = normalize_upload_filename(file_storage.filename)
+        if not original_name:
+            failed.append({
+                "filename": "",
+                "code": "invalid_filename",
+                "error": "Model filename is invalid",
+            })
+            continue
         extension = os.path.splitext(original_name)[1].lower()
         fmt = SUPPORTED_MODEL_EXTENSIONS.get(extension)
         if not fmt:
@@ -765,7 +1055,7 @@ def import_model_assets(paths, files):
 
         target_filename = unique_import_target(paths, original_name, extension)
         target_path = os.path.realpath(os.path.join(paths.model_asset_import_folder, target_filename))
-        if not is_real_path_inside(target_path, paths.model_asset_import_folder):
+        if not is_controlled_path(paths, target_path, paths.model_asset_import_folder):
             failed.append({
                 "filename": original_name,
                 "code": "invalid_target",
@@ -784,6 +1074,7 @@ def import_model_assets(paths, files):
 
         batch_bytes += size
         if batch_bytes > MAX_IMPORT_BATCH_BYTES:
+            batch_bytes -= size
             try:
                 os.remove(target_path)
             except OSError:
@@ -794,6 +1085,8 @@ def import_model_assets(paths, files):
                 "error": "Import batch is too large",
             })
             continue
+
+        saved_paths.append(target_path)
 
         asset_id = f"imported-{uuid.uuid4().hex[:12]}"
         record = {
@@ -812,147 +1105,391 @@ def import_model_assets(paths, files):
             "updated_at": file_timestamp(target_path),
         }
         new_records[asset_id] = record
-        imported.append(build_imported_asset(paths, asset_id, record, include_details=True))
 
-    # 文件已经安全落盘，最后在锁内合并进索引，避免并发导入互相覆盖记录。
+    imported = []
     if new_records:
-        with _INDEX_LOCK:
-            index = read_asset_index(paths)
-            index.setdefault("assets", {}).update(new_records)
-            write_asset_index(paths, index)
+        try:
+            with _INDEX_LOCK:
+                index = read_asset_index(paths)
+                if "catalog" not in index:
+                    index["catalog"] = build_asset_catalog(paths, index)
+                index.setdefault("assets", {}).update(new_records)
+                for asset_id, record in new_records.items():
+                    asset = build_imported_asset(paths, asset_id, record, include_details=False)
+                    update_catalog_asset(index, asset)
+                write_asset_index(paths, index)
+            imported = [
+                build_imported_asset(paths, asset_id, record, include_details=True)
+                for asset_id, record in new_records.items()
+            ]
+        except ModelAssetServiceError as exc:
+            for path in saved_paths:
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    pass
+            failed.extend({
+                "filename": record.get("original_name") or "",
+                "code": exc.code,
+                "error": str(exc),
+            } for record in new_records.values())
+            new_records.clear()
+        except Exception as exc:
+            for path in saved_paths:
+                try:
+                    if os.path.isfile(path):
+                        os.remove(path)
+                except OSError:
+                    pass
+            failed.extend({
+                "filename": record.get("original_name") or "",
+                "code": "model_asset_index_write_failed",
+                "error": "Model asset index could not be updated",
+            } for record in new_records.values())
+            new_records.clear()
 
-    return {
+    payload = {
         "success": bool(imported),
         "assets": imported,
         "failed": failed,
     }
+    if not imported:
+        payload["error"] = "No model files were imported"
+        payload["code"] = failed[0]["code"] if failed else "model_asset_import_failed"
+    return payload
 
 
-def validate_cover_image(path):
+def validate_cover_image(path, expected_extension=None):
     with Image.open(path) as image:
+        actual_extension = {
+            "JPEG": "jpg",
+            "PNG": "png",
+            "WEBP": "webp",
+        }.get(str(image.format or "").upper())
+        width, height = image.size
+        if not actual_extension or width <= 0 or height <= 0 or width * height > MAX_COVER_PIXELS:
+            raise ValueError("Invalid cover image dimensions or format")
+        if expected_extension and actual_extension != expected_extension:
+            raise ValueError("Cover image content does not match its extension")
         image.verify()
+    return actual_extension
 
 
 def save_model_asset_cover(paths, asset_id, file_storage, kind=THUMBNAIL_MANUAL):
-    asset = get_model_asset(paths, asset_id, include_details=False)
-    if not asset:
-        return None, {"error": "Model asset not found", "code": "model_asset_not_found"}, 404
-    asset_id = asset["id"]
-
     original_name = file_storage.filename or ""
     extension = os.path.splitext(original_name)[1].lower()
     normalized_extension = ALLOWED_COVER_EXTENSIONS.get(extension)
     if not normalized_extension:
         return None, {"error": "Unsupported cover image type", "code": "unsupported_cover_type"}, 400
 
-    os.makedirs(paths.model_asset_thumbnail_folder, exist_ok=True)
-    target_name = f"{safe_asset_filename(asset_id)}.{normalized_extension}"
-    target_path = os.path.realpath(os.path.join(paths.model_asset_thumbnail_folder, target_name))
-    if not is_real_path_inside(target_path, paths.model_asset_thumbnail_folder):
+    try:
+        os.makedirs(paths.model_asset_thumbnail_folder, exist_ok=True)
+        require_controlled_root(paths, paths.model_asset_thumbnail_folder, "invalid_cover_target")
+    except (OSError, ModelAssetServiceError):
+        return None, {"error": "Cover storage is unavailable", "code": "invalid_cover_target"}, 409
+
+    staging_name = f".cover-upload-{uuid.uuid4().hex}.{normalized_extension}"
+    staging_path = os.path.abspath(os.path.join(paths.model_asset_thumbnail_folder, staging_name))
+    if not is_controlled_path(paths, staging_path, paths.model_asset_thumbnail_folder):
         return None, {"error": "Invalid cover target", "code": "invalid_cover_target"}, 400
 
     try:
-        save_file_storage(file_storage, target_path, MAX_COVER_BYTES)
-        validate_cover_image(target_path)
+        save_file_storage(file_storage, staging_path, MAX_COVER_BYTES)
+        validate_cover_image(staging_path, normalized_extension)
     except ValueError as exc:
-        return None, {"error": str(exc), "code": "cover_too_large"}, 413
+        try:
+            if os.path.isfile(staging_path):
+                os.remove(staging_path)
+        except OSError:
+            pass
+        code = "cover_too_large" if "large" in str(exc).lower() else "invalid_cover_image"
+        status = 413 if code == "cover_too_large" else 400
+        return None, {"error": str(exc), "code": code}, status
     except Exception:
         try:
-            if os.path.exists(target_path):
-                os.remove(target_path)
+            if os.path.isfile(staging_path):
+                os.remove(staging_path)
         except OSError:
             pass
         return None, {"error": "Invalid cover image", "code": "invalid_cover_image"}, 400
 
-    with _INDEX_LOCK:
-        index = read_asset_index(paths)
-        assets = index.setdefault("assets", {})
-        existing = get_user_record(index, asset_id)
-        record = dict(existing)
-        record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
-        if asset.get("is_imported"):
-            carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
-        record["asset_id"] = asset_id
-        record["cover_path"] = workspace_relative_path(paths, target_path)
-        record["cover_kind"] = kind
-        record["cover_status"] = "ready"
-        record["updated_at"] = utc_now_iso()
-        assets[asset_id] = record
-        write_asset_index(paths, index)
+    backups = []
+    target_path = None
+    try:
+        with _INDEX_LOCK:
+            index = read_asset_index(paths)
+            asset = get_model_asset(paths, asset_id, include_details=False)
+            if not asset:
+                raise ModelAssetServiceError("Model asset not found", "model_asset_not_found", 404)
+            asset_id = asset["id"]
+            existing = get_user_record(index, asset_id)
+            if asset.get("is_imported") and existing.get("source_type") != SOURCE_IMPORTED:
+                raise ModelAssetServiceError("Model asset not found", "model_asset_not_found", 404)
+
+            target_path = os.path.abspath(os.path.join(
+                paths.model_asset_thumbnail_folder,
+                f"{safe_asset_filename(asset_id)}.{normalized_extension}",
+            ))
+            if not is_controlled_path(paths, target_path, paths.model_asset_thumbnail_folder):
+                raise ModelAssetServiceError("Invalid cover target", "invalid_cover_target", 400)
+
+            for candidate in cover_variant_paths(paths, asset_id):
+                if os.path.lexists(candidate):
+                    real_candidate = os.path.realpath(candidate)
+                    if not is_controlled_path(paths, real_candidate, paths.model_asset_thumbnail_folder):
+                        raise ModelAssetServiceError("Invalid existing cover path", "invalid_cover_target", 409)
+                    backup = f"{candidate}.backup-{uuid.uuid4().hex}"
+                    os.replace(candidate, backup)
+                    backups.append((candidate, backup))
+
+            os.replace(staging_path, target_path)
+            assets = index.setdefault("assets", {})
+            record = dict(existing)
+            record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
+            if asset.get("is_imported"):
+                carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
+            record["asset_id"] = asset_id
+            record["cover_path"] = workspace_relative_path(paths, target_path)
+            record["cover_kind"] = kind
+            record["cover_status"] = "ready"
+            record["updated_at"] = utc_now_iso()
+            assets[asset_id] = record
+            if asset.get("is_imported"):
+                updated_asset = build_imported_asset(paths, asset_id, record, include_details=False)
+            else:
+                files = collect_supported_files(paths.output_folder, asset_id) if is_controlled_root(paths, paths.output_folder) else {}
+                updated_asset = (
+                    build_generated_asset(paths, asset_id, files, record, include_details=False)
+                    if files
+                    else build_unavailable_generated_asset(paths, asset_id, record, asset)
+                )
+            update_catalog_asset(index, updated_asset)
+            write_asset_index(paths, index)
+    except ModelAssetServiceError as exc:
+        if target_path:
+            try:
+                if os.path.isfile(target_path):
+                    os.remove(target_path)
+            except OSError:
+                pass
+        for original, backup in reversed(backups):
+            try:
+                if os.path.exists(backup):
+                    os.replace(backup, original)
+            except OSError:
+                pass
+        try:
+            if os.path.isfile(staging_path):
+                os.remove(staging_path)
+        except OSError:
+            pass
+        return None, {"error": str(exc), "code": exc.code}, exc.status_code
+    except Exception:
+        if target_path:
+            try:
+                if os.path.isfile(target_path):
+                    os.remove(target_path)
+            except OSError:
+                pass
+        for original, backup in reversed(backups):
+            try:
+                if os.path.exists(backup):
+                    os.replace(backup, original)
+            except OSError:
+                pass
+        try:
+            if os.path.isfile(staging_path):
+                os.remove(staging_path)
+        except OSError:
+            pass
+        return None, {"error": "Cover could not be saved", "code": "cover_write_failed"}, 500
+
+    for _, backup in backups:
+        try:
+            if os.path.isfile(backup):
+                os.remove(backup)
+        except OSError:
+            pass
     return get_model_asset(paths, asset_id, include_details=True), None, 200
 
 
 def refresh_model_asset_cover(paths, asset_id):
-    asset = get_model_asset(paths, asset_id, include_details=False)
-    if not asset:
-        return None
-    asset_id = asset["id"]
+    backups = []
+    try:
+        with _INDEX_LOCK:
+            index = read_asset_index(paths)
+            asset = get_model_asset(paths, asset_id, include_details=False)
+            if not asset:
+                return None
+            asset_id = asset["id"]
+            assets = index.setdefault("assets", {})
+            existing = get_user_record(index, asset_id)
+            if asset.get("is_imported") and existing.get("source_type") != SOURCE_IMPORTED:
+                return None
+            require_controlled_root(paths, paths.model_asset_thumbnail_folder, "invalid_cover_target")
 
-    with _INDEX_LOCK:
-        index = read_asset_index(paths)
-        assets = index.setdefault("assets", {})
-        existing = get_user_record(index, asset_id)
-        record = dict(existing)
-        cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
-        if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder):
+            candidates = set(cover_variant_paths(paths, asset_id))
+            record_cover = resolve_workspace_relative_path(paths, existing.get("cover_path"))
+            if record_cover:
+                candidates.add(record_cover)
+            for candidate in candidates:
+                if not os.path.lexists(candidate):
+                    continue
+                real_candidate = os.path.realpath(candidate)
+                if not is_controlled_path(paths, real_candidate, paths.model_asset_thumbnail_folder):
+                    raise ModelAssetServiceError("Invalid existing cover path", "invalid_cover_target", 409)
+                backup = f"{candidate}.backup-{uuid.uuid4().hex}"
+                os.replace(candidate, backup)
+                backups.append((candidate, backup))
+
+            record = dict(existing)
+            record.pop("cover_path", None)
+            record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
+            if asset.get("is_imported"):
+                carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
+            record["asset_id"] = asset_id
+            record["cover_status"] = THUMBNAIL_PENDING
+            record["cover_kind"] = THUMBNAIL_SYSTEM
+            record["updated_at"] = utc_now_iso()
+            assets[asset_id] = record
+            if asset.get("is_imported"):
+                updated_asset = build_imported_asset(paths, asset_id, record, include_details=False)
+            else:
+                files = collect_supported_files(paths.output_folder, asset_id) if is_controlled_root(paths, paths.output_folder) else {}
+                updated_asset = (
+                    build_generated_asset(paths, asset_id, files, record, include_details=False)
+                    if files
+                    else build_unavailable_generated_asset(paths, asset_id, record, asset)
+                )
+            update_catalog_asset(index, updated_asset)
+            write_asset_index(paths, index)
+    except ModelAssetServiceError:
+        for original, backup in reversed(backups):
             try:
-                if os.path.isfile(cover_path):
-                    os.remove(cover_path)
+                if os.path.exists(backup):
+                    os.replace(backup, original)
             except OSError:
                 pass
-        record.pop("cover_path", None)
-        record.setdefault("source_type", SOURCE_IMPORTED if asset.get("is_imported") else SOURCE_GENERATED)
-        if asset.get("is_imported"):
-            carry_imported_record_fields(existing, record, IMPORTED_PROFILE_KEYS)
-        record["asset_id"] = asset_id
-        record["cover_status"] = THUMBNAIL_PENDING
-        record["cover_kind"] = THUMBNAIL_SYSTEM
-        record["updated_at"] = utc_now_iso()
-        assets[asset_id] = record
-        write_asset_index(paths, index)
+        raise
+    except Exception as exc:
+        for original, backup in reversed(backups):
+            try:
+                if os.path.exists(backup):
+                    os.replace(backup, original)
+            except OSError:
+                pass
+        raise ModelAssetServiceError(
+            "Cover could not be refreshed",
+            "cover_write_failed",
+        ) from exc
+
+    for _, backup in backups:
+        try:
+            if os.path.isfile(backup):
+                os.remove(backup)
+        except OSError:
+            pass
     return get_model_asset(paths, asset_id, include_details=True)
 
 
 def delete_model_asset(paths, asset_id):
-    asset = get_model_asset(paths, asset_id, include_details=True)
-    if not asset:
-        return False
-    asset_id = asset["id"]
-
     with _INDEX_LOCK:
         index = read_asset_index(paths)
+        asset = get_model_asset(paths, asset_id, include_details=True)
+        if not asset:
+            return False
+        asset_id = asset["id"]
         record = get_user_record(index, asset_id)
-        cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
-        if cover_path and is_real_path_inside(cover_path, paths.model_asset_thumbnail_folder):
-            try:
-                if os.path.isfile(cover_path):
-                    os.remove(cover_path)
-            except OSError:
-                pass
-
-        generated_cover = os.path.join(paths.model_asset_thumbnail_folder, f"{safe_asset_filename(asset_id)}.jpg")
-        try:
-            if os.path.isfile(generated_cover):
-                os.remove(generated_cover)
-        except OSError:
-            pass
-
         if asset.get("is_imported"):
+            if record.get("source_type") != SOURCE_IMPORTED:
+                return False
             model_path = resolve_workspace_relative_path(paths, record.get("model_path"))
-            if model_path and is_real_path_inside(model_path, paths.model_asset_import_folder):
+            if model_path and not is_controlled_path(paths, model_path, paths.model_asset_import_folder):
+                raise ModelAssetServiceError(
+                    "Imported model path is outside the controlled directory",
+                    "model_asset_path_invalid",
+                    409,
+                )
+
+            delete_paths = []
+            if model_path and os.path.lexists(model_path):
+                delete_paths.append(model_path)
+            cover_path = resolve_workspace_relative_path(paths, record.get("cover_path"))
+            if cover_path:
+                delete_paths.append(cover_path)
+            delete_paths.extend(cover_variant_paths(paths, asset_id))
+            seen = set()
+            for path in delete_paths:
+                normalized = os.path.normcase(os.path.abspath(path))
+                if normalized in seen or not os.path.lexists(path):
+                    continue
+                seen.add(normalized)
+                if path == model_path:
+                    valid = is_controlled_path(paths, os.path.realpath(path), paths.model_asset_import_folder)
+                else:
+                    valid = is_controlled_path(paths, os.path.realpath(path), paths.model_asset_thumbnail_folder)
+                if not valid:
+                    raise ModelAssetServiceError(
+                        "Model asset delete path is outside controlled roots",
+                        "model_asset_path_invalid",
+                        409,
+                    )
                 try:
-                    if os.path.isfile(model_path):
-                        os.remove(model_path)
-                except OSError:
-                    pass
+                    os.remove(path)
+                except OSError as exc:
+                    raise ModelAssetServiceError(
+                        "Model asset file could not be deleted",
+                        "model_asset_delete_failed",
+                        409,
+                    ) from exc
             index.get("assets", {}).pop(asset_id, None)
+            remove_catalog_asset(index, asset_id)
             write_asset_index(paths, index)
             return True
 
-        model_gallery.delete_gallery_item(paths, asset_id)
+        require_controlled_root(paths, paths.output_folder, "model_asset_path_invalid")
+        for extension in SUPPORTED_MODEL_EXTENSIONS:
+            candidate = os.path.join(paths.output_folder, asset_id + extension)
+            if os.path.lexists(candidate) and not is_controlled_path(
+                paths,
+                os.path.realpath(candidate),
+                paths.output_folder,
+            ):
+                raise ModelAssetServiceError(
+                    "Generated model path is outside the controlled output directory",
+                    "model_asset_path_invalid",
+                    409,
+                )
+        for cover_path in cover_variant_paths(paths, asset_id):
+            if not os.path.lexists(cover_path):
+                continue
+            if not is_controlled_path(paths, os.path.realpath(cover_path), paths.model_asset_thumbnail_folder):
+                raise ModelAssetServiceError(
+                    "Generated model cover path is outside the controlled directory",
+                    "model_asset_path_invalid",
+                    409,
+                )
+            try:
+                os.remove(cover_path)
+            except OSError as exc:
+                raise ModelAssetServiceError(
+                    "Generated model cover could not be deleted",
+                    "model_asset_delete_failed",
+                    409,
+                ) from exc
+        try:
+            model_gallery.delete_gallery_item(paths, asset_id)
+        except (OSError, ValueError) as exc:
+            raise ModelAssetServiceError(
+                "Generated model could not be deleted",
+                "model_asset_delete_failed",
+                409,
+            ) from exc
         if asset_id in index.get("assets", {}):
             index["assets"].pop(asset_id, None)
-            write_asset_index(paths, index)
+        remove_catalog_asset(index, asset_id)
+        write_asset_index(paths, index)
     return True
 
 
@@ -961,6 +1498,8 @@ def resolve_asset_source_files(paths, asset_id):
     index = read_asset_index(paths)
     record = get_user_record(index, asset_id)
     if record.get("source_type") == SOURCE_IMPORTED:
+        if not is_controlled_root(paths, paths.model_asset_import_folder):
+            return {}
         model_path = resolve_workspace_relative_path(paths, record.get("model_path"))
         asset_format = normalize_format(record.get("format")) or (
             format_for_path(model_path) if model_path else None
@@ -968,14 +1507,14 @@ def resolve_asset_source_files(paths, asset_id):
         if (
             model_path
             and asset_format
-            and is_real_path_inside(model_path, paths.model_asset_import_folder)
+            and is_controlled_path(paths, model_path, paths.model_asset_import_folder)
             and os.path.isfile(model_path)
         ):
             return {asset_format: model_path}
         return {}
 
     generated_asset_id = model_gallery.normalize_model_item_id(asset_id)
-    if not generated_asset_id:
+    if not generated_asset_id or not is_controlled_root(paths, paths.output_folder):
         return {}
     return collect_supported_files(paths.output_folder, generated_asset_id)
 
@@ -991,7 +1530,12 @@ def resolve_download_file(paths, asset_id, fmt=None):
 
     requested_format = normalize_format(fmt) or select_primary_format(files)
     path = files.get(requested_format) or files.get(select_primary_format(files))
-    if not path or not os.path.isfile(path):
+    expected_root = paths.model_asset_import_folder if asset.get("is_imported") else paths.output_folder
+    if (
+        not path
+        or not is_controlled_path(paths, path, expected_root)
+        or not os.path.isfile(path)
+    ):
         return None
 
     extension = os.path.splitext(path)[1].lower()

@@ -10,6 +10,7 @@ const SORT_SETTLE_FRAMES = 10;
 const COVER_ASPECT = COVER_WIDTH / COVER_HEIGHT;
 
 let sharedRenderer: THREE.WebGLRenderer | null = null;
+let sharedRenderTail: Promise<void> = Promise.resolve();
 
 /**
  * 复用同一个离屏 WebGLRenderer（单个 WebGL 上下文），避免批量生成封面时
@@ -109,7 +110,7 @@ function disposeSparkRenderer(scene: THREE.Scene, sparkRenderer: SparkRenderer):
  * 在离屏画布中加载真实模型并渲染一张小尺寸封面。任何失败都会抛出，
  * 由调用方回退到占位封面。
  */
-export async function renderModelCoverBlob(
+async function renderModelCoverBlobUnlocked(
   url: string,
   format: ViewerModelFormat,
 ): Promise<Blob> {
@@ -144,6 +145,27 @@ export async function renderModelCoverBlob(
       mesh.dispose();
     }
     disposeSparkRenderer(scene, sparkRenderer);
+  }
+}
+
+/**
+ * 共享 renderer/canvas 的加载、渲染、等待排序和编码区间必须串行，
+ * 网络上传仍可由上层队列有界并发。
+ */
+export async function renderModelCoverBlob(
+  url: string,
+  format: ViewerModelFormat,
+): Promise<Blob> {
+  const previous = sharedRenderTail;
+  let release!: () => void;
+  sharedRenderTail = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await renderModelCoverBlobUnlocked(url, format);
+  } finally {
+    release();
   }
 }
 

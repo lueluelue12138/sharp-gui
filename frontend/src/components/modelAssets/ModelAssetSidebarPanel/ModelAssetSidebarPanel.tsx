@@ -3,11 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 
-import { deleteModelAsset, downloadModelAsset, fetchModelAssets } from '@/api';
+import { ApiError, deleteModelAsset, downloadModelAsset, fetchModelAssets } from '@/api';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { ChevronRightIcon, DeleteIcon, DownloadIcon, EyeIcon } from '@/components/common/Icons';
 import { useAppStore } from '@/store';
-import { formatFileSize, resolveModelAssetSource } from '@/utils';
+import { formatFileSize, localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import type { GalleryItem, ModelAsset } from '@/types';
 
 import styles from './ModelAssetSidebarPanel.module.css';
@@ -16,15 +16,23 @@ const RECENT_ASSET_PAGE_SIZE = 16;
 const RECENT_LOAD_MORE_THRESHOLD_PX = 96;
 
 interface ModelAssetSidebarPanelProps {
+  canDeleteAssets: boolean;
   onOpenLibrary: () => void;
   onOpenModel: () => void;
 }
 
 export function ModelAssetSidebarPanel({
+  canDeleteAssets,
   onOpenLibrary,
   onOpenModel,
 }: ModelAssetSidebarPanelProps) {
   const { t } = useTranslation();
+  const getErrorMessage = useCallback((error: unknown) => {
+    if (error instanceof ApiError) {
+      return localizeModelAssetError(t, error.data?.code, error.data?.error ?? error.message);
+    }
+    return error instanceof Error ? error.message : t('modelAssetGenericError');
+  }, [t]);
   const [deleteTarget, setDeleteTarget] = useState<ModelAsset | null>(null);
   const [recentAssets, setRecentAssets] = useState<ModelAsset[]>([]);
   const [recentNextCursor, setRecentNextCursor] = useState<string | null>(null);
@@ -90,8 +98,7 @@ export function ModelAssetSidebarPanel({
       };
     } catch (error) {
       if (requestId === requestIdRef.current) {
-        const message = error instanceof Error ? error.message : 'Unknown error';
-        setModelAssetError(message);
+        setModelAssetError(getErrorMessage(error));
       }
     } finally {
       if (requestId === requestIdRef.current) {
@@ -99,7 +106,7 @@ export function ModelAssetSidebarPanel({
         recentScrollStateRef.current.loading = false;
       }
     }
-  }, [setModelAssetError]);
+  }, [getErrorMessage, setModelAssetError]);
 
   useEffect(() => {
     void loadRecentAssets(null, false);
@@ -176,10 +183,9 @@ export function ModelAssetSidebarPanel({
       setDeleteTarget(null);
       void loadRecentAssets(null, false);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      setModelAssetError(message);
+      setModelAssetError(getErrorMessage(error));
     }
-  }, [currentModelId, deleteTarget, loadRecentAssets, removeModelAsset, setCurrentModel, setModelAssetError]);
+  }, [currentModelId, deleteTarget, getErrorMessage, loadRecentAssets, removeModelAsset, setCurrentModel, setModelAssetError]);
 
   const handleActionClick = (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -188,25 +194,6 @@ export function ModelAssetSidebarPanel({
     event.stopPropagation();
     action();
   };
-
-  const handleItemKeyDown = (
-    event: React.KeyboardEvent<HTMLDivElement>,
-    asset: ModelAsset,
-  ) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleOpen(asset);
-    }
-  };
-
-  if (recentAssets.length === 0) {
-    return (
-      <div className={styles.empty}>
-        <span>{t('modelAssetRecentModels')}</span>
-        <p>{t('modelAssetSidebarEmpty')}</p>
-      </div>
-    );
-  }
 
   return (
     <div className={styles.panel}>
@@ -223,6 +210,11 @@ export function ModelAssetSidebarPanel({
           </button>
         </div>
         <div className={styles.recentList} onScroll={handleRecentScroll}>
+          {!recentLoading && recentAssets.length === 0 ? (
+            <div className={styles.empty}>
+              <p>{t('modelAssetSidebarEmpty')}</p>
+            </div>
+          ) : null}
           {recentAssets.map((asset) => {
             const modelSource = resolveModelAssetSource(asset, preferredModelFormat);
             const format = (modelSource.format ?? asset.primary_format ?? asset.formats[0] ?? 'ply').toUpperCase();
@@ -236,11 +228,13 @@ export function ModelAssetSidebarPanel({
                     ? styles.recentItemActive
                     : '',
                 ].filter(Boolean).join(' ')}
-                role="button"
-                tabIndex={0}
-                onClick={() => handleOpen(asset)}
-                onKeyDown={(event) => handleItemKeyDown(event, asset)}
               >
+                <button
+                  className={styles.recentMainButton}
+                  type="button"
+                  aria-label={asset.name}
+                  onClick={() => handleOpen(asset)}
+                />
                 <span className={styles.thumb}>
                   {asset.thumb_url ? (
                     <img src={asset.thumb_url} alt="" loading="lazy" decoding="async" />
@@ -276,15 +270,17 @@ export function ModelAssetSidebarPanel({
                   >
                     <DownloadIcon width={14} height={14} />
                   </button>
-                  <button
-                    className={[styles.actionBtn, styles.deleteBtn].join(' ')}
-                    type="button"
-                    aria-label={t('delete')}
-                    data-tooltip={t('delete')}
-                    onClick={(event) => handleActionClick(event, () => setDeleteTarget(asset))}
-                  >
-                    <DeleteIcon width={14} height={14} />
-                  </button>
+                  {canDeleteAssets ? (
+                    <button
+                      className={[styles.actionBtn, styles.deleteBtn].join(' ')}
+                      type="button"
+                      aria-label={t('delete')}
+                      data-tooltip={t('delete')}
+                      onClick={(event) => handleActionClick(event, () => setDeleteTarget(asset))}
+                    >
+                      <DeleteIcon width={14} height={14} />
+                    </button>
+                  ) : null}
                 </span>
               </div>
             );

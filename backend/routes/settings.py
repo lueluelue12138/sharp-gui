@@ -9,7 +9,11 @@ from backend.config import (
 )
 from backend.services.folder_picker import browse_folder_native
 from backend.services.photo_gallery import migrate_photo_gallery_roots_config
-from backend.services.workspace_lock import WorkspaceInUseError, WorkspaceInstanceLock
+from backend.services.workspace_lock import (
+    WorkspaceInUseError,
+    WorkspaceInstanceLock,
+    WorkspaceUnavailableError,
+)
 from backend.server import restart_process_later
 
 bp = Blueprint("settings", __name__)
@@ -66,6 +70,12 @@ def settings():
                     "success": False,
                     "error": str(exc),
                     "code": "workspace_in_use",
+                }), 409
+            except WorkspaceUnavailableError as exc:
+                return jsonify({
+                    "success": False,
+                    "error": str(exc),
+                    "code": "workspace_unavailable",
                 }), 409
             finally:
                 workspace_probe.release()

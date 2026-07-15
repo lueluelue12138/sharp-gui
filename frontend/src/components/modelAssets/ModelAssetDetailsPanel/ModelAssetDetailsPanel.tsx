@@ -20,10 +20,13 @@ import styles from './ModelAssetDetailsPanel.module.css';
 interface ModelAssetDetailsPanelProps {
   asset: ModelAsset | null;
   saving: boolean;
+  canWrite: boolean;
+  canDelete: boolean;
   preferredFormat: ModelFormat;
   onOpen: (asset: ModelAsset) => void;
   onPreviewSource: (asset: ModelAsset) => void;
   onDownload: (asset: ModelAsset) => void;
+  onExport: (asset: ModelAsset) => void;
   onDelete: (asset: ModelAsset) => void;
   onSaveProfile: (asset: ModelAsset, profile: ModelAssetProfileInput) => void;
   onUploadCover: (asset: ModelAsset, file: File) => void;
@@ -60,10 +63,13 @@ function formatFieldValue(value: unknown, fallback: string): string {
 export function ModelAssetDetailsPanel({
   asset,
   saving,
+  canWrite,
+  canDelete,
   preferredFormat,
   onOpen,
   onPreviewSource,
   onDownload,
+  onExport,
   onDelete,
   onSaveProfile,
   onUploadCover,
@@ -190,20 +196,22 @@ export function ModelAssetDetailsPanel({
             )}
           </div>
         )}
-        <button
-          className={styles.coverButton}
-          type="button"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => {
-            event.stopPropagation();
-            coverInputRef.current?.click();
-          }}
-          aria-label={t('modelAssetUploadCover')}
-          data-tooltip={t('modelAssetUploadCover')}
-        >
-          <CloudUploadIcon width={15} height={15} />
-        </button>
-        {asset.thumbnail_kind === 'manual' ? (
+        {canWrite ? (
+          <button
+            className={styles.coverButton}
+            type="button"
+            onPointerDown={(event) => event.stopPropagation()}
+            onClick={(event) => {
+              event.stopPropagation();
+              coverInputRef.current?.click();
+            }}
+            aria-label={t('modelAssetUploadCover')}
+            data-tooltip={t('modelAssetUploadCover')}
+          >
+            <CloudUploadIcon width={15} height={15} />
+          </button>
+        ) : null}
+        {canWrite && asset.thumbnail_kind === 'manual' ? (
           <button
             className={`${styles.coverButton} ${styles.restoreCoverButton}`}
             type="button"
@@ -228,7 +236,7 @@ export function ModelAssetDetailsPanel({
       </div>
 
       <div className={styles.header}>
-        {isEditing ? (
+        {isEditing && canWrite ? (
           <div className={styles.editStack}>
             <label>
               <span>{t('modelAssetName')}</span>
@@ -267,14 +275,16 @@ export function ModelAssetDetailsPanel({
           <>
             <div className={styles.titleRow}>
               <h2>{asset.name}</h2>
-              <button
-                className={styles.editButton}
-                type="button"
-                onClick={() => setIsEditing(true)}
-                aria-label={t('edit')}
-              >
-                {t('edit')}
-              </button>
+              {canWrite ? (
+                <button
+                  className={styles.editButton}
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  aria-label={t('edit')}
+                >
+                  {t('edit')}
+                </button>
+              ) : null}
             </div>
             <div className={styles.summary}>
               <span>{primaryFormat}</span>
@@ -292,18 +302,37 @@ export function ModelAssetDetailsPanel({
         <Button size="sm" variant="secondary" icon={<DownloadIcon />} disabled={!asset.available} onClick={() => onDownload(asset)}>
           {t('download')}
         </Button>
-        <Button size="sm" variant="secondary" icon={<ShareIcon />} disabled>
-          {t('export')}
-        </Button>
         <Button
           size="sm"
           variant="secondary"
-          className={styles.dangerAction}
-          icon={<DeleteIcon />}
-          onClick={() => onDelete(asset)}
+          icon={<ShareIcon />}
+          disabled={!asset.available || !asset.is_generated}
+          title={asset.is_generated ? t('export') : t('modelAssetExportUnavailable')}
+          onClick={() => onExport(asset)}
         >
-          {t('delete')}
+          {t('export')}
         </Button>
+        {canDelete ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            className={styles.dangerAction}
+            icon={<DeleteIcon />}
+            onClick={() => onDelete(asset)}
+          >
+            {t('delete')}
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<DeleteIcon />}
+            disabled
+            title={t('modelAssetDeletePermissionRequired')}
+          >
+            {t('delete')}
+          </Button>
+        )}
       </div>
 
       <div className={styles.tabs} role="tablist" aria-label={t('modelAssetDetailsTabs')}>

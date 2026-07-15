@@ -100,6 +100,7 @@ export interface ModelAssetListParams {
   sort?: ModelAssetSort;
   cursor?: string | null;
   limit?: number;
+  refresh?: boolean;
 }
 
 export interface ModelAssetImportFailure {
@@ -110,6 +111,8 @@ export interface ModelAssetImportFailure {
 
 export interface ModelAssetImportResult {
   success: boolean;
+  error?: string;
+  code?: string;
   assets: ModelAsset[];
   failed: ModelAssetImportFailure[];
 }

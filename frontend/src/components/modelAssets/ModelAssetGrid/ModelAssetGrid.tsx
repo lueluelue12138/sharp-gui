@@ -24,6 +24,8 @@ interface ModelAssetGridProps {
   onPreview: (asset: ModelAsset) => void;
   onDownload: (asset: ModelAsset) => void;
   onDelete: (asset: ModelAsset) => void;
+  canDelete: boolean;
+  onVisibilityChange: (assetId: string, visible: boolean) => void;
   onScroll: (event: React.UIEvent<HTMLDivElement>) => void;
 }
 
@@ -44,6 +46,8 @@ export function ModelAssetGrid({
   onPreview,
   onDownload,
   onDelete,
+  canDelete,
+  onVisibilityChange,
   onScroll,
 }: ModelAssetGridProps) {
   const { t } = useTranslation();
@@ -82,6 +86,8 @@ export function ModelAssetGrid({
             onPreview={onPreview}
             onDownload={onDownload}
             onDelete={onDelete}
+            canDelete={canDelete}
+            onVisibilityChange={onVisibilityChange}
           />
         ))}
         {loading ? (

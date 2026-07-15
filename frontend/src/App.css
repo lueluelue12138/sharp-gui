@@ -14,6 +14,53 @@
   background-color: var(--bg-secondary);
 }
 
+.app-notice {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  z-index: 100;
+  width: min(520px, calc(100vw - 32px));
+  min-height: 48px;
+  padding: 10px 10px 10px 16px;
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  transform: translateX(-50%);
+}
+
+.app-notice-error {
+  border-color: color-mix(in srgb, var(--danger-color) 42%, var(--glass-border));
+}
+
+.app-notice button {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+}
+
+.app-notice button:hover,
+.app-notice button:focus-visible {
+  color: var(--danger-color);
+  background: rgba(255, 59, 48, 0.1);
+}
+
+.app-notice button:focus-visible {
+  outline: 2px solid var(--accent-blue);
+  outline-offset: 2px;
+}
+
 /* Mobile menu button */
 .mobile-menu-btn {
   display: none;

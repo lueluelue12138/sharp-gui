@@ -3,12 +3,13 @@ import type { DragEvent } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
+import type { TFunction } from 'i18next';
 
 import {
   ApiError,
   deleteModelAsset,
   downloadModelAsset,
-  fetchGallery,
+  exportModel,
   fetchModelAsset,
   fetchModelAssets,
   refreshModelAssetCover,
@@ -23,7 +24,7 @@ import { ModelAssetToolbar } from '@/components/modelAssets/ModelAssetToolbar';
 import type { ModelAssetToolbarMode } from '@/components/modelAssets/ModelAssetToolbar';
 import { useModelAssetCoverQueue } from '@/hooks/useModelAssetCoverQueue';
 import { useAppStore } from '@/store';
-import { resolveModelAssetSource } from '@/utils';
+import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import type {
   GalleryItem,
   ModelAsset,
@@ -42,20 +43,22 @@ const MOBILE_TOOLBAR_COMPACT_SCROLL_TOP = 128;
 const MODEL_ASSET_LOAD_MORE_REMAINING_PX = 700;
 
 interface ModelAssetLibraryViewProps {
-  canImportAssets: boolean;
+  canWriteAssets: boolean;
+  canDeleteAssets: boolean;
   onImportBlocked: () => void;
   onImportFiles: (files: File[]) => void;
 }
 
-function getErrorMessage(error: unknown): string {
+function getErrorMessage(error: unknown, t: TFunction): string {
   if (error instanceof ApiError) {
-    return error.data?.error ?? error.message;
+    return localizeModelAssetError(t, error.data?.code, error.data?.error ?? error.message);
   }
-  return error instanceof Error ? error.message : 'Unknown error';
+  return error instanceof Error ? error.message : t('modelAssetGenericError');
 }
 
 export function ModelAssetLibraryView({
-  canImportAssets,
+  canWriteAssets,
+  canDeleteAssets,
   onImportBlocked,
   onImportFiles,
 }: ModelAssetLibraryViewProps) {
@@ -68,6 +71,8 @@ export function ModelAssetLibraryView({
   const scrollSaveFrameRef = useRef<number | null>(null);
   const resizeFrameRef = useRef<number | null>(null);
   const dragDepthRef = useRef(0);
+  const requestGenerationRef = useRef(0);
+  const activeRequestRef = useRef<AbortController | null>(null);
   const lastScrollTopRef = useRef(useAppStore.getState().modelAssetScrollTop);
   const restoredScrollKeyRef = useRef<string | null>(null);
   const assetScrollStateRef = useRef<{
@@ -81,6 +86,7 @@ export function ModelAssetLibraryView({
   const [openCardsDirectly, setOpenCardsDirectly] = useState(true);
   const [mobileDetailsOpen, setMobileDetailsOpen] = useState(false);
   const [dropActive, setDropActive] = useState(false);
+  const [visibleAssetIds, setVisibleAssetIds] = useState<Set<string>>(() => new Set());
   const {
     modelAssets,
     modelAssetTotal,
@@ -116,7 +122,6 @@ export function ModelAssetLibraryView({
     setModelAssetEditing,
     setCurrentModel,
     setPreviewImage,
-    setGalleryItems,
   } = useAppStore(
     useShallow((state) => ({
       modelAssets: state.modelAssets,
@@ -153,7 +158,6 @@ export function ModelAssetLibraryView({
       setModelAssetEditing: state.setModelAssetEditing,
       setCurrentModel: state.setCurrentModel,
       setPreviewImage: state.setPreviewImage,
-      setGalleryItems: state.setGalleryItems,
     })),
   );
 
@@ -301,9 +305,32 @@ export function ModelAssetLibraryView({
     upsertModelAssets([asset]);
   }, [upsertModelAssets]);
 
-  useModelAssetCoverQueue(modelAssets, handleGeneratedCover);
+  const visibleCoverAssets = useMemo(
+    () => modelAssets.filter((asset) => visibleAssetIds.has(asset.id)),
+    [modelAssets, visibleAssetIds],
+  );
 
-  const loadAssets = useCallback(async (cursor: string | null = null, append = false) => {
+  useModelAssetCoverQueue(visibleCoverAssets, handleGeneratedCover, canWriteAssets);
+
+  const loadAssets = useCallback(async (
+    cursor: string | null = null,
+    append = false,
+    refresh = false,
+  ) => {
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    activeRequestRef.current?.abort();
+    const controller = new AbortController();
+    activeRequestRef.current = controller;
+    const querySignature = [
+      modelAssetSource,
+      modelAssetFormat,
+      modelAssetTag ?? '',
+      modelAssetSort,
+      cursor ?? '',
+      append ? 'append' : 'replace',
+      refresh ? 'refresh' : 'cached',
+    ].join('|');
     try {
       if (assetScrollStateRef.current) {
         assetScrollStateRef.current.isLoading = true;
@@ -316,10 +343,30 @@ export function ModelAssetLibraryView({
         sort: modelAssetSort,
         cursor,
         limit: modelAssetBatchSize,
-      });
+        refresh,
+      }, { signal: controller.signal });
+      const currentSignature = [
+        useAppStore.getState().modelAssetSource,
+        useAppStore.getState().modelAssetFormat,
+        useAppStore.getState().modelAssetTag ?? '',
+        useAppStore.getState().modelAssetSort,
+        cursor ?? '',
+        append ? 'append' : 'replace',
+        refresh ? 'refresh' : 'cached',
+      ].join('|');
+      if (generation !== requestGenerationRef.current || querySignature !== currentSignature) {
+        return;
+      }
       setModelAssets(response, append);
     } catch (error) {
-      setModelAssetError(getErrorMessage(error));
+      if (controller.signal.aborted || generation !== requestGenerationRef.current) {
+        return;
+      }
+      setModelAssetError(getErrorMessage(error, t));
+    } finally {
+      if (activeRequestRef.current === controller) {
+        activeRequestRef.current = null;
+      }
     }
   }, [
     modelAssetFormat,
@@ -330,7 +377,14 @@ export function ModelAssetLibraryView({
     setModelAssetError,
     setModelAssetLoading,
     setModelAssets,
+    t,
   ]);
+
+  useEffect(() => () => {
+    requestGenerationRef.current += 1;
+    activeRequestRef.current?.abort();
+    activeRequestRef.current = null;
+  }, []);
 
   useEffect(() => {
     assetScrollStateRef.current = {
@@ -343,11 +397,11 @@ export function ModelAssetLibraryView({
   }, [loadAssets, modelAssetLoading, modelAssetNextCursor]);
 
   useEffect(() => {
-    if (modelAssetCacheReady || modelAssetLoading) {
+    if (modelAssetCacheReady) {
       return;
     }
     void loadAssets(null, false);
-  }, [loadAssets, modelAssetCacheReady, modelAssetLoading]);
+  }, [loadAssets, modelAssetCacheReady]);
 
   useLayoutEffect(() => {
     if (restoredScrollKeyRef.current === scrollContextKey) {
@@ -386,21 +440,21 @@ export function ModelAssetLibraryView({
   ]);
 
   const handleImportClick = useCallback(() => {
-    if (!canImportAssets) {
+    if (!canWriteAssets) {
       onImportBlocked();
       return;
     }
     fileInputRef.current?.click();
-  }, [canImportAssets, onImportBlocked]);
+  }, [canWriteAssets, onImportBlocked]);
 
   const loadAssetDetails = useCallback(async (assetId: string) => {
     try {
       const asset = await fetchModelAsset(assetId);
       upsertModelAssets([asset]);
     } catch (error) {
-      setModelAssetError(getErrorMessage(error));
+      setModelAssetError(getErrorMessage(error, t));
     }
-  }, [setModelAssetError, upsertModelAssets]);
+  }, [setModelAssetError, t, upsertModelAssets]);
 
   const handleSelectAsset = useCallback((asset: ModelAsset) => {
     setSelectedModelAsset(asset.id);
@@ -424,7 +478,7 @@ export function ModelAssetLibraryView({
     if (!files || files.length === 0) {
       return;
     }
-    if (!canImportAssets) {
+    if (!canWriteAssets) {
       onImportBlocked();
       return;
     }
@@ -432,7 +486,7 @@ export function ModelAssetLibraryView({
     setNotice(null);
     onImportFiles(Array.from(files));
   }, [
-    canImportAssets,
+    canWriteAssets,
     onImportBlocked,
     onImportFiles,
   ]);
@@ -453,8 +507,8 @@ export function ModelAssetLibraryView({
     }
     event.preventDefault();
     event.stopPropagation();
-    event.dataTransfer.dropEffect = canImportAssets ? 'copy' : 'none';
-  }, [canImportAssets]);
+    event.dataTransfer.dropEffect = canWriteAssets ? 'copy' : 'none';
+  }, [canWriteAssets]);
 
   const handleLibraryDragLeave = useCallback((event: DragEvent<HTMLElement>) => {
     event.preventDefault();
@@ -523,13 +577,62 @@ export function ModelAssetLibraryView({
   }, [preferredModelFormat, setPreviewImage]);
 
   const handleDownload = useCallback((asset: ModelAsset) => {
+    if (!asset.available) {
+      setModelAssetError(t('modelAssetOpenUnavailable'));
+      return;
+    }
     const modelSource = resolveModelAssetSource(asset, preferredModelFormat);
     downloadModelAsset(asset.id, modelSource.format ?? asset.primary_format);
-  }, [preferredModelFormat]);
+  }, [preferredModelFormat, setModelAssetError, t]);
+
+  const handleExport = useCallback(async (asset: ModelAsset) => {
+    if (!asset.is_generated) {
+      setModelAssetError(t('modelAssetExportUnavailable'));
+      return;
+    }
+    const modelSource = resolveModelAssetSource(asset, preferredModelFormat);
+    if (!modelSource.format) {
+      setModelAssetError(t('modelAssetOpenUnavailable'));
+      return;
+    }
+    try {
+      const result = await exportModel(asset.id, modelSource.format);
+      const url = URL.createObjectURL(result.blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = result.downloadName;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      setModelAssetError(getErrorMessage(error, t));
+    }
+  }, [preferredModelFormat, setModelAssetError, t]);
+
+  const handleAssetVisibilityChange = useCallback((assetId: string, visible: boolean) => {
+    setVisibleAssetIds((current) => {
+      const alreadyVisible = current.has(assetId);
+      if (alreadyVisible === visible) {
+        return current;
+      }
+      const next = new Set(current);
+      if (visible) {
+        next.add(assetId);
+      } else {
+        next.delete(assetId);
+      }
+      return next;
+    });
+  }, []);
 
   const handleDelete = useCallback((asset: ModelAsset) => {
+    if (!canDeleteAssets) {
+      setModelAssetError(t('modelAssetDeletePermissionRequired'));
+      return;
+    }
     setDeleteTarget(asset);
-  }, []);
+  }, [canDeleteAssets, setModelAssetError, t]);
 
   const confirmDelete = useCallback(async () => {
     if (!deleteTarget) {
@@ -542,24 +645,24 @@ export function ModelAssetLibraryView({
         setMobileDetailsOpen(false);
       }
       setDeleteTarget(null);
-      if (deleteTarget.is_generated) {
-        const gallery = await fetchGallery();
-        setGalleryItems(gallery);
-      }
       await loadAssets(null, false);
     } catch (error) {
-      setModelAssetError(getErrorMessage(error));
+      setModelAssetError(getErrorMessage(error, t));
     }
   }, [
     deleteTarget,
     loadAssets,
     removeModelAsset,
     selectedModelAssetId,
-    setGalleryItems,
     setModelAssetError,
+    t,
   ]);
 
   const handleSaveProfile = useCallback(async (asset: ModelAsset, profile: ModelAssetProfileInput) => {
+    if (!canWriteAssets) {
+      onImportBlocked();
+      return;
+    }
     try {
       setModelAssetEditing(true);
       const updated = await updateModelAssetProfile(asset.id, profile);
@@ -567,37 +670,45 @@ export function ModelAssetLibraryView({
       setSelectedModelAsset(updated.id);
       setNotice(t('modelAssetSaved'));
     } catch (error) {
-      setModelAssetError(getErrorMessage(error));
+      setModelAssetError(getErrorMessage(error, t));
     } finally {
       setModelAssetEditing(false);
     }
-  }, [setModelAssetEditing, setModelAssetError, setSelectedModelAsset, t, upsertModelAssets]);
+  }, [canWriteAssets, onImportBlocked, setModelAssetEditing, setModelAssetError, setSelectedModelAsset, t, upsertModelAssets]);
 
   const handleUploadCover = useCallback(async (asset: ModelAsset, file: File) => {
+    if (!canWriteAssets) {
+      onImportBlocked();
+      return;
+    }
     try {
       setModelAssetEditing(true);
       const updated = await uploadModelAssetCover(asset.id, file);
       upsertModelAssets([updated]);
       setNotice(t('modelAssetCoverSaved'));
     } catch (error) {
-      setModelAssetError(getErrorMessage(error));
+      setModelAssetError(getErrorMessage(error, t));
     } finally {
       setModelAssetEditing(false);
     }
-  }, [setModelAssetEditing, setModelAssetError, t, upsertModelAssets]);
+  }, [canWriteAssets, onImportBlocked, setModelAssetEditing, setModelAssetError, t, upsertModelAssets]);
 
   const handleRefreshCover = useCallback(async (asset: ModelAsset) => {
+    if (!canWriteAssets) {
+      onImportBlocked();
+      return;
+    }
     try {
       setModelAssetEditing(true);
       const updated = await refreshModelAssetCover(asset.id);
       upsertModelAssets([updated]);
       setNotice(t('modelAssetSystemCoverQueued'));
     } catch (error) {
-      setModelAssetError(getErrorMessage(error));
+      setModelAssetError(getErrorMessage(error, t));
     } finally {
       setModelAssetEditing(false);
     }
-  }, [setModelAssetEditing, setModelAssetError, t, upsertModelAssets]);
+  }, [canWriteAssets, onImportBlocked, setModelAssetEditing, setModelAssetError, t, upsertModelAssets]);
 
   const handleSourceChange = useCallback((source: ModelAssetSourceFilter) => {
     setMobileDetailsOpen(false);
@@ -675,13 +786,14 @@ export function ModelAssetLibraryView({
         selectionMode={modelAssetSelectionMode}
         loading={modelAssetLoading}
         importing={modelAssetImporting}
+        canImport={canWriteAssets}
         mode={toolbarMode}
         onSourceChange={handleSourceChange}
         onFormatChange={handleFormatChange}
         onTagChange={handleTagChange}
         onSortChange={handleSortChange}
         onDensityChange={handleDensityChange}
-        onRefresh={() => void loadAssets(null, false)}
+        onRefresh={() => void loadAssets(null, false, true)}
         onImportClick={handleImportClick}
         onToggleSelectionMode={() => setModelAssetSelectionMode(!modelAssetSelectionMode)}
         onOpenSelected={() => selectedAsset && handleOpen(selectedAsset)}
@@ -723,6 +835,8 @@ export function ModelAssetLibraryView({
           onPreview={handlePreview}
           onDownload={handleDownload}
           onDelete={handleDelete}
+          canDelete={canDeleteAssets}
+          onVisibilityChange={handleAssetVisibilityChange}
           onScroll={handleGridScroll}
         />
 
@@ -736,10 +850,13 @@ export function ModelAssetLibraryView({
             key={selectedAsset?.id ?? 'empty-model-asset-details'}
             asset={selectedAsset}
             saving={modelAssetEditing}
+            canWrite={canWriteAssets}
+            canDelete={canDeleteAssets}
             preferredFormat={preferredModelFormat}
             onOpen={handleOpen}
             onPreviewSource={handlePreview}
             onDownload={handleDownload}
+            onExport={handleExport}
             onDelete={handleDelete}
             onSaveProfile={handleSaveProfile}
             onUploadCover={handleUploadCover}

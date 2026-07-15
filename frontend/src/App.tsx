@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
+import type { TFunction } from 'i18next';
 
 import {
   ApiError,
   fetchAuthStatus,
-  fetchGallery,
   fetchModelAssets,
   fetchSettings,
   fetchTasks,
@@ -15,7 +15,7 @@ import {
 } from '@/api';
 import { AccessGate, AccessSetupPrompt } from '@/components/auth';
 import { ImageViewer, Loading } from '@/components/common';
-import { CloudUploadIcon } from '@/components/common/Icons';
+import { CloseIcon, CloudUploadIcon } from '@/components/common/Icons';
 import { ParticleBackground } from '@/components/common/ParticleBackground';
 import { GlobalTooltip } from '@/components/common/Tooltip';
 import { Settings, Sidebar } from '@/components/layout';
@@ -34,7 +34,7 @@ import {
 import { ViewerCanvas } from '@/components/viewer/ViewerCanvas/ViewerCanvas';
 import { useTaskQueue } from '@/hooks/useTaskQueue';
 import { useAppStore } from '@/store';
-import { resolveModelAssetSource } from '@/utils';
+import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import type {
   ModelAssetImportFileEntry,
   ModelAssetImportPhase,
@@ -83,11 +83,11 @@ function isVideoUpload(file: File): boolean {
   return file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm)$/i.test(file.name);
 }
 
-function getImportErrorMessage(error: unknown): string {
+function getImportErrorMessage(error: unknown, t: TFunction): string {
   if (error instanceof ApiError) {
-    return error.data?.error ?? error.message;
+    return localizeModelAssetError(t, error.data?.code, error.data?.error ?? error.message);
   }
-  return error instanceof Error ? error.message : 'Unknown error';
+  return error instanceof Error ? error.message : t('modelAssetGenericError');
 }
 
 function createImportFileEntries(files: File[]): ModelAssetImportFileEntry[] {
@@ -100,21 +100,22 @@ function createImportFileEntries(files: File[]): ModelAssetImportFileEntry[] {
 
 function completeImportFileEntries(
   files: File[],
-  failures: Array<{ filename: string; error: string }>,
+  failures: Array<{ filename: string; code?: string; error?: string }>,
+  t: TFunction,
 ): ModelAssetImportFileEntry[] {
   const batchFailure = failures.find((failure) => !failure.filename);
   if (batchFailure) {
     return createImportFileEntries(files).map((entry) => ({
       ...entry,
       status: 'error',
-      error: batchFailure.error,
+      error: localizeModelAssetError(t, batchFailure.code, batchFailure.error),
     }));
   }
 
   const failuresByName = new Map<string, string[]>();
   failures.forEach((failure) => {
     const queued = failuresByName.get(failure.filename) ?? [];
-    queued.push(failure.error);
+    queued.push(localizeModelAssetError(t, failure.code, failure.error));
     failuresByName.set(failure.filename, queued);
   });
 
@@ -125,6 +126,19 @@ function completeImportFileEntries(
       ? { ...entry, status: 'error', error }
       : { ...entry, status: 'success' };
   });
+}
+
+function getImportFailuresFromError(
+  error: unknown,
+): Array<{ filename: string; code?: string; error?: string }> {
+  if (!(error instanceof ApiError) || !Array.isArray(error.data?.failed)) {
+    return [];
+  }
+  return error.data.failed.filter((item): item is { filename: string; code?: string; error?: string } => (
+    Boolean(item)
+    && typeof item === 'object'
+    && typeof (item as { filename?: unknown }).filename === 'string'
+  ));
 }
 
 function shouldShowAccessSetupPrompt(status: {
@@ -158,12 +172,12 @@ function App() {
     sidebarCollapsed,
     activeView,
     authStatus,
+    authPermissionError,
     isAuthenticated,
     isOwnerAccess,
     setBootComplete, 
     setBootError,
     setAuthStatus,
-    setGalleryItems,
     setModelAssets,
     mergeModelAssetRefresh,
     setTasks,
@@ -194,12 +208,12 @@ function App() {
       sidebarCollapsed: state.sidebarCollapsed,
       activeView: state.activeView,
       authStatus: state.authStatus,
+      authPermissionError: state.authPermissionError,
       isAuthenticated: state.isAuthenticated,
       isOwnerAccess: state.isOwnerAccess,
       setBootComplete: state.setBootComplete,
       setBootError: state.setBootError,
       setAuthStatus: state.setAuthStatus,
-      setGalleryItems: state.setGalleryItems,
       setModelAssets: state.setModelAssets,
       mergeModelAssetRefresh: state.mergeModelAssetRefresh,
       setTasks: state.setTasks,
@@ -222,7 +236,13 @@ function App() {
       openVideoReconstructionFileDialog: state.openVideoReconstructionFileDialog,
     })),
   );
-  const canGenerateModels = isOwnerAccess || Boolean(authStatus?.allow_remote_generation);
+  const canGenerateModels = isOwnerAccess || Boolean(
+    authStatus?.access_control_enabled
+    && isAuthenticated
+    && authStatus.allow_remote_generation,
+  );
+  const canWriteModelAssets = canGenerateModels;
+  const canDeleteModelAssets = isOwnerAccess;
 
   const replaceTemporaryModelPreview = useCallback((next: TemporaryModelPreview | null) => {
     const previous = temporaryModelPreviewRef.current;
@@ -255,9 +275,6 @@ function App() {
   }, [replaceTemporaryModelPreview, setSidebarOpen]);
 
   const loadPrivateData = useCallback(async () => {
-    const gallery = await fetchGallery();
-    setGalleryItems(gallery);
-
     const modelAssets = await fetchModelAssets({ limit: modelAssetBatchSize });
     setModelAssets(modelAssets);
 
@@ -272,7 +289,6 @@ function App() {
     setVideoReconstructionStatus(null, settings.video_reconstruction);
   }, [
     modelAssetBatchSize,
-    setGalleryItems,
     setLocalAccess,
     setModelAssets,
     setServerModelFormat,
@@ -337,8 +353,11 @@ function App() {
   const showGenerationPermissionError = useCallback(() => {
     const message = t('ownerOnlyAction');
     setAuthPermissionError(message);
-    alert(message);
   }, [t, setAuthPermissionError]);
+
+  const showModelAssetWritePermissionError = useCallback(() => {
+    setAuthPermissionError(t('modelAssetWritePermissionRequired'));
+  }, [setAuthPermissionError, t]);
 
   const importModelFileArray = useCallback(async (
     files: File[],
@@ -348,7 +367,7 @@ function App() {
       return;
     }
     if (!canGenerateModels) {
-      showGenerationPermissionError();
+      showModelAssetWritePermissionError();
       return;
     }
 
@@ -374,7 +393,7 @@ function App() {
           });
         },
       });
-      const completedFiles = completeImportFileEntries(files, result.failed);
+      const completedFiles = completeImportFileEntries(files, result.failed, t);
       const failedCount = completedFiles.filter((entry) => entry.status === 'error').length;
 
       if (result.assets.length > 0) {
@@ -422,20 +441,24 @@ function App() {
         errorMessage: null,
       });
     } catch (error) {
-      const message = getImportErrorMessage(error);
+      const message = getImportErrorMessage(error, t);
+      const failures = getImportFailuresFromError(error);
+      const completedFiles = failures.length > 0
+        ? completeImportFileEntries(files, failures, t)
+        : createImportFileEntries(files).map((entry) => ({
+            ...entry,
+            status: 'error' as const,
+            error: message,
+          }));
       if (error instanceof ApiError && error.status === 403) {
-        showGenerationPermissionError();
+        showModelAssetWritePermissionError();
       }
       setModelAssetImporting(false);
       setModelAssetImportDialog({
         origin,
         phase: 'error',
         progress: 0,
-        files: createImportFileEntries(files).map((entry) => ({
-          ...entry,
-          status: 'error',
-          error: message,
-        })),
+        files: completedFiles,
         importedCount: 0,
         failedCount: files.length,
         errorMessage: `${t('modelAssetImportFailed')}: ${message}`,
@@ -451,7 +474,7 @@ function App() {
     replaceTemporaryModelPreview,
     setCurrentModel,
     setModelAssetImporting,
-    showGenerationPermissionError,
+    showModelAssetWritePermissionError,
     t,
   ]);
 
@@ -497,7 +520,7 @@ function App() {
 
     if (modelFiles.length > 0) {
       if (modelFiles.length !== fileArray.length) {
-        alert(t('unsupportedFormat'));
+        setAuthPermissionError(t('unsupportedFormat'));
         return;
       }
       if (modelFiles.length === 1) {
@@ -510,7 +533,7 @@ function App() {
 
     if (videoFiles.length > 0) {
       if (videoFiles.length !== 1 || imageFiles.length > 0 || modelFiles.length > 0 || fileArray.length !== 1) {
-        alert(t('videoReconSingleVideoOnly'));
+        setAuthPermissionError(t('videoReconSingleVideoOnly'));
         return;
       }
       if (!canGenerateModels) {
@@ -522,7 +545,7 @@ function App() {
     }
 
     if (imageFiles.length === 0 || imageFiles.length !== fileArray.length) {
-      alert(t('unsupportedFormat'));
+      setAuthPermissionError(t('unsupportedFormat'));
       return;
     }
 
@@ -548,7 +571,7 @@ function App() {
         showGenerationPermissionError();
         return;
       }
-      alert(`${t('uploadFailed')}: ${message}`);
+      setAuthPermissionError(`${t('uploadFailed')}: ${message}`);
     }
   }, [
     activeView,
@@ -559,6 +582,7 @@ function App() {
     modelAssetLibraryOpen,
     openVideoReconstructionFileDialog,
     showGenerationPermissionError,
+    setAuthPermissionError,
     t,
     setLoading,
     setLoadingProgress,
@@ -627,6 +651,7 @@ function App() {
           <PhotoAlbumList />
         ) : (
           <ModelAssetSidebarPanel
+            canDeleteAssets={canDeleteModelAssets}
             onOpenLibrary={openModelAssetLibrary}
             onOpenModel={closeModelAssetLibrary}
           />
@@ -644,8 +669,9 @@ function App() {
         {activeView === 'photos' ? <PhotoGalleryView /> : (
           modelAssetLibraryOpen && !currentModelUrl ? (
             <ModelAssetLibraryView
-              canImportAssets={canGenerateModels}
-              onImportBlocked={showGenerationPermissionError}
+              canWriteAssets={canWriteModelAssets}
+              canDeleteAssets={canDeleteModelAssets}
+              onImportBlocked={showModelAssetWritePermissionError}
               onImportFiles={(files) => void importModelFileArray(files, 'library')}
             />
           ) : (
@@ -747,6 +773,20 @@ function App() {
         onClose={closeModelAssetImportDialog}
         onOpenLibrary={openLibraryFromImportDialog}
       />
+
+      {authPermissionError ? (
+        <div className="app-notice app-notice-error" role="alert" aria-live="assertive">
+          <span>{authPermissionError}</span>
+          <button
+            type="button"
+            aria-label={t('close')}
+            data-tooltip={t('close')}
+            onClick={() => setAuthPermissionError(null)}
+          >
+            <CloseIcon width={14} height={14} />
+          </button>
+        </div>
+      ) : null}
 
       <GlobalTooltip />
     </div>

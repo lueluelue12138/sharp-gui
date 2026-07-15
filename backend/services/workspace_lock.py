@@ -8,6 +8,10 @@ class WorkspaceInUseError(RuntimeError):
     """工作区已由另一个 Sharp GUI 服务实例占用。"""
 
 
+class WorkspaceUnavailableError(RuntimeError):
+    """工作区不是可创建锁文件的目录。"""
+
+
 class WorkspaceInstanceLock:
     """持有工作区级进程锁，防止多个服务实例相互清理运行时文件。"""
 
@@ -23,16 +27,35 @@ class WorkspaceInstanceLock:
         if self._handle is not None:
             return
 
-        os.makedirs(self.workspace_folder, exist_ok=True)
-        descriptor = os.open(self.lock_path, os.O_RDWR | os.O_CREAT)
-        handle = os.fdopen(descriptor, "r+b")
+        try:
+            os.makedirs(self.workspace_folder, exist_ok=True)
+            if not os.path.isdir(self.workspace_folder):
+                raise NotADirectoryError(self.workspace_folder)
+            descriptor = os.open(self.lock_path, os.O_RDWR | os.O_CREAT)
+        except OSError as exc:
+            raise WorkspaceUnavailableError(
+                f"Workspace is not writable or is not a directory: {self.workspace_folder}"
+            ) from exc
+        try:
+            handle = os.fdopen(descriptor, "r+b")
+        except OSError as exc:
+            os.close(descriptor)
+            raise WorkspaceUnavailableError(
+                f"Workspace lock file cannot be opened: {self.workspace_folder}"
+            ) from exc
         try:
             handle.seek(0, os.SEEK_END)
             if handle.tell() == 0:
                 handle.write(b"0")
                 handle.flush()
-
             handle.seek(0)
+        except OSError as exc:
+            handle.close()
+            raise WorkspaceUnavailableError(
+                f"Workspace lock file cannot be initialized: {self.workspace_folder}"
+            ) from exc
+
+        try:
             self._lock_handle(handle)
         except OSError as exc:
             owner = self._read_owner_details(handle)
@@ -46,9 +69,11 @@ class WorkspaceInstanceLock:
         self._handle = handle
         try:
             self._write_owner_details()
-        except Exception:
+        except Exception as exc:
             self.release()
-            raise
+            raise WorkspaceUnavailableError(
+                f"Workspace lock metadata cannot be written: {self.workspace_folder}"
+            ) from exc
         if not self._atexit_registered:
             atexit.register(self.release)
             self._atexit_registered = True

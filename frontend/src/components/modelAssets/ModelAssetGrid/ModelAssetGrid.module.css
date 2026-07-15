@@ -55,7 +55,7 @@
     linear-gradient(110deg, transparent 0%, rgba(255, 255, 255, 0.42) 45%, transparent 72%),
     rgba(255, 255, 255, 0.44);
   background-size: 220% 100%;
-  animation: shimmer 1.6s linear infinite;
+  animation: modelAssetShimmer 1.6s linear infinite;
 }
 
 .emptyState {
@@ -99,16 +99,6 @@
   color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.5;
-}
-
-@keyframes shimmer {
-  from {
-    background-position: 220% 0;
-  }
-
-  to {
-    background-position: -220% 0;
-  }
 }
 
 @media (max-width: 1180px) {
@@ -157,5 +147,12 @@
   .root::-webkit-scrollbar-thumb:hover {
     background: rgba(255, 255, 255, 0.42);
     background-clip: padding-box;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeletonCard {
+    animation: none;
+    background-position: 0 0;
   }
 }

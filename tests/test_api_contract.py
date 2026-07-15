@@ -197,6 +197,65 @@ def test_model_asset_download_uses_unicode_name_and_rejects_generated_traversal(
     assert escaped.get_json()["code"] == "model_asset_file_not_found"
 
 
+def test_model_asset_import_rejects_oversized_request_before_parsing(client, monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.model_assets.MAX_IMPORT_REQUEST_BYTES",
+        1,
+    )
+
+    response = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"model"), "scan.ply")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 413
+    payload = response.get_json()
+    assert payload["success"] is False
+    assert payload["code"] == "import_request_too_large"
+    assert payload["assets"] == []
+    assert payload["failed"][0]["code"] == "import_request_too_large"
+
+
+def test_model_asset_all_failed_import_has_stable_top_level_error(client):
+    response = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"text"), "notes.txt")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 400
+    payload = response.get_json()
+    assert payload["success"] is False
+    assert payload["assets"] == []
+    assert payload["code"] == "unsupported_format"
+    assert payload["error"]
+    assert payload["failed"] == [{
+        "filename": "notes.txt",
+        "code": "unsupported_format",
+        "error": "Unsupported model format",
+    }]
+
+
+def test_model_asset_cover_rejects_oversized_request_before_parsing(client, monkeypatch):
+    monkeypatch.setattr(
+        "backend.services.model_assets.MAX_COVER_REQUEST_BYTES",
+        1,
+    )
+
+    response = client.post(
+        "/api/model-assets/missing/cover",
+        data={"cover": (BytesIO(b"image"), "cover.png")},
+        content_type="multipart/form-data",
+    )
+
+    assert response.status_code == 413
+    assert response.get_json() == {
+        "error": "Cover image is too large",
+        "code": "cover_too_large",
+    }
+
+
 def test_export_missing_model_returns_json_error(client):
     response = client.get("/api/export/missing")
     assert response.status_code == 404

@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react';
+
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -27,6 +29,8 @@ interface ModelAssetCardProps {
   onPreview: (asset: ModelAsset) => void;
   onDownload: (asset: ModelAsset) => void;
   onDelete: (asset: ModelAsset) => void;
+  canDelete: boolean;
+  onVisibilityChange: (assetId: string, visible: boolean) => void;
 }
 
 function getThumbnailSrc(asset: ModelAsset): string | null {
@@ -54,8 +58,11 @@ export function ModelAssetCard({
   onPreview,
   onDownload,
   onDelete,
+  canDelete,
+  onVisibilityChange,
 }: ModelAssetCardProps) {
   const { t } = useTranslation();
+  const cardRef = useRef<HTMLElement | null>(null);
   const thumbnailSrc = getThumbnailSrc(asset);
   const thumbnailState = useGalleryThumbnail(thumbnailSrc, Boolean(thumbnailSrc));
   const hasPreview = Boolean(asset.image_url || asset.source_video_url);
@@ -89,28 +96,40 @@ export function ModelAssetCard({
     }
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      handleSelect();
+  useEffect(() => {
+    const element = cardRef.current;
+    if (!element || typeof IntersectionObserver === 'undefined') {
+      onVisibilityChange(asset.id, true);
+      return () => onVisibilityChange(asset.id, false);
     }
-  };
+    const observer = new IntersectionObserver(([entry]) => {
+      onVisibilityChange(asset.id, entry.isIntersecting);
+    }, { rootMargin: '160px 0px' });
+    observer.observe(element);
+    return () => {
+      observer.disconnect();
+      onVisibilityChange(asset.id, false);
+    };
+  }, [asset.id, onVisibilityChange]);
 
   return (
-    <div
+    <article
+      ref={cardRef}
       className={[
         styles.card,
         isSelected ? styles.selected : '',
         isChecked ? styles.checked : '',
         unavailable ? styles.unavailable : '',
       ].filter(Boolean).join(' ')}
-      onClick={handleSelect}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={0}
-      aria-pressed={isSelected}
-      aria-label={asset.name}
+      role="listitem"
     >
+      <button
+        className={styles.mainAction}
+        type="button"
+        aria-pressed={selectionMode ? isChecked : isSelected}
+        aria-label={asset.name}
+        onClick={handleSelect}
+      />
       <div className={styles.thumbArea}>
         {thumbnailSrc && thumbnailState !== 'error' && thumbnailState !== 'missing' ? (
           <img
@@ -173,15 +192,17 @@ export function ModelAssetCard({
           >
             <DownloadIcon width={15} height={15} />
           </button>
-          <button
-            className={[styles.actionButton, styles.deleteButton].join(' ')}
-            type="button"
-            aria-label={t('delete')}
-            data-tooltip={t('delete')}
-            onClick={(event) => handleActionClick(event, onDelete)}
-          >
-            <DeleteIcon width={15} height={15} />
-          </button>
+          {canDelete ? (
+            <button
+              className={[styles.actionButton, styles.deleteButton].join(' ')}
+              type="button"
+              aria-label={t('delete')}
+              data-tooltip={t('delete')}
+              onClick={(event) => handleActionClick(event, onDelete)}
+            >
+              <DeleteIcon width={15} height={15} />
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -189,6 +210,6 @@ export function ModelAssetCard({
         <h3 className={styles.name} data-tooltip={asset.name}>{asset.name}</h3>
         <p className={styles.meta} data-tooltip={metaText}>{metaText}</p>
       </div>
-    </div>
+    </article>
   );
 }

@@ -8,7 +8,11 @@ from backend.app_factory import create_app
 from backend.paths import build_path_context, ensure_runtime_directories
 from backend.services import model_gallery, task_queue
 from backend.services.task_queue import TaskManager
-from backend.services.workspace_lock import WorkspaceInUseError, WorkspaceInstanceLock
+from backend.services.workspace_lock import (
+    WorkspaceInUseError,
+    WorkspaceInstanceLock,
+    WorkspaceUnavailableError,
+)
 
 
 class NoopThread:
@@ -33,6 +37,16 @@ def test_workspace_lock_is_exclusive_and_reusable(workspace):
     finally:
         first.release()
         second.release()
+
+
+def test_workspace_lock_rejects_regular_file_as_unavailable(tmp_path):
+    target_file = tmp_path / "workspace-file"
+    target_file.write_text("keep", encoding="utf-8")
+
+    with pytest.raises(WorkspaceUnavailableError, match="not writable or is not a directory"):
+        WorkspaceInstanceLock(str(target_file)).acquire()
+
+    assert target_file.read_text(encoding="utf-8") == "keep"
 
 
 def test_workspace_lock_blocks_another_process(workspace):

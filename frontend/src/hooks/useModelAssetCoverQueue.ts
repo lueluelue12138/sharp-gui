@@ -23,6 +23,7 @@ function shouldGenerateCover(asset: ModelAsset): boolean {
 export function useModelAssetCoverQueue(
   assets: ModelAsset[],
   onCoverUpdated: (asset: ModelAsset) => void,
+  enabled = true,
 ): void {
   const onCoverUpdatedRef = useRef(onCoverUpdated);
   const failedIdsRef = useRef(new Set<string>());
@@ -49,7 +50,7 @@ export function useModelAssetCoverQueue(
 
   useEffect(() => {
     const pump = () => {
-      if (!mountedRef.current) {
+      if (!mountedRef.current || !enabled) {
         return;
       }
       while (activeCountRef.current < MAX_CONCURRENT_COVERS) {
@@ -65,8 +66,9 @@ export function useModelAssetCoverQueue(
         generateModelCoverFile(next.id, next.default_open_url ?? null, openFormat)
           .then((file) => uploadModelAssetCover(next.id, file, 'system'))
           .then((updated) => {
-            // 回调只更新全局资产摘要；即使视图刚卸载，也要接收已经完成的
-            // 最多两个在途任务，避免返回资产库后重复生成同一封面。
+            // The callback updates the global asset store. Keep the completed
+            // result even if the library was just closed so reopening it does
+            // not enqueue and upload the same cover again.
             onCoverUpdatedRef.current(updated);
           })
           .catch(() => {
@@ -82,6 +84,12 @@ export function useModelAssetCoverQueue(
       }
     };
 
+    if (!enabled) {
+      queueRef.current.length = 0;
+      queuedIdsRef.current.clear();
+      return;
+    }
+
     for (const asset of assets) {
       if (
         shouldGenerateCover(asset)
@@ -95,5 +103,5 @@ export function useModelAssetCoverQueue(
     }
 
     pump();
-  }, [assets]);
+  }, [assets, enabled]);
 }

@@ -79,8 +79,16 @@ def resolve_served_file_path(paths, served_root, served_filename):
         return None
 
     candidate = os.path.realpath(os.path.join(served_root, served_filename))
-
-    if not any(is_real_path_inside(candidate, root) for root in paths.allowed_file_serve_roots):
+    safe_roots = tuple(
+        root
+        for root in paths.allowed_file_serve_roots
+        if is_real_path_inside(root, paths.workspace_folder)
+    )
+    if not any(
+        is_real_path_inside(candidate, root)
+        and is_real_path_inside(candidate, paths.workspace_folder)
+        for root in safe_roots
+    ):
         return None
 
     if is_sensitive_served_file(candidate):
