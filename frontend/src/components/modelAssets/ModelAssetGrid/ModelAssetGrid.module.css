@@ -5,7 +5,7 @@
   overflow-x: hidden;
   padding: 2px 2px 28px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 113, 227, 0.35) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .root::-webkit-scrollbar {
@@ -20,12 +20,12 @@
   min-height: 72px;
   border: 3px solid transparent;
   border-radius: 999px;
-  background: rgba(0, 113, 227, 0.28);
+  background: var(--scrollbar-thumb);
   background-clip: padding-box;
 }
 
 .root::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 113, 227, 0.42);
+  background: var(--scrollbar-thumb-hover);
   background-clip: padding-box;
 }
 
@@ -135,19 +135,6 @@
       rgba(255, 255, 255, 0.05);
   }
 
-  .root {
-    scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
-  }
-
-  .root::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.26);
-    background-clip: padding-box;
-  }
-
-  .root::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.42);
-    background-clip: padding-box;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

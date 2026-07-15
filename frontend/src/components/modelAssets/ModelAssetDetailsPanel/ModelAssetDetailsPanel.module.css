@@ -263,7 +263,7 @@
   overflow: auto;
   padding: 14px 18px 18px;
   scrollbar-width: thin;
-  scrollbar-color: rgba(0, 113, 227, 0.35) transparent;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
 .fieldList {

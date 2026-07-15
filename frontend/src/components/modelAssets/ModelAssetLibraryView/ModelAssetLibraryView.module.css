@@ -145,7 +145,7 @@
     padding-top: 12px;
     padding-bottom: 20px;
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 113, 227, 0.35) transparent;
+    scrollbar-color: var(--scrollbar-thumb) transparent;
   }
 
   .detailsSlot {

@@ -134,6 +134,22 @@
   flex-direction: column;
   gap: 8px;
   padding: 0 4px 6px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) transparent;
+}
+
+.list::-webkit-scrollbar {
+  width: 4px;
+  background: transparent;
+}
+
+.list::-webkit-scrollbar-thumb {
+  border-radius: 4px;
+  background: var(--scrollbar-thumb);
+}
+
+.list::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 .album {
