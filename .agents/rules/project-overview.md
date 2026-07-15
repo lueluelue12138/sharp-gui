@@ -127,7 +127,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `{workspace}/outputs/*.meta.json` | 生成模型来源元数据 | 记录视频来源、质量、引擎、受控源引用；响应不得暴露绝对磁盘路径 |
 | `{workspace}/model-assets/imports/` | 导入的模型资产文件 | 只保存白名单格式，属于 `/files/*` 允许服务根之一 |
 | `{workspace}/model-assets/thumbnails/` | 模型资产封面缓存 | 属于 `/files/*` 允许服务根之一 |
-| `{workspace}/.model-asset-library/index.json` | 模型资产索引、默认格式、标签、备注、用户编辑信息 | 敏感状态文件，不得加入静态服务白名单 |
+| `{workspace}/.model-asset-library/index.json` | 模型资产稳定身份、导入文件映射、标签、备注、封面和用户编辑信息 | 持久化状态文件而非可随意清理的缓存；不得加入静态服务白名单 |
 | `{workspace}/.photo-gallery-cache/catalog.json` | 本地媒体图库相册摘要 | 进入图库后按需读写，可重建 |
 | `{workspace}/.photo-gallery-cache/albums/` | 单相册媒体索引 | 普通分页/筛选/排序只读对应相册索引 |
 | `{workspace}/.photo-gallery-cache/thumbnails/` | 照片缩略图缓存 | 可删除后重建，不影响原图 |
@@ -157,7 +157,9 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - 新增持久化用户数据目录时，必须先判断是否应随 workspace 切换；如果应切换，统一从 `PathContext` 派生，并同步更新本表、`.gitignore`、README 和相关后端路径规则。
 - 新增项目根配置、密钥、日志、依赖或构建输出时，必须在本表说明“不随 workspace 切换”的原因，并确认 `.gitignore` 覆盖。
 - `/files/*` 白名单只表示允许浏览器读取的公开资源根，不等于用户数据目录清单；索引、配置、证书、源码和日志不得为了省事加入静态服务根。
+- `.model-asset-library/index.json` 是导入资产身份和全部资产用户编辑信息的真相源。生成资产的文件派生摘要可由 `outputs/` 恢复，但生成资产的用户编辑、导入资产的稳定 ID、展示名和资料都不能仅凭文件名无损重建；缓存清理、迁移和故障恢复不得删除或静默覆盖该文件。
 - Settings 切换到不同 workspace 前必须先尝试取得并释放目标工作区锁；目标已被其他实例占用时返回 409，且不得先修改 `config.json`。
+- 目标工作区锁预检只用于保存前尽早反馈，不代表锁所有权已转移；重启后的新进程仍必须正式获取目标锁，获取失败时安全退出且不得开始清理或写入运行时数据。
 - 图片与视频残留清理只能在 `TaskManager` 成功取得当前 workspace 的独占锁后执行；`create_app()`、模块导入及锁获取失败路径不得提前清理运行时文件。
 
 ## 关键依赖版本
@@ -233,8 +235,12 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - 模型资产库通过 `/api/model-assets` 统一展示生成模型与导入的 PLY/SPZ/SPLAT/RAD；旧 `/api/gallery` 仍作为兼容模型列表保留，不应继续承载导入、详情面板、筛选排序等新主路径。
 - 模型资产导入文件写入 `{workspace}/model-assets/imports/`，模型封面写入 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息写入 `{workspace}/.model-asset-library/index.json`；这些路径必须由 `PathContext` 派生，不得在前端或路由层拼接绝对路径。
 - 模型资产库的运行时数据必须随 Settings 的 `workspace_folder` 切换；切换工作目录保存后需要重启服务以重建 `PathContext`，重启后读取新 workspace 的 `model-assets/` 与 `.model-asset-library/`，切回旧 workspace 应恢复旧 workspace 的资产状态。
-- 模型资产库主区域使用游标式滚动增量加载，不显示分页器或每页数量选择；网格密度只影响展示列数，筛选、排序或密度变化只重置游标并请求下一批，不触发全目录重扫。
-- 模型资产打开、下载和近期模型展示应通过 `resolveModelAssetSource` 或等价逻辑遵守 `model_format` 默认格式偏好，并在首选格式缺失时回退到资产可用文件。
+- 模型资产库主区域使用游标式滚动增量加载，不显示分页器或每页数量选择。筛选或排序变化重置查询游标；网格密度只改变展示列数并保留已加载数据、游标和浏览位置，三者都不得触发同步全目录重扫。
+- 模型资产列表应复用按 workspace 维护的摘要快照或增量索引；首次迁移、显式刷新以及生成、导入、删除、资料或封面写入负责建立或失效快照，后续游标页、筛选和排序不得再次逐文件扫描/stat 完整 `outputs/`。
+- `model_format` 用户偏好保存在项目根 `config.json`，只覆盖 PLY/SPZ。模型资产打开、下载和近期模型展示应通过 `resolveModelAssetSource` 或等价逻辑显式传递该偏好，并在首选格式缺失时回退到资产可用文件；后端无 `format` 参数时的兼容优先级与用户偏好是两个不同概念。
+- Viewer 当前模型必须带来源判别：`gallery`、`model-asset-generated`、`model-asset-imported` 或 `temporary`。旧图库或任务刷新只能协调 `gallery` 来源，不能清空正在查看的资产库模型或临时 Blob；所有入口还必须传递真实文件大小和最终打开格式。
+- 旧 `/api/export/<id>` 与分享链路只认识受控生成结果。生成资产可复用旧导出/分享；导入资产和临时预览在没有专用受控导出实现前只能打开、下载或加入资产库，相关导出/分享入口必须禁用或省略，不能把导入 asset id 或 Blob id 传给旧接口。
+- 导入文件的用户可见原始名称与物理存储名必须分离：原始 basename、Unicode 展示名和下载名应保留，受控目录中的物理文件名使用安全唯一名称；稳定 asset id 不由展示名或客户端路径决定。
 - 模型资产详情可从 PLY/SPLAT 解析部分点数或属性；SPZ/RAD 的包围盒、坐标系、LoD、chunk 等高级信息只有 sidecar 或源格式明确提供时才展示，不能为了填空伪造“计算结果”。
 - 近期模型侧栏是资产库的辅助入口：可独立滚动增量查询，同时保持“近期模型/查看全部”和底部“储存占用”区域固定；按钮样式复用现有 hover/focus 图标按钮，不做共享胶囊背景。
 - 视频重建生成的模型也写入 `outputs/`，并额外写入同名 `.meta.json` 记录来源视频、模式、质量、引擎和受控源视频引用；前端不得看到绝对磁盘路径。

@@ -131,6 +131,7 @@ export const useAppStore = create<AppState>((set) => ({
 - `activeView` 在 `models` / `photos` 间切换；UI 文案可显示为“图库”，但状态值保持历史兼容。
 - 旧模型图库兼容路径仍使用 `galleryItems`、`selectedModel` 等字段。
 - 模型资产库使用 `modelAssets`、`modelAssetFilters`、`modelAssetSort`、`modelAssetDensity`、`modelAssetCursor`、`modelAssetHasMore`、`selectedModelAssetId`、`modelAssetSelectionMode`、`selectedModelAssetIds`、`modelAssetImporting` 等字段；不要把资产库列表再塞回旧 `galleryItems`。
+- Viewer 当前模型使用 `currentModelSource` 区分 `gallery`、`model-asset-generated`、`model-asset-imported` 和 `temporary`；旧图库/任务刷新、删除和选择协调只能影响来源匹配的模型，不能因 id 偶然相同或旧列表响应而关闭资产库模型、临时 Blob 或其它来源。
 - 本地媒体图库使用 `photoAlbums`、`currentPhotoAlbumId`、`photoItems`、`photoNextCursor`、`photoMediaType`、`photoSelectionMode`、`selectedPhotoIds`、`previewPhoto` 等独立字段，避免影响 3D 查看器状态。
 - `PhotoItem.media_type` 支持 `image` / `video`，`photoMediaType` 支持 `all` / `image` / `video`；视频条目通过 `poster_url`、`playback_url`、`download_url` 和可选元数据驱动卡片与预览。
 - 视频 3DGS 重建状态放在同一个 store 中的必要字段：重建弹窗打开状态、目标视频、默认配置、依赖诊断状态和提交中状态；不要为视频重建单独新建全局 store。
@@ -178,7 +179,7 @@ export async function apiPostFormDataWithProgress<T>(url: string, formData: Form
 export async function apiDelete<T>(url: string): Promise<T>;
 ```
 
-> `apiPostFormDataWithProgress` 基于 `XMLHttpRequest` 暴露上传进度回调，供模型资产导入这类大文件上传显示进度；普通请求继续用前四个基于 `fetch` 的函数。
+> `apiPostFormDataWithProgress` 基于 `XMLHttpRequest` 暴露上传进度回调，供模型资产导入这类大文件上传显示进度；仅对后端已有请求级大小/数量约束的受控大文件请求可显式使用 `timeout: 0`，普通请求继续使用默认超时和基于 `fetch` 的函数。
 
 特性：
 - **原生 fetch**，不使用 axios
@@ -317,12 +318,34 @@ export type { CameraConfig } from './viewer';
 
 ### 模型资产库性能与交互
 
-- 模型资产库列表必须使用后端游标和固定批次增量加载，不显示分页器或“每页数量”控件；滚动接近底部时请求下一批，筛选/排序变化只重置游标。
-- 资产网格密度只改变 CSS 展示列数，不重新扫描模型目录，也不影响后端批次大小常量。
+- 模型资产库列表必须使用后端游标和固定批次增量加载，不显示分页器或“每页数量”控件；滚动接近底部时请求下一批，来源/格式/标签/排序变化重置查询并请求首批。
+- 资产网格密度只改变 CSS 展示列数，必须保留已加载列表、游标和滚动上下文，不调用列表 API、不重新扫描模型目录，也不影响后端批次大小常量。
+- 首屏、筛选、排序和追加请求必须绑定单调递增的 request generation、完整 query signature 与预期游标；只有仍匹配当前查询的响应可以更新列表、筛选、游标、loading 或 error，切换查询时应 Abort 或逻辑废弃全部旧请求，避免慢响应把 Store 反向改回旧筛选。
 - 卡片只加载缩略图、源媒体 poster 或缓存封面；完整详情和可解析元数据在打开详情面板时按需获取。
 - 桌面端点击卡片按钮之外区域应直接打开模型预览；hover/focus 操作按钮分别处理查看详情、下载、删除等动作，并阻止事件冒泡。
-- 触控端不能依赖 hover 才能触达操作。移动端点击卡片可打开详情卡片，再通过详情卡片执行打开、下载、导出、删除；缩略图本身可打开关联原图/视频。
+- 触控端不能依赖 hover 才能触达操作。移动端点击卡片可打开详情卡片，再通过详情卡片执行当前来源和权限允许的打开、下载、导出、删除；缩略图本身可打开关联原图/视频。
 - 顶部工具栏复用照片图库的玻璃态浮动逻辑和移动端收缩/展开模式；不得用实心黑背景切断卡片滚动内容。
+
+#### 模型资产导入与临时预览
+
+- 主模型页拖入一个受支持模型时只创建本地 Object URL 并标记为 `temporary`，让用户明确选择“加入资产库”；拖入多个受支持模型时批量导入。资产库视图内拖入一个或多个文件都直接走批量导入，并逐项显示不支持格式或校验失败原因。
+- 临时 Object URL 在替换、关闭、组件卸载和持久化导入成功时都必须 `URL.revokeObjectURL()`；导入是否成功与新资产是否立刻可打开分开判断，不能因响应暂缺 URL 而保留可重复导入的临时态。
+- 批量响应在 2xx 部分成功与非 2xx 全失败时都必须保留 `failed[]`。前端按文件名关联失败项并按稳定 `code` 本地化，不能用一个顶层 `HTTP 400`、后端英文或 `Unknown error` 覆盖所有文件原因。
+- 导入成功后的列表合并使用当前查询条件，不清空筛选、选择和滚动上下文；任务完成增量同步资产摘要（以及任何保留的旧图库兼容刷新）时，同样不得改变正在查看的非 `gallery` 模型。
+
+#### 模型资产能力与操作边界
+
+- 模型资产能力拆分为读取、受控写入和 owner 删除：`canWriteModelAssets = isOwnerAccess || (authStatus.access_control_enabled && isAuthenticated && authStatus.allow_remote_generation)` 用于导入、资料编辑和封面上传/刷新；`canDeleteModelAssets = isOwnerAccess` 仅用于删除。无权操作应隐藏或禁用并提供本地化原因，不能只依赖后端 403 兜底。
+- `gallery` / `model-asset-generated` 可复用旧生成结果的导出与分享；`model-asset-imported` / `temporary` 在没有专用受控实现前不得调用 `/api/export/<id>` 或旧分享接口，入口使用禁用态或省略态且解释清楚。
+- 打开资产必须传最终解析出的 URL、格式、真实文件大小和来源类型；不可用资产没有打开/下载入口，不能仅凭索引里的格式展示一个必然 404 的操作。
+- 模型资产流程的权限、导入、删除、封面和查询错误使用应用内通知/对话框，不得调用浏览器原生 `alert` / `confirm` / `prompt`。
+
+#### 模型资产封面与复合卡片
+
+- 后端 `thumb_url` 是权威封面；缺封面的导入资产只对已加载且可见或刚导入的条目排队，失败时显示格式感知占位并采用有限退避/显式重试，不能在每次刷新后无限重试全部历史资产。
+- 封面任务总并发必须有上限。网络/文件处理可以并发，但同一个 WebGL renderer/canvas 的 `render → settle frames → toBlob` 区间必须串行；若需要同时渲染两个模型，应使用互不共享 canvas 的 renderer worker，完成回调还要核对 asset id 和当前挂载代次。
+- 卸载时停止继续入队，过期完成回调不得写组件局部状态；若任务已成功持久化封面，可按 asset id 更新全局资产摘要以避免重新入队。释放 Spark/Three 模型、纹理、render target、Object URL 等资源；共享 renderer 由明确的生命周期持有者统一复用和销毁。
+- 可点击卡片包含快捷按钮时，不得用一个 `role="button"` 容器包裹其它 `<button>` 并让 Enter/Space 冒泡触发父动作。主卡片动作与详情、下载、删除等快捷动作使用语义独立元素；若保留父键盘处理，仅在 `event.target === event.currentTarget` 时激活。
 
 ### 视频预览交互
 

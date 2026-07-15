@@ -220,10 +220,22 @@ def test_gallery_returns_json(client):
 
 模型资产库属于本次 `add-model-asset-library` 的主路径，修改相关逻辑时至少覆盖：
 
-- `GET /api/model-assets` 的游标加载、筛选、排序、格式计数、空结果和无更多结果；不得重新引入分页器或每页数量 UI。
-- `GET /api/model-assets/<asset_id>` 的详情字段、可用格式、默认格式回退、源媒体缩略图/视频 poster 和未知元数据降级。
-- `POST /api/model-assets/import` 的扩展名白名单、批次数量、文件大小、`secure_filename()`、唯一命名、失败清理和远程生成条件权限。
-- `PATCH /api/model-assets/<asset_id>`、封面上传/刷新、下载和删除的权限矩阵；删除导入资产不能误删 `outputs/`、相册原图或视频来源文件。
-- `/files/*` 只能服务 `outputs/`、历史缩略图、`model-assets/imports/` 和 `model-assets/thumbnails/`，必须拒绝 `.model-asset-library/index.json`、`config.json`、证书、源码、路径穿越和符号链接逃逸。
-- 前端手动烟测：桌面端卡片空白区域直接打开 viewer，详情按钮打开详情面板；移动端点击卡片打开详情卡片；顶部工具栏悬浮玻璃不切断卡片；近期模型列表独立滚动且“查看全部”和“储存占用”固定。
-- 默认模型格式烟测：Settings 切换 SPZ/PLY 后，资产库、近期模型、打开和下载都优先使用对应格式，缺失时自动回退到可用模型文件。
+- route map 必须显式断言模型资产列表、详情、导入、资料 `POST/PATCH`、封面上传/刷新、下载和删除的路径与方法；不能只靠其它 API 合约测试间接证明注册成功。
+- `GET /api/model-assets` 覆盖稳定游标、筛选、排序、格式计数、空结果、无更多结果和分页期间新增/删除；暖索引后的下一页、筛选和排序可用 monkeypatch 断言不调用全量 `os.listdir` / `os.walk`、不逐文件 `stat` 完整 `outputs/`。
+- `GET /api/model-assets/<asset_id>` 覆盖详情字段、默认格式回退、源媒体缩略图/视频 poster 和未知元数据降级。源文件消失时必须得到 `available=false`、`files=[]`、`formats=[]`、`default_open_url=null`、`download_url=null`，并且整个列表不能因单资产竞态 500。
+- 导入覆盖 `.ply/.spz/.splat/.rad` 白名单、64 文件、2 GiB 单文件、10 GiB 整批和请求体上限；验证 Unicode/空格/大小写原始名称与下载名保留，而物理存储名安全唯一，客户端路径片段和非法后缀不能影响目标路径。
+- 批量导入同时覆盖全成功、部分成功和全部失败：逐项 `failed[].code` / filename 在 2xx 与非 2xx 中都保留并可本地化；索引写入或磁盘提交故障时回滚本批孤儿文件，不得只返回通用 HTTP 状态。
+- 使用线程屏障覆盖两个同名文件并发导入，断言得到不同物理文件且删除一个不影响另一个；并覆盖资料更新/删除、封面上传/删除、封面刷新/上传交错，删除后的旧请求不得复活索引记录或孤立文件。
+- 索引测试区分 missing、valid、损坏 JSON 和 schema 非法：只有 missing 可初始化；损坏索引后的任意编辑、导入、封面或删除不得覆盖原文件，需验证隔离/诊断/恢复行为、已有导入文件仍保留，并且本次未提交的新导入文件被回滚。
+- 封面覆盖 10 MiB 上限、实际格式/扩展名、像素维度、无效图片和路径约束；无效替换必须保留旧封面，JPG/PNG/WebP 跨扩展替换/刷新不得遗留或复活旧封面。
+- 删除覆盖磁盘拒绝、索引写入失败与文件已消失；只有文件和索引达到约定一致状态才返回成功。删除导入资产不能误删 `outputs/`、相册原图或视频来源文件。
+- `/files/*` 和模型资产 list/detail/download/delete 都要测试根内文件 symlink、受控根自身 symlink/junction/Windows reparse point、路径穿越和跨盘符；必须拒绝 workspace 外目标以及 `.model-asset-library/index.json`、`config.json`、证书和源码。
+- 权限同时验证 API 与 UI：读取为 Unlocked；导入/编辑/封面为 Owner/Conditional；删除仅 Owner。远程只读用户看不到或不能触发注定 403 的写按钮，权限原因使用本地化应用内反馈而非原生 alert。
+- 前端列表用可控 Promise 模拟筛选/排序/游标响应乱序，断言旧 generation 不能覆盖当前 query、列表、游标、loading 或 error；密度变化只改 CSS 列数并保持数据与滚动位置。
+- 模型来源回归覆盖 `gallery`、`model-asset-generated`、`model-asset-imported`、`temporary`：任务/旧图库刷新不关闭非 gallery 模型，入口传递真实格式和文件大小；设置变更后的 viewer 重载保留来源。
+- 拖拽烟测覆盖主模型页单文件临时预览、多文件批量导入、资产库内单/多文件直接导入、混合/不支持文件反馈；替换、关闭、卸载和导入成功后 Object URL 均被 revoke。
+- 封面队列只处理已加载且可见/新导入资产，限制总体并发；共享 WebGL renderer 时渲染区间必须串行，使用两个不同模型的交错 Promise 验证不会串图、错绑 asset id 或在卸载后写回。
+- 生成资产可复用旧导出/分享；导入资产和临时预览不得调用旧 `/api/export/<id>`。Settings 切换 SPZ/PLY 后，资产库、近期模型、打开和下载优先使用对应格式，缺失时按可用文件回退。
+- 键盘烟测分别聚焦卡片主动作、详情、下载和删除按钮并按 Enter/Space，断言只触发目标动作；触控路径不依赖 hover，明显 shimmer/加载动画在 `prefers-reduced-motion` 下停用或降级。
+- 视觉与上下文烟测：桌面卡片空白区域直接打开 viewer，移动端点击卡片打开详情；顶部工具栏悬浮玻璃不切断内容；近期模型即使为空/失败也保留“查看全部”和固定存储摘要，返回资产库后筛选、选择、已加载批次和滚动位置不丢失。
+- workspace 切换测试覆盖目标被占用、目标是普通文件、无写权限和锁创建失败；响应使用稳定 JSON 错误且 `config.json` 不变。预检成功不替代新进程启动时正式获取 workspace 锁。
