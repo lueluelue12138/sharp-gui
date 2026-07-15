@@ -9,6 +9,7 @@ import uuid
 from backend import runtime
 from backend.services import model_gallery, video_reconstruction
 from backend.services.model_convert import ply_to_spz
+from backend.services.workspace_lock import WorkspaceInstanceLock
 
 TASK_RETENTION_SECONDS = 3600
 CLEANUP_INTERVAL = 300
@@ -44,6 +45,7 @@ class TaskManager:
         self._workers_started = False
         self._cleanup_started = False
         self._start_lock = threading.Lock()
+        self._workspace_lock = WorkspaceInstanceLock(paths.workspace_folder)
 
     def set_thumbnail_generator(self, thumbnail_generator):
         self.thumbnail_generator = thumbnail_generator
@@ -488,12 +490,38 @@ class TaskManager:
     def start_workers(self):
         """Start worker and cleanup threads once."""
         with self._start_lock:
+            if not self._workers_started and not self._cleanup_started:
+                self._workspace_lock.acquire()
+                try:
+                    self._cleanup_interrupted_runtime()
+                except Exception:
+                    self._workspace_lock.release()
+                    raise
             if not self._workers_started:
                 threading.Thread(target=self.worker, daemon=True).start()
                 self._workers_started = True
             if not self._cleanup_started:
                 threading.Thread(target=self.cleanup_old_tasks, daemon=True).start()
                 self._cleanup_started = True
+
+    def _cleanup_interrupted_runtime(self):
+        image_cleanup = model_gallery.cleanup_interrupted_image_tasks(self.paths)
+        if image_cleanup["removed"] or image_cleanup["recovered"]:
+            runtime.log(
+                "INFO",
+                "Reconciled interrupted image tasks at startup: "
+                f"removed={image_cleanup['removed']} recovered={image_cleanup['recovered']}",
+            )
+        if image_cleanup["errors"]:
+            runtime.log(
+                "WARN",
+                f"Failed to reconcile {image_cleanup['errors']} interrupted image task(s)",
+            )
+        video_reconstruction.cleanup_stale_runtime_artifacts(self.paths)
+
+    def release_workspace_lock(self):
+        """Release the workspace lock after the HTTP server stops."""
+        self._workspace_lock.release()
 
     @property
     def workers_started(self):

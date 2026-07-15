@@ -6,6 +6,7 @@ import time
 
 from backend import runtime
 from backend.config import coerce_bool, get_access_control_config
+from backend.services.workspace_lock import WorkspaceInUseError
 
 
 def get_local_ip():
@@ -64,7 +65,15 @@ def restart_process_later():
 def run_server(app):
     """Run the Flask service and explicitly start background workers."""
     runtime.configure_werkzeug_logging()
-    app.config["TASK_MANAGER"].start_workers()
+    task_manager = app.config["TASK_MANAGER"]
+    is_serving_process = not runtime.SHARP_DEBUG or os.environ.get("WERKZEUG_RUN_MAIN") == "true"
+    if is_serving_process:
+        try:
+            task_manager.start_workers()
+        except WorkspaceInUseError as exc:
+            print(f"❌ {exc}")
+            runtime.log("ERROR", str(exc))
+            raise SystemExit(1) from exc
 
     local_ip = os.environ.get("SHARP_LAN_IP") or get_local_ip()
     cert_file = os.path.join(runtime.BASE_DIR, "cert.pem")
@@ -108,4 +117,8 @@ def run_server(app):
     }
     if ssl_ctx:
         run_kwargs["ssl_context"] = ssl_ctx
-    app.run(**run_kwargs)
+    try:
+        app.run(**run_kwargs)
+    finally:
+        if is_serving_process:
+            task_manager.release_workspace_lock()

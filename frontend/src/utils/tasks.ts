@@ -26,6 +26,26 @@ export function mergeTaskUpdates(currentTasks: Task[], updatedTasks: Task[]): Ta
   ];
 }
 
+export function reconcileTaskSnapshot(
+  currentTasks: Task[],
+  serverTasks: Task[],
+  tasksAtRequestStart: readonly Task[],
+): Task[] {
+  const startById = new Map(tasksAtRequestStart.map((task) => [task.id, task]));
+  const currentById = new Map(currentTasks.map((task) => [task.id, task]));
+  const locallyChangedIds = new Set<string>();
+
+  for (const taskId of new Set([...startById.keys(), ...currentById.keys()])) {
+    if (startById.get(taskId) !== currentById.get(taskId)) {
+      locallyChangedIds.add(taskId);
+    }
+  }
+
+  const unchangedServerTasks = serverTasks.filter((task) => !locallyChangedIds.has(task.id));
+  const locallyChangedTasks = currentTasks.filter((task) => locallyChangedIds.has(task.id));
+  return mergeTaskUpdates(unchangedServerTasks, locallyChangedTasks);
+}
+
 export function createTaskStatusMap(tasks: Task[]): Map<string, TaskStatus> {
   return new Map(tasks.map((task) => [task.id, task.status]));
 }

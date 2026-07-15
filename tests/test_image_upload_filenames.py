@@ -346,3 +346,33 @@ def test_export_uses_display_name_for_html_and_download(client, monkeypatch):
     assert "filename*=UTF-8''%E6%B5%8B%E8%AF%95%E5%9B%BE%E7%89%87_share.html" in (
         response.headers["Content-Disposition"]
     )
+
+
+def test_model_suffix_id_keeps_unicode_display_and_download_name(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    model_id = "img-eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+    with open(os.path.join(paths.output_folder, f"{model_id}.rad"), "wb") as file:
+        file.write(b"fake-rad")
+    model_gallery.write_model_metadata(
+        paths,
+        model_id,
+        {
+            "display_name": "测试图片",
+            "source_media_type": "image",
+            "source_name": "测试图片.jpg",
+        },
+    )
+
+    assert model_gallery.get_model_display_name(paths, f"{model_id}.rad") == "测试图片"
+    assert model_gallery.make_model_download_name(
+        paths,
+        f"{model_id}.rad",
+        ".rad",
+    ) == "测试图片.rad"
+
+    response = client.get(f"/api/download/{model_id}.rad?format=rad")
+
+    assert response.status_code == 200
+    assert "filename*=UTF-8''%E6%B5%8B%E8%AF%95%E5%9B%BE%E7%89%87.rad" in (
+        response.headers["Content-Disposition"]
+    )

@@ -4,17 +4,18 @@ import { CircleHelp } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 
+import { useAppStore } from '@/store';
+
 import {
   ApiError,
   createVideoReconstruction,
   createVideoReconstructionFromFile,
-  fetchTasks,
   fetchVideoReconstructionStatus,
 } from '@/api';
 import { Button } from '@/components/common/Button';
 import { ChevronDownIcon, SparklesIcon } from '@/components/common/Icons';
 import { Modal } from '@/components/common/Modal';
-import { useAppStore } from '@/store';
+
 import type {
   VideoReconstructionCacheImages,
   VideoReconstructionCustomOptions,
@@ -64,7 +65,7 @@ export function VideoReconstructionDialog() {
     openGuide,
     setStatus,
     setSubmitting,
-    setTasks,
+    upsertTasks,
   } = useAppStore(
     useShallow((state) => ({
       isOpen: state.videoReconstructionDialogOpen,
@@ -77,7 +78,7 @@ export function VideoReconstructionDialog() {
       openGuide: state.openVideoReconstructionGuide,
       setStatus: state.setVideoReconstructionStatus,
       setSubmitting: state.setVideoReconstructionSubmitting,
-      setTasks: state.setTasks,
+      upsertTasks: state.upsertTasks,
     })),
   );
   const [mode, setMode] = useState<VideoReconstructionMode>('auto');
@@ -222,8 +223,7 @@ export function VideoReconstructionDialog() {
             ...requestOptions,
           });
       if (response.task) {
-        const tasksResponse = await fetchTasks();
-        setTasks(tasksResponse.tasks, tasksResponse.has_active);
+        upsertTasks([response.task]);
       }
       setMessage({ tone: 'success', text: t('videoReconQueued') });
       window.setTimeout(() => closeDialog(), 260);

@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "test:tasks": "tsc -p tsconfig.tasks-test.json && node node_modules/.tmp/tasks-test/utils/tasks.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

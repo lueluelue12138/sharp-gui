@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "noEmit": false,
+    "outDir": "./node_modules/.tmp/tasks-test",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.tasks-test.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": [
+    "src/utils/tasks.ts",
+    "src/utils/tasks.test.ts",
+    "src/types/task.ts"
+  ],
+  "exclude": []
+}

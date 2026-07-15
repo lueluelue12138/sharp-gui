@@ -155,7 +155,15 @@ def write_model_metadata(paths, item_id, metadata):
 
 def get_model_display_name(paths, item_id, metadata=None):
     """返回模型的用户可见名称，旧模型回退到内部 ID。"""
-    metadata = metadata if isinstance(metadata, dict) else read_model_metadata(paths, item_id)
+    normalized_item_id = normalize_model_item_id(item_id)
+    if not normalized_item_id:
+        return str(item_id or "")
+
+    metadata = (
+        metadata
+        if isinstance(metadata, dict)
+        else read_model_metadata(paths, normalized_item_id)
+    )
     display_name = metadata.get("display_name")
     if isinstance(display_name, str) and display_name.strip():
         return display_name.strip()
@@ -167,14 +175,17 @@ def get_model_display_name(paths, item_id, metadata=None):
             if source_stem:
                 return source_stem
 
-    return item_id
+    return normalized_item_id
 
 
 def make_model_download_name(paths, item_id, extension, suffix="", metadata=None):
     """使用展示名生成安全下载名，不改变内部模型文件路径。"""
-    display_name = get_model_display_name(paths, item_id, metadata)
+    normalized_item_id = normalize_model_item_id(item_id)
+    if not normalized_item_id:
+        normalized_item_id = "model"
+    display_name = get_model_display_name(paths, normalized_item_id, metadata)
     safe_stem = re.sub(r"[<>:\"/\\|?*\x00-\x1f]", "_", display_name).strip(". ")
-    safe_stem = safe_stem[:120] or item_id
+    safe_stem = safe_stem[:120] or normalized_item_id
     return f"{safe_stem}{suffix}{extension.lower()}"
 
 

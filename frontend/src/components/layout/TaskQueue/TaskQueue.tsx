@@ -1,8 +1,15 @@
 import React, { useEffect, useState } from 'react';
+
 import { useTranslation } from 'react-i18next';
+
 import { useAppStore } from '@/store/useAppStore';
-import type { Task } from '@/types';
+
 import { cancelTask } from '@/api';
+
+import { isActiveTaskStatus } from '@/utils';
+
+import type { Task } from '@/types';
+
 import styles from './TaskQueue.module.css';
 
 // Format an elapsed duration (seconds) as m:ss or h:mm:ss.
@@ -63,18 +70,18 @@ function resolveViewerUrl(task: Task): string | undefined {
 
 export const TaskQueue: React.FC = () => {
     const { t } = useTranslation();
-    const { tasks, setTasks } = useAppStore();
+    const { tasks, removeTask } = useAppStore();
 
-    // Filter active tasks (pending, processing, failed)
-    const activeTasks = tasks.filter(task => 
-        task.status === 'pending' || 
-        task.status === 'processing' || 
-        task.status === 'failed'
+    // Keep failed tasks visible for diagnostics alongside all active states.
+    const activeTasks = tasks.filter(
+        (task) => isActiveTaskStatus(task.status) || task.status === 'failed',
     );
 
-    // Tick once per second while a task is processing, to keep the elapsed timer live.
+    // Tick once per second while a task is running, to keep the elapsed timer live.
     const [nowMs, setNowMs] = useState(() => Date.now());
-    const hasProcessing = activeTasks.some(task => task.status === 'processing');
+    const hasProcessing = activeTasks.some(
+        (task) => task.status === 'running' || task.status === 'processing',
+    );
     useEffect(() => {
         if (!hasProcessing) {
             return;
@@ -87,11 +94,7 @@ export const TaskQueue: React.FC = () => {
     const handleCancel = async (taskId: string) => {
         try {
             await cancelTask(taskId);
-            // Remove from local state
-            setTasks(
-                tasks.filter(t => t.id !== taskId),
-                tasks.some(t => t.id !== taskId && (t.status === 'pending' || t.status === 'processing'))
-            );
+            removeTask(taskId);
         } catch (error) {
             console.error('Failed to cancel task:', error);
         }
@@ -103,6 +106,7 @@ export const TaskQueue: React.FC = () => {
             case 'pending':
                 return { icon: <ClockIcon />, color: '#f0ad4e' };
             case 'processing':
+            case 'running':
                 return { icon: <SpinnerIcon />, color: '#0071e3' };
             case 'completed':
                 return { icon: <CheckIcon />, color: '#28a745' };
@@ -150,7 +154,7 @@ export const TaskQueue: React.FC = () => {
             {activeTasks.map(task => {
                 const { icon, color } = getStatusInfo(task.status);
                 const showProgress = task.status === 'processing' && task.progress !== undefined;
-                const canCancel = task.status === 'pending' || task.status === 'processing';
+                const canCancel = isActiveTaskStatus(task.status);
                 const errorText = getTaskErrorText(task);
                 const stageText = getTaskStageText(task);
                 const viewerUrl = task.status === 'processing' ? resolveViewerUrl(task) : undefined;

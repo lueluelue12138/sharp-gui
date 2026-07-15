@@ -2,9 +2,15 @@ import { useCallback, useEffect, useRef } from 'react';
 
 import { useShallow } from 'zustand/react/shallow';
 
-import { fetchTasks, fetchGallery } from '@/api';
 import { useAppStore } from '@/store/useAppStore';
-import { createTaskStatusMap, hasNewlyCompletedTask } from '@/utils';
+
+import { fetchTasks, fetchGallery } from '@/api';
+import {
+    createTaskStatusMap,
+    hasActiveTask,
+    hasNewlyCompletedTask,
+    reconcileTaskSnapshot,
+} from '@/utils';
 
 const POLLING_INTERVAL = 3000; // 3 seconds
 
@@ -36,6 +42,7 @@ export const useTaskQueue = () => {
         }
 
         pollInFlightRef.current = true;
+        const tasksAtRequestStart = useAppStore.getState().tasks;
         try {
             const data = await fetchTasks();
             const shouldRefreshGallery = hasNewlyCompletedTask(
@@ -52,8 +59,13 @@ export const useTaskQueue = () => {
                 setGalleryItems(gallery);
             }
 
-            taskStatusesRef.current = createTaskStatusMap(data.tasks);
-            setTasks(data.tasks, data.has_active);
+            const nextTasks = reconcileTaskSnapshot(
+                useAppStore.getState().tasks,
+                data.tasks,
+                tasksAtRequestStart,
+            );
+            taskStatusesRef.current = createTaskStatusMap(nextTasks);
+            setTasks(nextTasks, hasActiveTask(nextTasks));
         } catch (error) {
             console.error('Task polling error:', error);
         } finally {

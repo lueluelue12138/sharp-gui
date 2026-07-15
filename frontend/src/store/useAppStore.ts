@@ -541,6 +541,7 @@ interface AppState {
 
   setTasks: (tasks: Task[], hasActive: boolean) => void;
   upsertTasks: (tasks: Task[]) => void;
+  removeTask: (taskId: string) => void;
 
   toggleLimits: () => void;
   toggleGyro: () => void;
@@ -948,6 +949,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     return {
       tasks: mergedTasks,
       hasActiveTasks: hasActiveTask(mergedTasks),
+    };
+  }),
+  removeTask: (taskId) => set((state) => {
+    const tasks = state.tasks.filter((task) => task.id !== taskId);
+    return {
+      tasks,
+      hasActiveTasks: hasActiveTask(tasks),
     };
   }),
 
