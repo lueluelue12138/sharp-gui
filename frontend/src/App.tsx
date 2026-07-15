@@ -331,7 +331,7 @@ function App() {
     const blobUrl = URL.createObjectURL(file);
     replaceTemporaryModelPreview({ file, format, url: blobUrl });
     setModelAssetLibraryOpen(false);
-    setCurrentModel(file.name, blobUrl, format, file.size);
+    setCurrentModel(file.name, blobUrl, format, file.size, 'temporary');
   }, [replaceTemporaryModelPreview, setCurrentModel]);
 
   const showGenerationPermissionError = useCallback(() => {
@@ -402,7 +402,13 @@ function App() {
         && (origin === 'preview' || origin === 'main-batch')
       ) {
         setModelAssetLibraryOpen(false);
-        setCurrentModel(firstAsset.id, firstModelSource.url, firstModelSource.format);
+        setCurrentModel(
+          firstAsset.id,
+          firstModelSource.url,
+          firstModelSource.format,
+          firstModelSource.size,
+          firstAsset.is_imported ? 'model-asset-imported' : 'model-asset-generated',
+        );
         replaceTemporaryModelPreview(null);
       }
       setModelAssetImporting(false);

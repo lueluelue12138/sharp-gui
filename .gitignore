@@ -32,6 +32,7 @@ my-video/
 .model-asset-library/
 .photo-gallery-cache/
 .video-reconstruction/
+.sharp-gui.lock
 
 # Config
 config.json

@@ -6,6 +6,7 @@ from backend.services.photo_gallery import (
     migrate_photo_gallery_roots_config,
     normalize_workspace_key,
 )
+from backend.services.workspace_lock import WorkspaceInstanceLock
 
 
 def _album(path):
@@ -92,3 +93,68 @@ def test_changing_workspace_archives_legacy_roots_before_switch(client, config_f
     assert get_photo_gallery_roots_for_config(saved) == []
     saved["workspace_folder"] = str(workspace)
     assert len(get_photo_gallery_roots_for_config(saved)) == 1
+
+
+def test_changing_to_locked_workspace_returns_conflict_without_saving(
+    client,
+    config_file,
+    workspace,
+    tmp_path,
+):
+    target_workspace = tmp_path / "occupied-workspace"
+    target_lock = WorkspaceInstanceLock(str(target_workspace))
+    target_lock.acquire()
+    config_before = config_file.read_text(encoding="utf-8")
+
+    try:
+        response = client.post(
+            "/api/settings",
+            json={"workspace_folder": str(target_workspace)},
+        )
+    finally:
+        target_lock.release()
+
+    assert response.status_code == 409
+    payload = response.get_json()
+    assert payload["success"] is False
+    assert payload["code"] == "workspace_in_use"
+    assert "Workspace is already in use" in payload["error"]
+    assert config_file.read_text(encoding="utf-8") == config_before
+    assert load_config()["workspace_folder"] == str(workspace)
+
+
+def test_invalid_workspace_folder_is_rejected_without_saving(client, config_file, workspace):
+    config_before = config_file.read_text(encoding="utf-8")
+
+    for invalid_workspace in (None, "   ", 123, []):
+        response = client.post(
+            "/api/settings",
+            json={"workspace_folder": invalid_workspace},
+        )
+
+        assert response.status_code == 400
+        payload = response.get_json()
+        assert payload["success"] is False
+        assert payload["code"] == "invalid_workspace_folder"
+        assert config_file.read_text(encoding="utf-8") == config_before
+        assert load_config()["workspace_folder"] == str(workspace)
+
+
+def test_saving_current_workspace_does_not_conflict_with_its_live_lock(
+    client,
+    workspace,
+):
+    current_lock = WorkspaceInstanceLock(str(workspace))
+    current_lock.acquire()
+
+    try:
+        response = client.post(
+            "/api/settings",
+            json={"workspace_folder": f"  {workspace}  "},
+        )
+    finally:
+        current_lock.release()
+
+    assert response.status_code == 200
+    assert response.get_json()["needs_restart"] is True
+    assert load_config()["workspace_folder"] == str(workspace)

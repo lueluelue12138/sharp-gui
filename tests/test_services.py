@@ -241,6 +241,31 @@ def test_model_asset_import_enforces_file_size_limit(tmp_path, monkeypatch):
     assert list(os.scandir(paths.model_asset_import_folder)) == []
 
 
+def test_model_asset_import_preserves_unicode_name_and_validated_extension(tmp_path):
+    workspace = tmp_path / "workspace"
+    paths = build_path_context({"workspace_folder": str(workspace)})
+    ensure_runtime_directories(paths)
+
+    result = model_assets.import_model_assets(
+        paths,
+        [FileStorage(stream=BytesIO(b"unicode-model"), filename=r"..\扫描 模型.PLY")],
+    )
+
+    assert result["success"] is True
+    asset = result["assets"][0]
+    assert asset["name"] == "扫描 模型"
+    assert asset["source_name"] == "扫描 模型.PLY"
+    assert asset["files"][0]["format"] == "ply"
+    assert asset["files"][0]["filename"].endswith(".ply")
+
+    resolved = model_assets.resolve_download_file(paths, asset["id"], "ply")
+    assert resolved is not None
+    path, download_name = resolved
+    assert is_real_path_inside(path, paths.model_asset_import_folder)
+    assert os.path.splitext(path)[1] == ".ply"
+    assert download_name == "扫描 模型.ply"
+
+
 def test_model_asset_download_resolves_controlled_path(tmp_path):
     workspace = tmp_path / "workspace"
     paths = build_path_context({"workspace_folder": str(workspace)})
@@ -254,6 +279,14 @@ def test_model_asset_download_resolves_controlled_path(tmp_path):
     path, filename = resolved
     assert filename == "demo.ply"
     assert is_real_path_inside(path, paths.output_folder)
+    assert model_assets.resolve_download_file(paths, "demo.ply", "ply") == resolved
+
+    with open(os.path.join(paths.workspace_folder, "outside.ply"), "wb") as file:
+        file.write(b"outside-model")
+    for invalid_id in (r"..\outside", "../outside", "C:outside"):
+        assert model_assets.get_model_asset(paths, invalid_id) is None
+        assert model_assets.resolve_asset_source_files(paths, invalid_id) == {}
+        assert model_assets.resolve_download_file(paths, invalid_id, "ply") is None
 
     imported = model_assets.import_model_assets(
         paths,

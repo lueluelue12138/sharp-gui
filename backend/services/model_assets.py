@@ -86,6 +86,11 @@ def safe_asset_filename(asset_id):
     return value or f"asset-{uuid.uuid4().hex[:10]}"
 
 
+def normalize_upload_filename(filename):
+    """Return the user-visible basename without trusting client path segments."""
+    return str(filename or "").replace("\\", "/").rsplit("/", 1)[-1].strip()
+
+
 def read_asset_index(paths):
     try:
         with open(paths.model_asset_index_file, "r", encoding="utf-8") as file:
@@ -147,12 +152,17 @@ def get_user_record(index, asset_id):
 
 def collect_supported_files(folder, stem):
     result = {}
-    if not os.path.isdir(folder):
+    normalized_stem = model_gallery.normalize_model_item_id(stem)
+    if not normalized_stem or not os.path.isdir(folder):
         return result
 
-    for extension, fmt in SUPPORTED_MODEL_EXTENSIONS.items():
-        path = os.path.join(folder, f"{stem}{extension}")
-        if os.path.isfile(path):
+    for filename in os.listdir(folder):
+        path = os.path.join(folder, filename)
+        if not os.path.isfile(path):
+            continue
+        file_stem, extension = os.path.splitext(filename)
+        fmt = SUPPORTED_MODEL_EXTENSIONS.get(extension.lower())
+        if file_stem == normalized_stem and fmt:
             result[fmt] = path
     return result
 
@@ -169,7 +179,9 @@ def collect_generated_file_groups(paths):
         fmt = format_for_path(filename)
         if not fmt:
             continue
-        stem = os.path.splitext(filename)[0]
+        stem = model_gallery.normalize_model_item_id(filename)
+        if not stem:
+            continue
         groups.setdefault(stem, {})[fmt] = path
     return groups
 
@@ -628,9 +640,20 @@ def get_model_asset(paths, asset_id, include_details=True):
     if record.get("source_type") == SOURCE_IMPORTED:
         return build_imported_asset(paths, asset_id, record, include_details=include_details)
 
-    generated_files = collect_supported_files(paths.output_folder, asset_id)
+    generated_asset_id = model_gallery.normalize_model_item_id(asset_id)
+    if not generated_asset_id:
+        return None
+
+    record = get_user_record(index, generated_asset_id)
+    generated_files = collect_supported_files(paths.output_folder, generated_asset_id)
     if generated_files:
-        return build_generated_asset(paths, asset_id, generated_files, record, include_details=include_details)
+        return build_generated_asset(
+            paths,
+            generated_asset_id,
+            generated_files,
+            record,
+            include_details=include_details,
+        )
 
     return None
 
@@ -654,6 +677,7 @@ def update_model_asset_profile(paths, asset_id, payload):
     asset = get_model_asset(paths, asset_id, include_details=False)
     if not asset:
         return None
+    asset_id = asset["id"]
 
     with _INDEX_LOCK:
         index = read_asset_index(paths)
@@ -674,14 +698,17 @@ def update_model_asset_profile(paths, asset_id, payload):
     return get_model_asset(paths, asset_id, include_details=True)
 
 
-def unique_import_target(paths, filename):
-    base = secure_filename(filename) or f"model-{uuid.uuid4().hex[:8]}"
-    stem, ext = os.path.splitext(base)
-    ext = ext.lower()
-    candidate = f"{stem}{ext}"
+def unique_import_target(paths, filename, extension):
+    """Allocate a safe storage name while preserving the validated model suffix."""
+    if extension not in SUPPORTED_MODEL_EXTENSIONS:
+        raise ValueError("Unsupported model format")
+
+    original_stem = os.path.splitext(normalize_upload_filename(filename))[0]
+    stem = secure_filename(original_stem) or f"model-{uuid.uuid4().hex[:8]}"
+    candidate = f"{stem}{extension}"
     counter = 1
     while os.path.exists(os.path.join(paths.model_asset_import_folder, candidate)):
-        candidate = f"{stem}-{counter}{ext}"
+        candidate = f"{stem}-{counter}{extension}"
         counter += 1
     return candidate
 
@@ -725,7 +752,7 @@ def import_model_assets(paths, files):
     batch_bytes = 0
 
     for file_storage in files:
-        original_name = file_storage.filename or ""
+        original_name = normalize_upload_filename(file_storage.filename)
         extension = os.path.splitext(original_name)[1].lower()
         fmt = SUPPORTED_MODEL_EXTENSIONS.get(extension)
         if not fmt:
@@ -736,7 +763,7 @@ def import_model_assets(paths, files):
             })
             continue
 
-        target_filename = unique_import_target(paths, original_name)
+        target_filename = unique_import_target(paths, original_name, extension)
         target_path = os.path.realpath(os.path.join(paths.model_asset_import_folder, target_filename))
         if not is_real_path_inside(target_path, paths.model_asset_import_folder):
             failed.append({
@@ -810,6 +837,7 @@ def save_model_asset_cover(paths, asset_id, file_storage, kind=THUMBNAIL_MANUAL)
     asset = get_model_asset(paths, asset_id, include_details=False)
     if not asset:
         return None, {"error": "Model asset not found", "code": "model_asset_not_found"}, 404
+    asset_id = asset["id"]
 
     original_name = file_storage.filename or ""
     extension = os.path.splitext(original_name)[1].lower()
@@ -858,6 +886,7 @@ def refresh_model_asset_cover(paths, asset_id):
     asset = get_model_asset(paths, asset_id, include_details=False)
     if not asset:
         return None
+    asset_id = asset["id"]
 
     with _INDEX_LOCK:
         index = read_asset_index(paths)
@@ -888,6 +917,7 @@ def delete_model_asset(paths, asset_id):
     asset = get_model_asset(paths, asset_id, include_details=True)
     if not asset:
         return False
+    asset_id = asset["id"]
 
     with _INDEX_LOCK:
         index = read_asset_index(paths)
@@ -943,11 +973,19 @@ def resolve_asset_source_files(paths, asset_id):
         ):
             return {asset_format: model_path}
         return {}
-    return collect_supported_files(paths.output_folder, asset_id)
+
+    generated_asset_id = model_gallery.normalize_model_item_id(asset_id)
+    if not generated_asset_id:
+        return {}
+    return collect_supported_files(paths.output_folder, generated_asset_id)
 
 
 def resolve_download_file(paths, asset_id, fmt=None):
-    files = resolve_asset_source_files(paths, asset_id)
+    asset = get_model_asset(paths, asset_id, include_details=False)
+    if not asset:
+        return None
+
+    files = resolve_asset_source_files(paths, asset["id"])
     if not files:
         return None
 
@@ -955,4 +993,14 @@ def resolve_download_file(paths, asset_id, fmt=None):
     path = files.get(requested_format) or files.get(select_primary_format(files))
     if not path or not os.path.isfile(path):
         return None
-    return path, os.path.basename(path)
+
+    extension = os.path.splitext(path)[1].lower()
+    display_name = str(asset.get("name") or "").strip()
+    metadata = {"display_name": display_name} if display_name else None
+    download_name = model_gallery.make_model_download_name(
+        paths,
+        asset["id"],
+        extension,
+        metadata=metadata,
+    )
+    return path, download_name

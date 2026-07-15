@@ -495,7 +495,13 @@ export function ModelAssetLibraryView({
       setModelAssetError(t('modelAssetOpenUnavailable'));
       return;
     }
-    setCurrentModel(asset.id, modelSource.url, modelSource.format);
+    setCurrentModel(
+      asset.id,
+      modelSource.url,
+      modelSource.format,
+      modelSource.size,
+      asset.is_imported ? 'model-asset-imported' : 'model-asset-generated',
+    );
   }, [preferredModelFormat, setCurrentModel, setModelAssetError, t]);
 
   const handlePreview = useCallback((asset: ModelAsset) => {

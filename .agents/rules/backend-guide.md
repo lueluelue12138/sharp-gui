@@ -130,6 +130,8 @@ pending → running → processing → completed
 - **取消机制**：`process.terminate()` 终止子进程
 - **自动清理**：已完成任务 1 小时后自动从内存中移除（`TASK_RETENTION_SECONDS`）
 - **导入无副作用**：`create_app()` 和 `from app import app` 默认不启动 worker/cleanup 线程，便于 pytest 和工具导入
+- **工作区互斥**：服务进程在 `TaskManager.start_workers()` 中取得 `{workspace}/.sharp-gui.lock` 的操作系统级独占锁；只有成功持锁后才能执行图片任务协调和视频残留清理
+- **切换预检**：Settings 保存不同的 `workspace_folder` 前必须短暂取得并释放目标工作区锁；占用时返回 `409 workspace_in_use`，不得修改配置或触发重启
 
 视频重建任务的阶段应保持用户可读，不要求前端阅读完整日志即可知道状态：`video_prepare`、`video_extract_frames`、`video_estimate_geometry`、`video_train_splats`、`video_export_splats`、`video_cleanup_splats`、`video_convert_spz`、`completed` / `failed` / `cancelled`。
 
@@ -230,6 +232,8 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
   }
 }
 ```
+
+`.sharp-gui.lock` 文件存在不代表工作区正在使用，判断必须以 `WorkspaceInstanceLock.acquire()` 的结果为准；不得通过删除锁文件绕过活跃实例。进程结束或服务停止后应释放锁，但锁文件本身可留在 workspace 中供下次复用。
 
 ### 兼容性
 

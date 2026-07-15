@@ -1,9 +1,11 @@
 import os
 from io import BytesIO
+from urllib.parse import quote
 
-from tests.conftest import make_png_bytes
+from backend.services import model_gallery
 from backend.services.photo_gallery import photo_meta_from_path, save_photo_index
-from tests.conftest import write_config
+
+from tests.conftest import make_png_bytes, write_config
 
 
 def test_core_read_apis_return_expected_shapes(client, app):
@@ -134,6 +136,65 @@ def test_model_assets_api_lists_imports_edits_covers_and_downloads(client, app):
     legacy_gallery = client.get("/api/gallery")
     assert legacy_gallery.status_code == 200
     assert legacy_gallery.get_json()[0]["id"] == "demo"
+
+
+def test_model_asset_download_uses_unicode_name_and_rejects_generated_traversal(client, app):
+    paths = app.config["PATH_CONTEXT"]
+    model_id = "img-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    with open(os.path.join(paths.output_folder, f"{model_id}.ply"), "wb") as file:
+        file.write(b"generated-ply")
+    model_gallery.write_model_metadata(
+        paths,
+        model_id,
+        {
+            "display_name": "测试图片",
+            "source_media_type": "image",
+            "source_name": "测试图片.jpg",
+        },
+    )
+
+    generated = client.get(f"/api/model-assets/{model_id}/download?format=ply")
+
+    assert generated.status_code == 200
+    assert generated.data == b"generated-ply"
+    assert f"filename*=UTF-8''{quote('测试图片.ply')}" in generated.headers["Content-Disposition"]
+
+    imported = client.post(
+        "/api/model-assets/import",
+        data={"files": (BytesIO(b"imported-ply"), r"..\导入模型.PLY")},
+        content_type="multipart/form-data",
+    )
+    assert imported.status_code == 200
+    imported_asset = imported.get_json()["assets"][0]
+    assert imported_asset["name"] == "导入模型"
+    assert imported_asset["source_name"] == "导入模型.PLY"
+    assert imported_asset["files"][0]["filename"].endswith(".ply")
+
+    imported_download = client.get(
+        f"/api/model-assets/{imported_asset['id']}/download?format=ply",
+    )
+    assert imported_download.status_code == 200
+    assert f"filename*=UTF-8''{quote('导入模型.ply')}" in (
+        imported_download.headers["Content-Disposition"]
+    )
+
+    edited = client.patch(
+        f"/api/model-assets/{imported_asset['id']}",
+        json={"display_name": "收藏 模型"},
+    )
+    assert edited.status_code == 200
+    edited_download = client.get(
+        f"/api/model-assets/{imported_asset['id']}/download?format=ply",
+    )
+    assert f"filename*=UTF-8''{quote('收藏 模型.ply')}" in (
+        edited_download.headers["Content-Disposition"]
+    )
+
+    with open(os.path.join(paths.workspace_folder, "outside.ply"), "wb") as file:
+        file.write(b"outside-ply")
+    escaped = client.get("/api/model-assets/..%5Coutside/download?format=ply")
+    assert escaped.status_code == 404
+    assert escaped.get_json()["code"] == "model_asset_file_not_found"
 
 
 def test_export_missing_model_returns_json_error(client):
