@@ -187,7 +187,7 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
   const capabilityCode = !operationActive ? status?.capabilities.reason_code : null;
   const targetCode = candidate && !candidate.compatible
     ? candidate.compatibility_code
-    : !candidate
+    : !candidate && !capabilityCode
       ? status?.last_check_error_code
       : null;
   const operationCode = operation?.error_code ?? null;
