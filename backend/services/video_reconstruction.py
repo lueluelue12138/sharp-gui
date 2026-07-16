@@ -713,16 +713,26 @@ def command_version(name, args=None, timeout=5):
         env = os.environ.copy()
         env.setdefault("PYTHONUTF8", "1")
         env.setdefault("PYTHONIOENCODING", "utf-8")
-        result = subprocess.run(
-            [command, *(args or ["-version"])],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            env=env,
-        )
+        # Portable Nerfstudio entrypoints are Windows batch wrappers.  A cold
+        # first launch can occasionally return a transient non-zero status
+        # while Windows is still loading/scanning the bundled Python modules.
+        # Retry only these wrappers, once; native tools and persistent wrapper
+        # failures keep their original result and diagnostics.
+        attempts = 2 if Path(command).suffix.lower() in {".bat", ".cmd"} else 1
+        for attempt in range(attempts):
+            result = subprocess.run(
+                [command, *(args or ["-version"])],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=timeout,
+                env=env,
+            )
+            if result.returncode == 0 or attempt + 1 == attempts:
+                break
+            time.sleep(0.25)
         output = (result.stdout or result.stderr or "").strip().splitlines()
         return {
             "name": name,
