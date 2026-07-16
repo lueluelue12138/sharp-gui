@@ -154,8 +154,8 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `.video-reconstruction-env/` | 视频重建独立 Python 环境 | 可复用或重建，不跟 workspace 切换 |
 | `ml-sharp/` | Apple ML-Sharp 引擎目录 | 上游依赖目录，不要修改内部文件 |
 | `update-manifest.json` | 更新协议、portable runtime revision、默认分支、最低 Git 与受支持包目标 | **受 Git 跟踪**；每个可更新目标必须包含，不得加入 `.gitignore` |
-| `.sharp-gui-update/` | 原子 `state.json`、检查缓存/ETag、操作锁和有界诊断 | 安装级状态；不随 workspace 切换，代码更新/回滚期间保留，空闲时删除会丢失缓存与可回滚记录 |
-| `.sharp-gui-tools/` | 完整便携包内置的 MinGit 等更新工具 | 由便携包构建器拥有；代码更新/回滚不得替换或删除，不修改系统 PATH |
+| `.sharp-gui-update/` | 原子 `state.json`、最近检查目标、操作锁和有界诊断 | 安装级状态；不随 workspace 切换，代码更新/失败恢复期间保留，空闲时删除会丢失检查与操作记录 |
+| `.sharp-gui-tools/` | 完整便携包内置的 MinGit 等更新工具 | 由便携包构建器拥有；代码更新/失败恢复不得替换或删除，不修改系统 PATH |
 | `.portable-build/`、`.portable-smoke/`、`.portable-venvs/`、`portable-dist/` | 本地便携包构建缓存和产物 | 构建输出，不属于源码 |
 
 维护要求：
@@ -172,12 +172,14 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 
 ## 自更新兼容清单纪律
 
+完整架构、开发、排障、测试和发布规则见 [self-update.md](self-update.md)。本节只保留项目级强制边界。
+
 - `version.txt` 只表示正式 Release 基线；安装身份还必须包含精确 Git SHA，Latest 可显示为 `vX.Y.Z + N commits (abcdefg)`。
 - `update-manifest.json` 是代码更新许可的显式契约。任何进入 `main` 且可能成为 Latest 的提交，都必须包含可识别清单与已构建的 `frontend/dist/`，并保持 `defaultBranch`、`minimumGitVersion` 和 `supportedPortableTargets` 与实际发行物一致。
 - 改动更新状态格式、目标解析或事务协议且旧 updater 无法安全处理时，必须递增 `updateProtocolRevision`，并提供相应迁移或完整包边界。
 - 只要代码需要不同的嵌入式 Python、PyTorch/CUDA、视频重建环境、COLMAP/ffmpeg 或其它不可由代码 checkout 安全替换的便携运行时，就必须在**同一个提交**递增 `portableRuntimeRevision`。不得仅凭 changed-files 推断兼容。
 - installed/target `portableRuntimeRevision` 不一致、清单缺失/非法或目标缺少已构建前端时，代码更新必须在 checkout 前拒绝并要求完整便携包；严禁静默修改大型运行时来绕过 revision gate。
-- Stable 只指最新已发布、非预发布的正式 GitHub Release；Latest 只指受信任仓库 `main` 的精确提交。两者都只能应用后端刚解析并验证过的目标 SHA。
+- Stable 只指受信任仓库中版本号最高的正式 `vX.Y.Z` 标签；Latest 只指该仓库 `main` 的精确提交。两者都只能应用后端最近解析并验证过的目标 SHA。
 
 ## 关键依赖版本
 

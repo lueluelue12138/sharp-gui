@@ -42,85 +42,7 @@ function Fail {
     exit 1
 }
 
-function Get-RequiredObjectPropertyValue {
-    param(
-        [object]$Object,
-        [string]$Name,
-        [string]$Context
-    )
-
-    if ($null -eq $Object) {
-        Fail "update-manifest.json 缺少必填对象: $Context"
-    }
-
-    $property = $Object.PSObject.Properties[$Name]
-    if (-not $property -or $null -eq $property.Value) {
-        Fail "update-manifest.json 缺少必填字段: $Context.$Name"
-    }
-
-    return $property.Value
-}
-
-function Test-VersionAtLeast {
-    param(
-        [string]$Actual,
-        [string]$Minimum
-    )
-
-    if ($Actual -notmatch '^(\d+)\.(\d+)\.(\d+)') {
-        return $false
-    }
-    $actualVersion = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $Matches[3])
-
-    if ($Minimum -notmatch '^(\d+)\.(\d+)\.(\d+)') {
-        return $false
-    }
-    $minimumVersion = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $Matches[3])
-    return $actualVersion -ge $minimumVersion
-}
-
-function Get-SourceVersion {
-    param(
-        [string]$Root,
-        [string]$SourceRevision
-    )
-
-    $versionSpec = "{0}:version.txt" -f $SourceRevision
-    try {
-        $raw = @(& git -C $Root show --no-ext-diff --no-textconv $versionSpec 2>$null)
-        $exitCode = $LASTEXITCODE
-    } catch {
-        Fail "无法读取 source revision 的 version.txt: $($_.Exception.Message)"
-    }
-
-    $sourceVersion = ([string]($raw | Select-Object -First 1)).Trim()
-    if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($sourceVersion)) {
-        Fail "source revision $SourceRevision 缺少有效的 version.txt"
-    }
-    return ($sourceVersion -replace '^refs/tags/', '')
-}
-
-function Get-CommitsAhead {
-    param(
-        [string]$Root,
-        [string]$ReleaseBaseline,
-        [string]$SourceRevision
-    )
-
-    $range = "{0}..{1}" -f $ReleaseBaseline, $SourceRevision
-    try {
-        $raw = @(& git -C $Root rev-list --count $range 2>$null)
-        $exitCode = $LASTEXITCODE
-    } catch {
-        return $null
-    }
-
-    $value = ([string]($raw | Select-Object -First 1)).Trim()
-    if ($exitCode -ne 0 -or $value -notmatch '^\d+$') {
-        return $null
-    }
-    return [int]$value
-}
+. (Join-Path $PSScriptRoot "portable_update_common.ps1")
 
 function Get-PortableUpdateContext {
     param(
@@ -129,17 +51,7 @@ function Get-PortableUpdateContext {
         [bool]$AllowVersionMismatch
     )
 
-    try {
-        $raw = @(& git -C $Root rev-parse --verify HEAD 2>$null)
-        $exitCode = $LASTEXITCODE
-        $sourceRevision = ([string]($raw | Select-Object -First 1)).Trim().ToLowerInvariant()
-        if ($exitCode -ne 0 -or $sourceRevision -notmatch '^[0-9a-f]{40}$') {
-            Fail "无法解析当前 Sharp GUI 源代码的 exact Git SHA"
-        }
-    } catch {
-        Fail "无法解析当前 Sharp GUI 源代码 revision: $($_.Exception.Message)"
-    }
-
+    $sourceRevision = Get-SourceRevision -Root $Root
     $sourceVersion = Get-SourceVersion -Root $Root -SourceRevision $sourceRevision
     if ($sourceVersion -ne $Version) {
         if (-not $AllowVersionMismatch) {
@@ -148,103 +60,27 @@ function Get-PortableUpdateContext {
         Write-Info "本地测试版本标签 '$Version' 与 source version '$sourceVersion' 不同；元数据仍以 source version 为准。"
     }
 
-    $releaseBaseline = $sourceVersion
-    try {
-        $raw = @(& git -C $Root describe --tags --abbrev=0 $sourceRevision 2>$null)
-        $exitCode = $LASTEXITCODE
-        $tag = ([string]($raw | Select-Object -First 1)).Trim()
-        if ($exitCode -eq 0 -and $tag -match '^v\d+\.\d+\.\d+([.-](rc|alpha|beta|preview)\.?\d*)?$') {
-            $releaseBaseline = $tag
-        }
-    } catch {
-    }
+    $releaseBaseline = Get-ReleaseBaseline -Root $Root -SourceRevision $sourceRevision -FallbackVersion $sourceVersion
     $commitsAhead = Get-CommitsAhead -Root $Root -ReleaseBaseline $releaseBaseline -SourceRevision $sourceRevision
+    $compatibility = Get-UpdateCompatibilityInfo -Root $Root
 
-    $manifestPath = Join-Path $Root "update-manifest.json"
-    if (-not (Test-Path -LiteralPath $manifestPath)) {
-        Fail "缺少 update-manifest.json，无法确定便携包更新兼容边界"
-    }
-    try {
-        $manifest = Get-Content -Raw -LiteralPath $manifestPath -Encoding UTF8 | ConvertFrom-Json
-    } catch {
-        Fail "update-manifest.json 无法解析: $($_.Exception.Message)"
-    }
-
-    $schemaVersionValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "schemaVersion" -Context "manifest"
-    $application = [string](Get-RequiredObjectPropertyValue -Object $manifest -Name "application" -Context "manifest")
-    $repositoryNode = Get-RequiredObjectPropertyValue -Object $manifest -Name "repository" -Context "manifest"
-    $repository = [string](Get-RequiredObjectPropertyValue -Object $repositoryNode -Name "url" -Context "repository")
-    $defaultBranch = [string](Get-RequiredObjectPropertyValue -Object $manifest -Name "defaultBranch" -Context "manifest")
-    $protocolRevisionValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "updateProtocolRevision" -Context "manifest"
-    $runtimeRevisionValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "portableRuntimeRevision" -Context "manifest"
-    $minimumGitVersion = [string](Get-RequiredObjectPropertyValue -Object $manifest -Name "minimumGitVersion" -Context "manifest")
-    $frontendNode = Get-RequiredObjectPropertyValue -Object $manifest -Name "frontend" -Context "manifest"
-    $builtAssetsRequired = Get-RequiredObjectPropertyValue -Object $frontendNode -Name "builtAssetsRequired" -Context "frontend"
-    $frontendEntrypoint = [string](Get-RequiredObjectPropertyValue -Object $frontendNode -Name "entrypoint" -Context "frontend")
-    $supportedTargetsValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "supportedPortableTargets" -Context "manifest"
-
-    if ([string]$schemaVersionValue -notmatch '^-?\d+$' -or
-        [string]$protocolRevisionValue -notmatch '^-?\d+$' -or
-        [string]$runtimeRevisionValue -notmatch '^-?\d+$') {
-        Fail "update-manifest.json 的 schema/runtime/protocol revision 必须是整数"
-    }
-    $schemaVersion = [int]$schemaVersionValue
-    $updateProtocolRevision = [int]$protocolRevisionValue
-    $portableRuntimeRevision = [int]$runtimeRevisionValue
-
-    if ($repository -ne $script:CanonicalRepository) {
-        Fail "更新兼容清单 repository 必须是官方仓库: $($script:CanonicalRepository)"
-    }
-    $supportedTargets = @($supportedTargetsValue) | ForEach-Object { ([string]$_).Trim() }
-
-    $context = [PSCustomObject]@{
-        ManifestSource = "update-manifest.json"
-        SchemaVersion = $schemaVersion
-        Application = $application
-        Repository = $repository
-        DefaultBranch = $defaultBranch
+    return [PSCustomObject]@{
+        ManifestSource = $compatibility.ManifestSource
+        SchemaVersion = $compatibility.SchemaVersion
+        Application = $compatibility.Application
+        Repository = $compatibility.Repository
+        DefaultBranch = $compatibility.DefaultBranch
         SourceRevision = $sourceRevision
         SourceVersion = $sourceVersion
         ReleaseBaseline = $releaseBaseline
         CommitsAhead = $commitsAhead
-        PortableRuntimeRevision = $portableRuntimeRevision
-        UpdateProtocolRevision = $updateProtocolRevision
-        MinimumGitVersion = $minimumGitVersion
-        BuiltAssetsRequired = [bool]$builtAssetsRequired
-        FrontendEntrypoint = $frontendEntrypoint
-        SupportedPortableTargets = $supportedTargets
+        PortableRuntimeRevision = $compatibility.PortableRuntimeRevision
+        UpdateProtocolRevision = $compatibility.UpdateProtocolRevision
+        MinimumGitVersion = $compatibility.MinimumGitVersion
+        BuiltAssetsRequired = $compatibility.BuiltAssetsRequired
+        FrontendEntrypoint = $compatibility.FrontendEntrypoint
+        SupportedPortableTargets = $compatibility.SupportedPortableTargets
     }
-    if ($context.SchemaVersion -ne $script:SupportedManifestSchemaVersion) {
-        Fail "不支持 update-manifest.json schemaVersion=$($context.SchemaVersion)，当前仅支持 $($script:SupportedManifestSchemaVersion)"
-    }
-    if ($context.UpdateProtocolRevision -ne $script:SupportedUpdateProtocolRevision) {
-        Fail "不支持 updateProtocolRevision=$($context.UpdateProtocolRevision)，当前仅支持 $($script:SupportedUpdateProtocolRevision)"
-    }
-    if ($context.PortableRuntimeRevision -lt 1) {
-        Fail "更新兼容清单 portableRuntimeRevision 必须为正整数"
-    }
-    if ($context.Application -ne "sharp-gui" -or $context.DefaultBranch -ne "main") {
-        Fail "更新兼容清单必须声明 application=sharp-gui 且 defaultBranch=main"
-    }
-    if (-not $context.SupportedPortableTargets -or $context.SupportedPortableTargets.Count -eq 0 -or @($context.SupportedPortableTargets | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
-        Fail "更新兼容清单未声明 supportedPortableTargets"
-    }
-    if ([string]::IsNullOrWhiteSpace($context.MinimumGitVersion)) {
-        Fail "更新兼容清单 minimumGitVersion 不能为空"
-    }
-    if ($builtAssetsRequired -isnot [bool]) {
-        Fail "更新兼容清单 frontend.builtAssetsRequired 必须是布尔值"
-    }
-    if ([string]::IsNullOrWhiteSpace($context.FrontendEntrypoint)) {
-        Fail "更新兼容清单 frontend.entrypoint 不能为空"
-    }
-    if ([System.IO.Path]::IsPathRooted($context.FrontendEntrypoint) -or $context.FrontendEntrypoint.StartsWith("/") -or (($context.FrontendEntrypoint -split '[\\/]') -contains "..")) {
-        Fail "更新兼容清单 frontend.entrypoint 必须是安全的相对路径"
-    }
-    if (-not (Test-VersionAtLeast -Actual $script:MinGitVersion -Minimum $context.MinimumGitVersion)) {
-        Fail "固定 MinGit $($script:MinGitVersion) 低于兼容清单最低版本 $($context.MinimumGitVersion)"
-    }
-    return $context
 }
 
 function Write-PortableUpdatePlanInfo {
@@ -265,24 +101,6 @@ function Write-PortableUpdatePlanInfo {
     Write-Info "MinGit executable: $($script:MinGitExecutableRelativePath)"
 }
 
-function Assert-SourceRepositoryClean {
-    param([string]$Root)
-
-    try {
-        $status = @(& git -C $Root status --porcelain=v1 --untracked-files=all)
-        $exitCode = $LASTEXITCODE
-    } catch {
-        Fail "无法检查源仓库状态: $($_.Exception.Message)"
-    }
-    if ($exitCode -ne 0) {
-        Fail "无法检查源仓库状态"
-    }
-    if ($status.Count -gt 0) {
-        Write-Host "构建源仓库存在未提交内容，拒绝生成无法对应 exact source SHA 的便携包:" -ForegroundColor Yellow
-        $status | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
-        Fail "请先提交或移走源仓库改动后再执行真实便携包构建；-PlanOnly 不受影响。"
-    }
-}
 
 function Remove-DirectoryTree {
     param([string]$Path)

@@ -46,7 +46,6 @@ EXPECTED_ROUTES = {
     ("/api/thumbnail/<item_id>", ("GET",)),
     ("/api/updates/apply", ("POST",)),
     ("/api/updates/check", ("POST",)),
-    ("/api/updates/rollback", ("POST",)),
     ("/api/updates/status", ("GET",)),
     ("/api/video-play/<video_id>/<play_token>/<path:filename>", ("GET",)),
     ("/api/video-original/<video_id>", ("GET",)),

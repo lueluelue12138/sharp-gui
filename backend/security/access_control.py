@@ -280,7 +280,6 @@ def get_required_access_level(access_config=None):
     if path in {
         "/api/updates/check",
         "/api/updates/apply",
-        "/api/updates/rollback",
     }:
         return ACCESS_OWNER
     if path in {"/api/browse-folder", "/api/restart", "/api/convert-all"}:

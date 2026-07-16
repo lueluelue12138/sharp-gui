@@ -60,25 +60,9 @@ def apply_update():
     if not g.is_owner:
         return _owner_error()
     try:
-        payload = _json_object({"channel", "target_token"})
+        payload = _json_object({"channel"})
         result = _manager().start_apply(
             payload.get("channel"),
-            payload.get("target_token"),
-            is_owner=True,
-            server_instance_id=current_app.config["SERVER_INSTANCE_ID"],
-        )
-        return jsonify(result), 202
-    except UpdateError as exc:
-        return _update_error(exc)
-
-
-@bp.post("/api/updates/rollback")
-def rollback_update():
-    if not g.is_owner:
-        return _owner_error()
-    try:
-        _json_object(set())
-        result = _manager().start_rollback(
             is_owner=True,
             server_instance_id=current_app.config["SERVER_INSTANCE_ID"],
         )

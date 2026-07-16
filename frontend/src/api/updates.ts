@@ -15,8 +15,6 @@ const TERMINAL_UPDATE_PHASES = new Set([
   'failed',
   'idle',
   'ready',
-  'rollback_failed',
-  'rolled_back',
   'success',
   'up_to_date',
 ]);
@@ -73,13 +71,7 @@ export function isActiveUpdateOperation(operation?: UpdateOperation | null): boo
 }
 
 export function getExpectedUpdateCommit(operation?: UpdateOperation | null): string | null {
-  if (!operation) {
-    return null;
-  }
-  if (operation.action === 'rollback') {
-    return operation.target_sha || operation.previous_sha;
-  }
-  return operation.target_sha;
+  return operation?.target_sha ?? null;
 }
 
 export async function fetchUpdateStatus(
@@ -100,10 +92,6 @@ export async function checkForUpdates(channel: UpdateChannel): Promise<UpdateSta
 
 export async function applyUpdate(request: UpdateApplyRequest): Promise<UpdateStatusResponse> {
   return apiPost<UpdateStatusResponse>('/api/updates/apply', request);
-}
-
-export async function rollbackUpdate(): Promise<UpdateStatusResponse> {
-  return apiPost<UpdateStatusResponse>('/api/updates/rollback', {});
 }
 
 export async function pollUpdateStatus({

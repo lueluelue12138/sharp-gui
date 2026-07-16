@@ -73,9 +73,6 @@ def _candidate(target_sha, manifest):
         "compatible": True,
         "compatibility_code": "update_compatible",
         "checked_at": self_update.utc_now(),
-        "cached": False,
-        "target_token": "integration-token",
-        "expires_at": "2999-01-01T00:00:00Z",
         "_target_manifest": manifest,
     }
 
@@ -93,7 +90,7 @@ def git_executable():
     return executable
 
 
-def test_local_bare_remote_transaction_preserves_runtime_and_rolls_back(
+def test_local_bare_remote_transaction_preserves_runtime_and_auto_rolls_back_failures(
     tmp_path,
     monkeypatch,
     git_executable,
@@ -211,22 +208,6 @@ def test_local_bare_remote_transaction_preserves_runtime_and_rolls_back(
     completed = self_update.load_update_state(install)["operation"]
     assert completed["phase"] == "completed"
     assert completed["previous_sha"] == base_sha
-    assert completed["rollback_available"] is True
-
-    rollback = self_update.prepare_cli_rollback(install)
-    assert self_update.run_update_operation(
-        install,
-        rollback["id"],
-        wait_for_server=False,
-        relaunch=False,
-    ) is True
-    assert _git(git_executable, install, "rev-parse", "HEAD") == base_sha
-    assert (install / "tracked-modified.txt").read_text(encoding="utf-8") == "base\n"
-    assert (install / "tracked-deleted.txt").read_text(encoding="utf-8") == "delete-me\n"
-    assert (install / "rename-old.txt").read_text(encoding="utf-8") == "rename-me\n"
-    assert not (install / "rename-new.txt").exists()
-    assert not (install / "tracked-added.txt").exists()
-    _assert_markers(marker_contents)
 
     (source / "tracked-modified.txt").write_text("must-not-apply\n", encoding="utf-8")
     incompatible_manifest = _write_manifest(source, 2)
@@ -244,8 +225,8 @@ def test_local_bare_remote_transaction_preserves_runtime_and_rolls_back(
         wait_for_server=False,
         relaunch=False,
     ) is False
-    assert _git(git_executable, install, "rev-parse", "HEAD") == base_sha
-    assert (install / "tracked-modified.txt").read_text(encoding="utf-8") == "base\n"
+    assert _git(git_executable, install, "rev-parse", "HEAD") == compatible_sha
+    assert (install / "tracked-modified.txt").read_text(encoding="utf-8") == "compatible-hotfix\n"
     incompatible_state = self_update.load_update_state(install)["operation"]
     assert incompatible_state["phase"] == "failed"
     assert incompatible_state["error_code"] == "update_full_package_required"
@@ -269,14 +250,13 @@ def test_local_bare_remote_transaction_preserves_runtime_and_rolls_back(
         wait_for_server=False,
         relaunch=False,
     ) is False
-    assert _git(git_executable, install, "rev-parse", "HEAD") == base_sha
-    assert (install / "tracked-modified.txt").read_text(encoding="utf-8") == "base\n"
+    assert _git(git_executable, install, "rev-parse", "HEAD") == compatible_sha
+    assert (install / "tracked-modified.txt").read_text(encoding="utf-8") == "compatible-hotfix\n"
     assert not (install / "backend" / "broken.py").exists()
     failed = self_update.load_update_state(install)["operation"]
     assert failed["phase"] == "failed"
     assert failed["error_code"] == "update_verification_failed"
     assert failed["rolled_back"] is True
-    assert failed["rollback_available"] is False
     _assert_markers(marker_contents)
 
     (source / "config.json").write_text('{"must":"never-be-tracked"}\n', encoding="utf-8")
@@ -296,7 +276,7 @@ def test_local_bare_remote_transaction_preserves_runtime_and_rolls_back(
         wait_for_server=False,
         relaunch=False,
     ) is False
-    assert _git(git_executable, install, "rev-parse", "HEAD") == base_sha
+    assert _git(git_executable, install, "rev-parse", "HEAD") == compatible_sha
     assert not (install / "config.json").is_file() or (install / "config.json").read_bytes() == marker_contents[
         install / "config.json"
     ]

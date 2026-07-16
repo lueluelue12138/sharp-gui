@@ -19,13 +19,9 @@ class RecordingUpdateManager:
         self.calls.append(("check", channel, is_owner, server_instance_id))
         return {"result": "checked", "channel": channel}
 
-    def start_apply(self, channel, target_token, *, is_owner, server_instance_id):
-        self.calls.append(("apply", channel, target_token, is_owner, server_instance_id))
+    def start_apply(self, channel, *, is_owner, server_instance_id):
+        self.calls.append(("apply", channel, is_owner, server_instance_id))
         return {"result": "queued", "channel": channel}
-
-    def start_rollback(self, *, is_owner, server_instance_id):
-        self.calls.append(("rollback", is_owner, server_instance_id))
-        return {"result": "rollback-queued"}
 
 
 def _remote_post(client, path, payload):
@@ -51,9 +47,8 @@ def test_update_status_and_owner_mutation_routes(client, app):
     checked = client.post("/api/updates/check", json={"channel": "latest"})
     applied = client.post(
         "/api/updates/apply",
-        json={"channel": "latest", "target_token": "trusted-token"},
+        json={"channel": "latest"},
     )
-    rolled_back = client.post("/api/updates/rollback", json={})
 
     assert status.status_code == 200
     assert status.get_json()["current"]["display_version"] == "v1.2.3"
@@ -61,13 +56,10 @@ def test_update_status_and_owner_mutation_routes(client, app):
     assert checked.get_json() == {"channel": "latest", "result": "checked"}
     assert applied.status_code == 202
     assert applied.get_json() == {"channel": "latest", "result": "queued"}
-    assert rolled_back.status_code == 202
-    assert rolled_back.get_json() == {"result": "rollback-queued"}
     assert manager.calls == [
         ("status", True, instance_id),
         ("check", "latest", True, instance_id),
-        ("apply", "latest", "trusted-token", True, instance_id),
-        ("rollback", True, instance_id),
+        ("apply", "latest", True, instance_id),
     ]
 
 
@@ -90,8 +82,7 @@ def test_remote_client_can_read_status_without_receiving_owner_capability(client
     ("path", "payload"),
     [
         ("/api/updates/check", {"channel": "stable"}),
-        ("/api/updates/apply", {"channel": "latest", "target_token": "spoofed"}),
-        ("/api/updates/rollback", {}),
+        ("/api/updates/apply", {"channel": "latest"}),
     ],
 )
 def test_forwarded_header_spoof_cannot_mutate_or_call_manager(client, app, path, payload):
@@ -115,13 +106,12 @@ def test_forwarded_header_spoof_cannot_mutate_or_call_manager(client, app, path,
             "update_request_invalid",
         ),
         ("/api/updates/check", ["stable"], "update_request_invalid"),
-        ("/api/updates/apply", {"channel": "latest"}, "update_target_untrusted"),
+        ("/api/updates/apply", {"channel": "preview"}, "update_channel_invalid"),
         (
             "/api/updates/apply",
-            {"channel": "latest", "target_token": "token", "sha": "a" * 40},
+            {"channel": "latest", "sha": "a" * 40},
             "update_request_invalid",
         ),
-        ("/api/updates/rollback", {"target_sha": "a" * 40}, "update_request_invalid"),
     ],
 )
 def test_update_routes_reject_invalid_or_client_controlled_targets(

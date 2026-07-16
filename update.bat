@@ -6,8 +6,6 @@ REM Sharp GUI verified code updater
 REM   update.bat --channel stable --check
 REM   update.bat --channel stable
 REM   update.bat --channel latest
-REM   update.bat --rollback
-REM Legacy --pre is accepted as an alias for --channel latest.
 
 set "SCRIPT_DIR=%~dp0"
 set "PYTHON_EXE="

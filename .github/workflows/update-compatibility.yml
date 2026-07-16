@@ -1,0 +1,32 @@
+name: Update Compatibility Guard
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  portable-runtime-revision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Test compatibility guard
+        run: python -m unittest discover -s tests -p "test_update_compatibility_guard.py"
+
+      - name: Check portable runtime revision
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: python tools/check_update_compatibility.py --base "$BASE_SHA" --head "$GITHUB_SHA"

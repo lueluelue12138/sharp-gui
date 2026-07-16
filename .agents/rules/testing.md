@@ -44,7 +44,7 @@ python -m pytest -q
 - 本地媒体图库：media/photo/video id 解析、缓存优先分页、迁移后不重建全局索引、视频扫描、poster/metadata 降级、Range 播放、相册上传文件名净化/扩展名白名单/无效图片清理。
 - 视频重建：`/api/video-reconstructions`、`/api/video-reconstructions/upload`、`/api/video-reconstructions/status`、任务 kind 分发、依赖缓存、输出名唯一化、focused cleanup、sidecar 元数据、source-video 路径安全和 OOM/取消/缺依赖错误码。
 - 任务队列：无需真实推理即可验证入队、列出、取消和状态变更。
-- 自更新：版本/部署识别、Stable/Latest 精确目标、缓存/限流失败、manifest/runtime revision、dirty/active/non-main precondition、owner-only 路由、持久化阶段、自动/手动 rollback 与响应脱敏。
+- 自更新：版本/部署识别、Stable/Latest Git 精确目标、网络失败、manifest/runtime revision、dirty/active/non-main precondition、owner-only 路由、持久化阶段、自动失败恢复与响应脱敏。
 
 ### 视频 3DGS 重建 smoke checklist
 
@@ -104,13 +104,13 @@ python -m pytest -q
 - 先运行 `build_portable_release.bat -Version <version> -PlanOnly`，确认每个未跳过 target 都打印 exact Sharp GUI source SHA、`portableRuntimeRevision`、MinGit `v2.55.0.windows.3`、标准 x64 asset 和固定 SHA256；完成构建后执行 `7z t` 并核对 ZIP/`.sha256.txt`。
 - 在全新目录解压，隐藏系统 Git/Python（测试 PATH 不包含二者），断言 `update.bat` 使用包内 Python 与 `.sharp-gui-tools/git/cmd/git.exe`；Git 版本、asset digest、`portable-package.json` provenance、根 `THIRD_PARTY_NOTICES.md`、包内 `LICENSE.txt` 与两棵 license tree 都存在且匹配。
 - 初始受管 worktree 必须 clean 且 HEAD 等于 package metadata。用临时本地 bare remote 构造兼容目标，至少同时包含 tracked addition/modification/deletion/rename；应用后 tracked tree 必须逐项收敛到 exact target，不能留下已删除旧文件。
-- 分别验证 Stable、Latest、already-current no-op、Latest → Stable 显式降级、手动 rollback；版本标签必须能区分正式 `vX.Y.Z` 与 `vX.Y.Z + N commits (abcdefg)`，apply 只能使用刚检查过的 exact SHA。
-- 在 Python/PyTorch/CUDA、`.video-reconstruction-env/`、模型/缓存、三个 workspace 的 inputs/outputs/model-assets/index、`config.json`、证书、日志、`portable-package.json`、`.sharp-gui-update/` 和 `.sharp-gui-tools/` 放置可校验 marker；兼容 update 与 rollback 后均须保留，必要时比较 hash/字节内容。
+- 分别验证 Stable、Latest、already-current no-op 和 Latest → Stable 显式降级；版本标签必须能区分正式 `vX.Y.Z` 与 `vX.Y.Z + N commits (abcdefg)`，apply 只能使用刚检查过的 exact SHA。
+- 在 Python/PyTorch/CUDA、`.video-reconstruction-env/`、模型/缓存、三个 workspace 的 inputs/outputs/model-assets/index、`config.json`、证书、日志、`portable-package.json`、`.sharp-gui-update/` 和 `.sharp-gui-tools/` 放置可校验 marker；兼容 update 与自动失败恢复后均须保留，必要时比较 hash/字节内容。
 - 构造不同 `portableRuntimeRevision`、缺失/非法 manifest、缺失 `frontend/dist` 的目标，断言 checkout 前拒绝、HEAD/markers 不变且状态明确要求完整包。
-- 构造 dirty tracked file、pending/running/processing generation task、非 `main` source branch、并发锁、过期/篡改 target；均须稳定拒绝且不得 fetch apply target、改文件或停止服务。远程会话及伪造 `X-Forwarded-For`/`Forwarded`/`X-Real-IP` 不能调用 check/apply/rollback。
+- 构造 dirty tracked file、pending/running/processing generation task、非 `main` source branch、并发锁和过期 target；均须稳定拒绝且不得 fetch apply target、改文件或停止服务。远程会话及伪造 `X-Forwarded-For`/`Forwarded`/`X-Real-IP` 不能调用 check/apply。
 - 注入网络/TLS/rate-limit、只读目录/磁盘不足、checkout/compile/import/frontend/health-check 失败和 updater 中断。验证错误不被误报为 up-to-date/success，mutation 后失败自动恢复 previous SHA，非终态下次启动可对账恢复且服务最终可用。
-- 启动 Settings，验证当前版本、Stable/Latest、兼容/需全包原因、确认、阶段进度、预期断线重连、成功 reload 和 rollback；同时覆盖窄屏、键盘焦点、light/dark 与 reduced-motion。
-- 每个包至少完成 `portable-run.bat --verbose` 启动、更新后的 API/前端健康检查和一次 rollback 后启动。视频重建包还要沿用独立环境可迁移性 gate，并验证 `ns-train splatfacto --help`；核心包不得被误判为已包含视频重建环境。
+- 启动 Settings，验证当前版本、Stable/Latest、兼容/需全包原因、确认、阶段进度、预期断线重连、成功 reload 和自动失败恢复提示；同时覆盖窄屏、键盘焦点、light/dark 与 reduced-motion。
+- 每个包至少完成 `portable-run.bat --verbose` 启动、更新后的 API/前端健康检查和一次自动失败恢复后启动。视频重建包还要沿用独立环境可迁移性 gate，并验证 `ns-train splatfacto --help`；核心包不得被误判为已包含视频重建环境。
 
 ---
 

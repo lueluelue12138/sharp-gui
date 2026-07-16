@@ -20,7 +20,7 @@
 
 - **Public**: `/`, React assets/root static files, `/api/auth/status`, `/api/auth/login`.
 - **Unlocked**: valid HttpOnly access session or localhost owner. Covers gallery/model-asset/task reads, model/photo previews, downloads, exports, photo album reads, sanitized current update status, and `/files/*`.
-- **Owner**: real localhost request with allowed Host. Covers settings writes, folder management, deletes, restart, batch conversion, task cancel, access-control management, update checks/applies, and rollback.
+- **Owner**: real localhost request with allowed Host. Covers settings writes, folder management, deletes, restart, batch conversion, task cancel, access-control management, and update checks/applies.
 - **Conditional**: `/api/generate`, `/api/photo-conversions`, model asset imports/profile writes/cover writes are Owner by default; when `access_control.enabled=true` and `access_control.allow_remote_generation=true`, Unlocked remote devices may submit them.
 
 When `access_control.enabled=false`, private read resources fall back to the old open LAN browsing behavior, but Owner endpoints must still enforce real localhost access. Disabling the gate must not make delete, settings, restart, folder management, batch conversion, or task cancellation remote-accessible.
@@ -50,7 +50,6 @@ Do not grant owner permissions from `X-Forwarded-For`, `Forwarded`, `X-Real-IP`,
 | GET | `/api/updates/status` | 读取脱敏后的安装版本、能力和更新阶段 | Unlocked |
 | POST | `/api/updates/check` | 按 Stable/Latest 解析并缓存受信任目标 | Owner |
 | POST | `/api/updates/apply` | 应用后端刚验证过的精确目标提交并重启 | Owner |
-| POST | `/api/updates/rollback` | 回滚到记录的上一成功提交并重启 | Owner |
 | POST | `/api/browse-folder` | 原生文件夹选择 | Owner |
 | GET | `/api/export/<id>` | 导出为 Spark 2.0 独立 HTML（支持 `?format=spz|ply`） | Unlocked |
 | GET | `/api/photo-albums` | 获取本地媒体相册列表 | Unlocked |
@@ -193,7 +192,7 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 - 输出目录同时保留 `.ply` 原始模型和自动生成的 `.spz` 紧凑模型
 - 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、引擎和受控源视频引用；JSON 响应不得暴露 `source_video_path`
 - 配置文件 `config.json` 位于项目根目录（`BASE_DIR`），不随 workspace 切换；证书、私钥、日志和依赖目录同样是项目根运行时/部署状态，不得通过 `/files/*` 暴露
-- `.sharp-gui-update/` 是项目根安装状态，只能保存原子更新阶段、短期目标缓存/ETag、操作锁与有界诊断；`.sharp-gui-tools/` 是便携包工具目录。两者都不随 workspace 切换，不得通过 `/files/*` 暴露，也不得被代码 checkout/rollback 清理
+- `.sharp-gui-update/` 是项目根安装状态，只能保存原子更新阶段、最近检查的目标、操作锁与有界诊断；`.sharp-gui-tools/` 是便携包工具目录。两者都不随 workspace 切换，不得通过 `/files/*` 暴露，也不得被代码 checkout/失败恢复清理
 - 本地媒体图库 API 只接受 photo/media/video id，不接受任意绝对路径；后端必须从索引反查原始文件并再次校验 root
 - 模型资产 API 只接受 asset id 与受支持扩展名，不接受前端传入的服务器绝对路径；导入、封面和下载路径必须从资产索引或受控目录反查并再次校验 root
 - 模型资产的受控根需要两级校验：先确认 `imports/`、`thumbnails/`、`outputs/` 等根的真实路径仍位于真实 workspace 内，再确认目标真实路径位于对应受控根内；根目录本身是 symlink、junction 或其它 reparse point 且指向 workspace 外时也必须安全失败
@@ -324,20 +323,21 @@ def after_request(response):
 | `tools/download_model.py` | 多源下载模型（HF → HF 镜像 → Apple CDN）| 安装阶段 |
 | `tools/generate_cert.py` | 跨平台生成自签名 SSL 证书 | 安装阶段 / 手动 |
 | `tools/install_torch.py` | 根据 CPU/CUDA 环境安装兼容 PyTorch | 安装阶段 |
-| `tools/update.py` | Stable/Latest 安全检查、外部事务应用与回滚 | Settings / `update.sh` / `update.bat` |
+| `tools/update.py` | Stable/Latest 安全检查、外部事务应用与失败恢复 | Settings / `update.sh` / `update.bat` |
 
 ---
 
 ## 自更新服务与事务边界
 
-- `GET /api/updates/status` 只能返回脱敏的版本、commit、能力、兼容性和操作阶段；不得返回绝对路径、Git 命令、凭据、原始异常栈或远端响应正文。检查、应用与回滚都是 owner-only mutation，集中权限矩阵和 route 内 `g.is_owner` 纵深检查必须同时存在。
-- Stable 仅从最新已发布、非 prerelease 的正式 GitHub Release 解析；Latest 仅从规范仓库 `main` 解析。apply 只能接受服务端短期缓存的可信目标/operation 标识，并重新校验 exact SHA、仓库、时效和 `update-manifest.json`；绝不接受客户端 URL、repo、branch、tag、SHA 或命令作为执行目标。
-- 检查使用证书验证开启的 HTTPS、固定 host/repository allowlist、有界 timeout、ETag/cache 和明确 rate-limit 状态。失败时可以返回标记为 stale 的缓存，但不能把网络失败伪装成“已是最新”；不得以关闭 TLS 校验或未验证 ZIP 覆盖作为 fallback。
-- apply/rollback 在任何文件 mutation 前必须取得安装级独占锁，并拒绝：待处理/运行/processing 的生成任务、另一个更新、dirty tracked worktree、源码安装处于非 `main` 开发分支、过期/不受信任目标、manifest/runtime revision 不兼容或缺少 built frontend。忽略/未跟踪的用户与运行时目录不应被误判为 dirty。
+- `GET /api/updates/status` 只能返回脱敏的版本、commit、能力、兼容性和操作阶段；不得返回绝对路径、Git 命令、凭据、原始异常栈或远端响应正文。check/apply 都是 owner-only mutation，集中权限矩阵和 route 内 `g.is_owner` 纵深检查必须同时存在。
+- Stable 从规范仓库 Git refs 选择版本号最高的正式 `vX.Y.Z` 标签；Latest 解析 `main`。apply 只接受通道并使用服务端最近检查的 exact SHA，重新校验仓库、时效和 `update-manifest.json`；绝不接受客户端 URL、repo、branch、tag、SHA 或命令作为执行目标。
+- 检查只使用 Git 的 `ls-remote` / exact fetch，不维护 GitHub REST、ETag 或 stale cache fallback；网络失败必须明确报错，不能伪装成“已是最新”，也不得以未验证 ZIP 覆盖作为 fallback。
+- apply 在任何文件 mutation 前必须取得安装级独占锁，并拒绝：待处理/运行/processing 的生成任务、另一个更新、dirty tracked worktree、源码安装处于非 `main` 开发分支、过期目标、manifest/runtime revision 不兼容或缺少 built frontend。忽略/未跟踪的用户与运行时目录不应被误判为 dirty。
 - Flask 进程只负责校验、持久化意图和启动外部 helper。helper 必须等待 serving process 边界后，记录 previous SHA，fetch exact target，再次检查兼容性，更新受管文件并执行 compile/import/frontend/package health checks；成功后原子记录 current/previous SHA 并重启。
 - checkout、验证或启动前健康检查失败时，helper 必须自动 reset 到 previous SHA、验证旧版本并重启，最终状态明确为 rolled back failure。非终态操作在下次启动时必须按实际 HEAD 与 previous/target SHA 对账恢复；在恢复完成前不得接受新 mutation。
 - Git 调用使用列表参数、非交互环境、固定 canonical origin 和绝对 executable。便携包优先 `.sharp-gui-tools/git/cmd/git.exe`，不得修改全局 PATH/Git 配置或静默改用 PATH 中同名程序。
 - 代码 checkout 只能管理应用源码；嵌入式 Python/PyTorch/CUDA、`.video-reconstruction-env/`、模型/缓存、workspace、配置/证书/日志、便携包元数据、`.sharp-gui-update/` 和 `.sharp-gui-tools/` 必须保持在受管 checkout 之外。runtime revision 不一致时必须要求完整包，不能由 updater 原地升级这些大型环境。
+- 普通 `backend/`、`frontend/src/` 与 `frontend/dist/` 文件的新增、删除、重命名和重构不要求提高 runtime revision；依赖清单、安装器或便携包构建脚本变化时，CI 要求提高 `portableRuntimeRevision` 并发布新版完整便携包。
 
 ---
 

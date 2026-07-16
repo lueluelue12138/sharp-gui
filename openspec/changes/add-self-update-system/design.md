@@ -36,13 +36,13 @@ Constraints include a tracked `frontend/dist` because portable users do not have
 
 **Alternatives considered:** rewriting `version.txt` to a synthetic version would mix release and working-revision semantics and be overwritten by checkout; inferring compatibility only from changed filenames would be brittle and could miss transitive dependency changes.
 
-### 2. Define stable/latest by trusted GitHub refs and cache structured check results
+### 2. Define stable/latest entirely from canonical Git refs
 
-Stable resolves only the repository's latest published, non-prerelease GitHub Release tag. Latest resolves the canonical `main` head. Check responses include target SHA, base release, commit distance, publication/commit metadata, URL, relation to the current revision, compatibility result, and a short-lived server-side target token/state. The backend performs on-demand HTTPS requests with normal certificate verification, a fixed repository/host allowlist, bounded timeouts, ETag-aware cache data, and rate-limit/error states; it never accepts a client-supplied URL or arbitrary ref for apply.
+Stable resolves the highest canonical tag matching the formal release contract `vX.Y.Z`; prerelease-shaped tags are excluded. Latest resolves `refs/heads/main`. The updater fetches only the canonical repository's trusted refspecs, pins the resulting exact SHA, reads `update-manifest.json` and `frontend/dist` from that commit, and stores the checked candidate by channel. Apply accepts only a recently stored channel candidate and re-resolves the same ref before mutation; it never accepts a client-supplied URL, repository, ref, tag, SHA, or command.
 
-**Why:** GitHub Releases express the project's formal stability decision, while `main` is the requested hotfix/latest channel. Structured metadata supports clear UI without exposing commands or paths.
+**Why:** both supported installation types already require Git, and portable packages bundle MinGit. Reusing Git removes the separate GitHub REST client, ETag/body cache, rate-limit model, raw-content fetches, compare API, and short-lived client token without weakening exact-SHA trust.
 
-**Alternatives considered:** parsing release HTML is brittle; treating the newest tag as stable can select prereleases; checking on every app start consumes anonymous API quota and makes boot network-dependent. Pure `git ls-remote` is a valid fallback for CLI/apply, but the REST metadata is more useful for the UI.
+**Alternatives considered:** GitHub REST provides richer metadata but duplicates transport and cache behavior that the product does not need. Formal release publication remains responsible for creating only final `vX.Y.Z` tags; if that release discipline changes, a dedicated stable ref can be introduced later.
 
 ### 3. Manage only application code with Git; keep runtimes and user data untracked
 
@@ -62,7 +62,7 @@ The portable builder downloads a pinned official standard x64 MinGit asset, veri
 
 ### 5. Separate checking from a transactional external apply helper
 
-The Flask service owns sanitized status, check caching, locking, preconditions, and spawning. Apply/rollback launches `tools/update.py` with fixed arguments and a persisted operation identifier, then schedules the normal server supervisor to stop/restart. The already-loaded helper waits for the serving process boundary, records the previous commit, fetches the exact trusted target, re-checks manifest compatibility, resets tracked code, performs health checks, and atomically writes phase/status. A failed checkout or verification resets to the previous commit, verifies the rollback, records a stable error code, and restarts the old version. A successful update records previous/current revisions for one-click rollback and starts the updated server.
+The Flask service owns sanitized status, checked candidates, locking, preconditions, and spawning. Apply launches `tools/update.py` with a fixed persisted operation identifier, then schedules the normal server supervisor to stop/restart. The already-loaded helper waits for the serving process boundary, records the previous commit, re-fetches the exact trusted target, re-checks manifest compatibility, resets tracked code, performs health checks, and atomically writes phase/status. A failed checkout or verification resets to the previous commit, verifies the rollback, records a stable error code, and restarts the old version. A successful update starts the updated server; the previous commit is retained only for transaction recovery and automatic failure rollback, not as a separate manual product workflow.
 
 **Why:** the server must not replace code beneath active request threads, and the browser needs a durable status after disconnect/restart. Git commit rollback is smaller and more reliable than copying the entire portable directory.
 
@@ -70,7 +70,7 @@ The Flask service owns sanitized status, check caching, locking, preconditions, 
 
 ### 6. Use a project-root update state directory and a dedicated manager
 
-`.sharp-gui-update/` is installation-level state, not workspace data. It contains atomic `state.json`, cached check metadata/ETags, an operation lock, and bounded diagnostic output without secrets, arbitrary commands, or absolute paths in API responses. A dedicated update manager is attached to the Flask app but its constructor only reads local state; it performs no network call and starts no thread during `create_app()` or import. Update operations remain separate from the model `TaskManager`, although apply consults that manager to reject pending/running/processing generation work.
+`.sharp-gui-update/` is installation-level state, not workspace data. It contains atomic `state.json`, the latest checked candidate for each channel, an operation lock, and bounded diagnostic output without secrets, arbitrary commands, or absolute paths in API responses. A dedicated update manager is attached to the Flask app but its constructor only reads local state; it performs no network call and starts no thread during `create_app()` or import. Update operations remain separate from the model `TaskManager`, although apply consults that manager to reject pending/running/processing generation work.
 
 **Why:** update state must survive both workspace switching and server replacement while maintaining the project's import-without-workers contract.
 
@@ -78,7 +78,7 @@ The Flask service owns sanitized status, check caching, locking, preconditions, 
 
 ### 7. Add explicit update API permissions and a local-state React component
 
-`GET /api/updates/status` is Unlocked and returns only sanitized identity/capability/operation data. `POST /api/updates/check`, `POST /api/updates/apply`, and `POST /api/updates/rollback` are explicitly Owner in the centralized matrix and re-check `g.is_owner` in routes. The Settings child component owns its view state, checks only when opened or requested, polls only during an operation, treats restart disconnects as expected, and reloads after the new instance/current SHA is observed. It uses a compact single-column glass card, segmented channel control, status rows, semantic SVG icons, a real progress/stage region, and `ConfirmDialog`; all strings and stable error codes are localized in English and Chinese.
+`GET /api/updates/status` is Unlocked and returns only sanitized identity/capability/operation data. `POST /api/updates/check` and `POST /api/updates/apply` are explicitly Owner in the centralized matrix and re-check `g.is_owner` in routes. The Settings child component owns its view state, checks only when opened or requested, polls only during an operation, treats restart disconnects as expected, and reloads after the new instance/current SHA is observed. It uses a compact single-column glass card with current version, two channels, target result, blocker list, one confirmation, and one progress region; internal transaction details and manual rollback controls are not exposed.
 
 **Why:** updates mutate executable code and stop the service, so remote generation permission is insufficient. Component-local state avoids expanding the already large global store for a Settings-only workflow.
 
@@ -86,7 +86,7 @@ The Flask service owns sanitized status, check caching, locking, preconditions, 
 
 ### 8. Keep CLI parity and deployment-specific capability reporting
 
-`update.bat` first selects `python\python.exe`, then `venv\Scripts\python.exe`, then system Python; `update.sh` selects the virtual environment or system Python. Both invoke the same updater service/CLI with `--channel stable|latest`, `--check`, and retained legacy `--pre` behavior. Portable packages prefer bundled MinGit. A clean source clone may use system Git but automatic apply is disabled on non-default branches or tracked modifications. A generic Release snapshot can bootstrap a managed worktree only when a trustworthy base release and Git executable are available; otherwise status explains the manual full-package/install action.
+`update.bat` first selects `python\python.exe`, then `venv\Scripts\python.exe`, then system Python; `update.sh` selects the virtual environment or system Python. Both invoke the same updater service/CLI with only `--channel stable|latest`, `--check`, and confirmation options. Portable packages prefer bundled MinGit. A clean source clone may use system Git but automatic apply is disabled on non-default branches or tracked modifications. A generic Release snapshot never creates `.git` in place; status explains that it needs a normal Git clone or a new complete package.
 
 **Why:** one implementation prevents the UI and scripts from disagreeing, while capability reporting is more honest than pretending every legacy layout can update safely.
 
@@ -97,10 +97,10 @@ The Flask service owns sanitized status, check caching, locking, preconditions, 
 - [A `main` commit changes dependencies without increasing the runtime revision] -> Require the manifest in every target, document the release discipline, verify the installed/target revision and built frontend before mutation, and block when metadata is absent or inconsistent.
 - [Git reset could overwrite intentional tracked edits] -> Refuse a dirty managed worktree by default, report the exact category without exposing paths remotely, and leave source developers on manual Git workflows.
 - [Updater/server is interrupted after code mutation] -> Persist each phase atomically, retain the previous commit locally, reconcile an incomplete operation on startup, verify current HEAD, and offer/perform rollback before reporting readiness.
-- [GitHub is unavailable or rate-limited] -> Never make boot depend on the network; use bounded requests, cached successful metadata, explicit stale/error status, and allow retry without claiming the app is current.
+- [The canonical Git remote is unavailable] -> Never make boot depend on the network; checks use bounded non-interactive Git commands and return an explicit error without claiming the app is current.
 - [Bundled MinGit introduces size and license obligations] -> Pin and verify the standard artifact, keep its license tree intact, record source/tag/hash, add third-party notice text, and review the pin during portable releases.
-- [Shallow history cannot compute ancestry or commit distance] -> Fetch the target branch/tags with a bounded deepening strategy and fall back to GitHub compare metadata; never treat an unknown relationship as safe.
-- [The server stops while a generation is running] -> Reject apply/rollback whenever model tasks are active and require the owner to finish or cancel them first.
+- [Shallow history cannot compute ancestry or commit distance] -> Fetch the stable tag and a bounded `main` history; show the exact target SHA even when distance remains unknown, and never treat an unknown relationship as proof of safety.
+- [The server stops while a generation is running] -> Reject apply whenever model tasks are active and require the owner to finish or cancel them first.
 - [A successful code update cannot run on the package runtime] -> Run compile/import/frontend and package-specific smoke checks before success; automatically reset the previous commit and restart it on failure.
 - [Stable is older than the currently installed latest commit] -> Present this as an explicit channel switch/downgrade in the confirmation and retain the current revision as rollback target.
 - [Existing portable packages cannot gain bundled Git/UI retroactively] -> Publish the next complete bundle as the explicit bootstrap version and keep the old script assessment/documentation clear.
@@ -110,7 +110,7 @@ The Flask service owns sanitized status, check caching, locking, preconditions, 
 1. Land the compatibility manifest, backend/CLI update engine, APIs, React Update Center, tests, and documentation together; built `frontend/dist` must be committed with the source change.
 2. Update the portable builder to acquire/verify MinGit, seed a clean shallow worktree at the exact package source SHA, write update metadata, preserve licenses, and test both bundled Git and dirty-state assumptions.
 3. Produce the next portable release as the bootstrap package. Existing v1.3.0 and older portable users perform one normal full download; no attempt is made to mutate those historical packages in place.
-4. Validate stable/latest/no-op/latest-to-stable/rollback flows using a local Git remote, then a clean extracted Windows package with system Python/Git hidden. Verify user markers, tracked deletions, restart recovery, CUDA start, and the video-reconstruction command matrix.
+4. Validate stable/latest/no-op/latest-to-stable and automatic failure rollback flows using a local Git remote, then a clean extracted Windows package with system Python/Git hidden. Verify user markers, tracked deletions, restart recovery, CUDA start, and the video-reconstruction command matrix.
 5. If rollout issues occur before a user updates, withdraw/replace the bootstrap package. If an installed code update fails, the helper resets the recorded previous SHA and restarts it. If the runtime itself is suspect, users retain the documented full-package extraction fallback with their workspace/config copied or pointed at separately.
 
 ## Open Questions

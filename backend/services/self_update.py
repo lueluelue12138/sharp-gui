@@ -10,11 +10,9 @@ from __future__ import annotations
 import compileall
 import contextlib
 import datetime as dt
-import hashlib
 import json
 import os
 import re
-import secrets
 import signal
 import shutil
 import ssl
@@ -25,7 +23,6 @@ import time
 import uuid
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -34,19 +31,13 @@ SUPPORTED_MANIFEST_SCHEMA = 1
 SUPPORTED_UPDATE_PROTOCOL = 1
 CANONICAL_REPOSITORY_SLUG = "lueluelue12138/sharp-gui"
 CANONICAL_REPOSITORY_URL = "https://github.com/lueluelue12138/sharp-gui.git"
-GITHUB_API_ROOT = "https://api.github.com/repos/lueluelue12138/sharp-gui"
-GITHUB_RAW_ROOT = "https://raw.githubusercontent.com/lueluelue12138/sharp-gui"
 DEFAULT_BRANCH = "main"
 STATE_DIR_NAME = ".sharp-gui-update"
 STATE_FILE_NAME = "state.json"
-HTTP_CACHE_FILE_NAME = "http-cache.json"
 LOCK_FILE_NAME = "operation.lock"
 UPDATER_LOG_NAME = "updater.log"
 UPDATER_LOG_MAX_BYTES = 2 * 1024 * 1024
-TARGET_TOKEN_TTL_SECONDS = 30 * 60
-CHECK_CACHE_MAX_AGE_SECONDS = 24 * 60 * 60
-HTTP_TIMEOUT_SECONDS = 12
-HTTP_MAX_BYTES = 2 * 1024 * 1024
+CHECK_TTL_SECONDS = 30 * 60
 OPERATION_STALE_SECONDS = 30 * 60
 LOCK_INITIALIZATION_GRACE_SECONDS = 5
 APPLICATION_HEALTH_TIMEOUT_SECONDS = 60
@@ -217,7 +208,7 @@ def normalize_manifest(raw):
 def load_local_manifest(base_dir):
     path = Path(base_dir) / "update-manifest.json"
     if not path.is_file():
-        raise UpdateError("update_bootstrap_required")
+        raise UpdateError("update_manifest_missing")
     return normalize_manifest(_read_json(path))
 
 
@@ -230,21 +221,6 @@ def _is_safe_relative_path(value):
         return False
     parts = Path(value.replace("\\", "/")).parts
     return ".." not in parts and not value.startswith(("/", "\\"))
-
-
-def _trusted_github_page(value):
-    if not isinstance(value, str):
-        return None
-    parsed = urlparse(value)
-    if (
-        parsed.scheme == "https"
-        and parsed.hostname == "github.com"
-        and parsed.path.startswith(f"/{CANONICAL_REPOSITORY_SLUG}/")
-        and not parsed.username
-        and not parsed.password
-    ):
-        return value
-    return None
 
 
 def parse_version_tuple(value):
@@ -390,13 +366,6 @@ def detect_deployment(base_dir, git_executable=None):
     if portable:
         return "portable", managed
     if managed:
-        managed_kind = _git_value(
-            base_dir,
-            ["config", "--local", "--get", "sharp-gui.installation-kind"],
-            git_executable=git_executable,
-        )
-        if managed_kind == "release":
-            return "release", True
         return "source", True
     if (root / "version.txt").is_file():
         return "release", False
@@ -538,220 +507,155 @@ def compare_manifest_compatibility(base_dir, target_manifest, *, target_frontend
     return True, "update_compatible"
 
 
-class VerifiedHttpClient:
-    """Small GitHub-only HTTPS client with ETag persistence and strict TLS."""
+FORMAL_RELEASE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
-    def __init__(self, base_dir, *, timeout=HTTP_TIMEOUT_SECONDS, opener=None):
+
+class GitTargetResolver:
+    """Resolve both update channels using only trusted canonical Git refs."""
+
+    def __init__(self, base_dir, *, git_executable=None):
         self.base_dir = str(base_dir)
-        self.timeout = timeout
-        self.opener = opener
-        self.cache_path = Path(base_dir) / STATE_DIR_NAME / HTTP_CACHE_FILE_NAME
+        self.git_executable = git_executable or resolve_git_executable(base_dir)
 
-    @staticmethod
-    def _validate_url(url):
-        parsed = urlparse(url)
-        if parsed.scheme != "https" or parsed.username or parsed.password:
-            raise UpdateError("update_source_untrusted", status_code=400)
-        if parsed.hostname == "api.github.com":
-            if not parsed.path.startswith(f"/repos/{CANONICAL_REPOSITORY_SLUG}/"):
-                raise UpdateError("update_source_untrusted", status_code=400)
-        elif parsed.hostname == "raw.githubusercontent.com":
-            if not parsed.path.startswith(f"/{CANONICAL_REPOSITORY_SLUG}/"):
-                raise UpdateError("update_source_untrusted", status_code=400)
-        else:
-            raise UpdateError("update_source_untrusted", status_code=400)
-
-    def get_bytes(self, url, *, accept="application/octet-stream"):
-        self._validate_url(url)
-        cache = _read_json(self.cache_path, {"entries": {}})
-        entries = cache.setdefault("entries", {})
-        cached = entries.get(url) if isinstance(entries.get(url), dict) else {}
-        headers = {
-            "Accept": accept,
-            "User-Agent": "Sharp-GUI-self-update/1",
-            "X-GitHub-Api-Version": "2022-11-28",
-        }
-        if cached.get("etag"):
-            headers["If-None-Match"] = cached["etag"]
-        request = Request(url, headers=headers, method="GET")
-        try:
-            if self.opener:
-                response = self.opener(request, self.timeout)
-            else:
-                # runtime.py changes Python's global HTTPS default.  Supplying a
-                # fresh context here restores certificate and hostname checks.
-                context = ssl.create_default_context()
-                response = urlopen(request, timeout=self.timeout, context=context)
-            with contextlib.closing(response):
-                final_url = response.geturl() if hasattr(response, "geturl") else url
-                self._validate_url(final_url)
-                data = response.read(HTTP_MAX_BYTES + 1)
-                if len(data) > HTTP_MAX_BYTES:
-                    raise UpdateError("update_response_too_large", status_code=503)
-                etag = response.headers.get("ETag") if hasattr(response, "headers") else None
-                if etag:
-                    entries[url] = {
-                        "etag": etag,
-                        "body_sha256": hashlib.sha256(data).hexdigest(),
-                        "body": data.decode("utf-8"),
-                        "stored_at": utc_now(),
-                    }
-                    _atomic_write_json(self.cache_path, cache)
-                return data, False
-        except HTTPError as exc:
-            if exc.code == 304 and isinstance(cached.get("body"), str):
-                return cached["body"].encode("utf-8"), True
-            if exc.code == 404:
-                raise UpdateError("update_target_metadata_missing", status_code=409) from exc
-            remaining = exc.headers.get("X-RateLimit-Remaining") if exc.headers else None
-            if exc.code == 429 or (exc.code == 403 and remaining == "0"):
-                raise UpdateError("update_check_rate_limited", status_code=503) from exc
-            raise UpdateError("update_check_failed", status_code=503) from exc
-        except (URLError, TimeoutError, ssl.SSLError, OSError) as exc:
-            raise UpdateError("update_check_failed", status_code=503) from exc
-
-    def get_json(self, url):
-        data, cached = self.get_bytes(url, accept="application/vnd.github+json")
-        try:
-            payload = json.loads(data.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
-            raise UpdateError("update_response_invalid", status_code=503) from exc
-        if not isinstance(payload, dict):
-            raise UpdateError("update_response_invalid", status_code=503)
-        return payload, cached
-
-
-class GithubTargetResolver:
-    def __init__(self, base_dir, *, http_client=None):
-        self.base_dir = str(base_dir)
-        self.http = http_client or VerifiedHttpClient(base_dir)
-
-    def _commit(self, ref):
-        payload, _ = self.http.get_json(f"{GITHUB_API_ROOT}/commits/{quote(ref, safe='')}")
-        sha = payload.get("sha")
-        if not isinstance(sha, str) or not re.fullmatch(r"[0-9a-f]{40}", sha):
-            raise UpdateError("update_target_invalid", status_code=503)
-        return payload
-
-    def _latest_release(self):
-        payload, _ = self.http.get_json(f"{GITHUB_API_ROOT}/releases/latest")
-        tag = payload.get("tag_name")
-        if (
-            payload.get("draft")
-            or payload.get("prerelease")
-            or not isinstance(tag, str)
-            or not re.fullmatch(r"v\d+\.\d+\.\d+", tag)
-        ):
-            raise UpdateError("update_release_invalid", status_code=503)
-        return payload
-
-    def _compare(self, base, head):
-        try:
-            payload, _ = self.http.get_json(
-                f"{GITHUB_API_ROOT}/compare/{quote(base, safe='')}...{quote(head, safe='')}"
-            )
-            return payload
-        except UpdateError:
-            return {}
-
-    def _target_manifest(self, sha):
-        raw, _ = self.http.get_bytes(
-            f"{GITHUB_RAW_ROOT}/{sha}/update-manifest.json",
-            accept="application/json",
+    def _formal_release_tags(self):
+        result = run_git(
+            self.base_dir,
+            ["ls-remote", "--tags", "--refs", CANONICAL_REPOSITORY_URL, "refs/tags/v*"],
+            git_executable=self.git_executable,
+            timeout=60,
         )
-        try:
-            payload = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, ValueError) as exc:
-            raise UpdateError("update_manifest_invalid") from exc
-        return payload, normalize_manifest(payload)
+        tags = []
+        for line in result.stdout.splitlines():
+            fields = line.split()
+            if len(fields) != 2 or not fields[1].startswith("refs/tags/"):
+                continue
+            tag = fields[1].removeprefix("refs/tags/")
+            match = FORMAL_RELEASE_TAG.fullmatch(tag)
+            if match:
+                tags.append((tuple(int(part) for part in match.groups()), tag))
+        if not tags:
+            raise UpdateError("update_release_invalid", status_code=503)
+        return [tag for _, tag in sorted(tags)]
+
+    def _fetch_ref(self, source_ref, destination_ref, *, depth):
+        run_git(
+            self.base_dir,
+            [
+                "fetch",
+                "--force",
+                f"--depth={depth}",
+                CANONICAL_REPOSITORY_URL,
+                f"{source_ref}:{destination_ref}",
+            ],
+            git_executable=self.git_executable,
+            timeout=180,
+        )
+        resolved = _git_value(
+            self.base_dir,
+            ["rev-parse", f"{destination_ref}^{{commit}}"],
+            git_executable=self.git_executable,
+        )
+        if not isinstance(resolved, str) or not re.fullmatch(r"[0-9a-f]{40}", resolved):
+            raise UpdateError("update_target_invalid", status_code=503)
+        return resolved
+
+    def _relation(self, current_sha, target_sha):
+        if current_sha == target_sha:
+            return "current"
+        if not isinstance(current_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", current_sha):
+            return "unknown"
+        current_is_ancestor = run_git(
+            self.base_dir,
+            ["merge-base", "--is-ancestor", current_sha, target_sha],
+            git_executable=self.git_executable,
+            check=False,
+        )
+        if current_is_ancestor.returncode == 0:
+            return "upgrade"
+        target_is_ancestor = run_git(
+            self.base_dir,
+            ["merge-base", "--is-ancestor", target_sha, current_sha],
+            git_executable=self.git_executable,
+            check=False,
+        )
+        if target_is_ancestor.returncode == 0:
+            return "downgrade"
+        return "diverged" if current_is_ancestor.returncode == 1 else "unknown"
 
     def resolve(self, channel, current_identity):
         if channel not in {"stable", "latest"}:
             raise UpdateError("update_channel_invalid", status_code=400)
-        release = self._latest_release()
-        release_tag = release["tag_name"]
+        if not self.git_executable or not is_managed_worktree(self.base_dir, self.git_executable):
+            raise UpdateError("update_installation_unsupported", status_code=409)
+
+        release_tag = self._formal_release_tags()[-1]
+        stable_ref = f"refs/tags/{release_tag}"
+        stable_sha = self._fetch_ref(stable_ref, stable_ref, depth=1)
         if channel == "stable":
-            target_ref = f"refs/tags/{release_tag}"
-            target_payload = self._commit(release_tag)
-            base_version = release_tag
+            target_ref = stable_ref
+            target_sha = stable_sha
             commits_ahead = 0
-            release_url = _trusted_github_page(release.get("html_url"))
         else:
             target_ref = f"refs/heads/{DEFAULT_BRANCH}"
-            target_payload = self._commit(DEFAULT_BRANCH)
-            base_version = release_tag
-            comparison = self._compare(release_tag, target_payload["sha"])
-            commits_ahead = comparison.get("ahead_by") if isinstance(comparison.get("ahead_by"), int) else None
-            release_url = _trusted_github_page(target_payload.get("html_url"))
-        target_sha = target_payload["sha"]
-        raw_manifest, normalized_manifest = self._target_manifest(target_sha)
-        frontend_path = normalized_manifest["frontend_entrypoint"]
-        frontend_present = True
-        if normalized_manifest["frontend_required"]:
+            target_sha = self._fetch_ref(
+                target_ref,
+                f"refs/remotes/sharp-gui-update/{DEFAULT_BRANCH}",
+                depth=256,
+            )
+            ancestry = run_git(
+                self.base_dir,
+                ["merge-base", "--is-ancestor", stable_sha, target_sha],
+                git_executable=self.git_executable,
+                check=False,
+            )
+            count = _git_value(
+                self.base_dir,
+                ["rev-list", "--count", f"{stable_sha}..{target_sha}"],
+                git_executable=self.git_executable,
+            ) if ancestry.returncode == 0 else None
             try:
-                raw_frontend, _ = self.http.get_bytes(
-                    f"{GITHUB_RAW_ROOT}/{target_sha}/{quote(frontend_path, safe='/')}",
-                    accept="text/html,application/octet-stream",
-                )
-                frontend_present = bool(raw_frontend.strip())
-            except UpdateError as exc:
-                if exc.code != "update_target_metadata_missing":
-                    raise
-                frontend_present = False
+                commits_ahead = int(count) if count is not None else None
+            except ValueError:
+                commits_ahead = None
+
+        raw_manifest = manifest_from_git(
+            self.base_dir,
+            target_sha,
+            git_executable=self.git_executable,
+        )
+        normalized_manifest = normalize_manifest(raw_manifest)
+        frontend_present = git_path_exists(
+            self.base_dir,
+            target_sha,
+            normalized_manifest["frontend_entrypoint"],
+            git_executable=self.git_executable,
+        )
         compatible, compatibility_code = compare_manifest_compatibility(
             self.base_dir,
             normalized_manifest,
             target_frontend_present=frontend_present,
         )
-        current_sha = current_identity.get("commit")
-        current_matches_release = (
-            not current_sha
-            and channel == "stable"
-            and current_identity.get("base_version") == base_version
-        )
-        if current_sha == target_sha or current_matches_release:
-            relation = "current"
-        elif current_sha:
-            relation_payload = self._compare(current_sha, target_sha)
-            relation_status = relation_payload.get("status")
-            relation = {
-                "ahead": "upgrade",
-                "behind": "downgrade",
-                "identical": "current",
-                "diverged": "diverged",
-            }.get(relation_status, "unknown")
-        else:
-            relation = "unknown"
+        relation = self._relation(current_identity.get("commit"), target_sha)
         short_sha = target_sha[:8]
-        if base_version and commits_ahead is not None and commits_ahead > 0:
-            display_version = f"{base_version} + {commits_ahead} commits ({short_sha})"
-        elif base_version and commits_ahead == 0:
-            display_version = base_version
-        elif base_version:
-            display_version = f"{base_version} ({short_sha})"
+        if commits_ahead is not None and commits_ahead > 0:
+            display_version = f"{release_tag} + {commits_ahead} commits ({short_sha})"
+        elif commits_ahead == 0:
+            display_version = release_tag
         else:
-            display_version = short_sha
-        checked_at = utc_now()
+            display_version = f"{release_tag} ({short_sha})"
         return {
             "channel": channel,
             "target_sha": target_sha,
             "short_sha": short_sha,
             "target_ref": target_ref,
-            "base_version": base_version,
+            "base_version": release_tag,
             "commits_ahead": commits_ahead,
             "display_version": display_version,
             "relation": relation,
-            "update_available": current_sha != target_sha and not current_matches_release,
+            "update_available": relation != "current",
             "compatible": compatible,
             "compatibility_code": compatibility_code,
-            "checked_at": checked_at,
-            "cached": False,
-            "target_token": secrets.token_urlsafe(32),
-            "expires_at": dt.datetime.fromtimestamp(
-                time.time() + TARGET_TOKEN_TTL_SECONDS,
-                tz=dt.timezone.utc,
-            ).replace(microsecond=0).isoformat().replace("+00:00", "Z"),
-            "release_url": release_url,
+            "checked_at": utc_now(),
             "_target_manifest": raw_manifest,
         }
 
@@ -780,11 +684,6 @@ PUBLIC_CANDIDATE_KEYS = {
     "compatible",
     "compatibility_code",
     "checked_at",
-    "cached",
-    "target_token",
-    "expires_at",
-    "release_url",
-    "check_error_code",
 }
 PUBLIC_OPERATION_KEYS = {
     "id",
@@ -794,11 +693,8 @@ PUBLIC_OPERATION_KEYS = {
     "channel",
     "target_sha",
     "short_target_sha",
-    "previous_sha",
-    "short_previous_sha",
     "error_code",
     "rolled_back",
-    "rollback_available",
     "started_at",
     "updated_at",
     "completed_at",
@@ -859,18 +755,21 @@ def _capabilities(base_dir, identity, state, *, is_owner, task_manager=None, che
         except UpdateError as exc:
             manifest = None
             reason = exc.code
+            can_check = False
             can_apply = False
         if manifest and manifest.get("update_protocol_revision") != SUPPORTED_UPDATE_PROTOCOL:
             reason = "update_protocol_incompatible"
             can_apply = False
         if not identity.get("git_version"):
             reason = "update_git_unavailable"
+            can_check = False
             can_apply = False
         elif manifest and not version_at_least(identity["git_version"], manifest["minimum_git_version"]):
             reason = "update_git_too_old"
             can_apply = False
-        if identity.get("installation_kind") == "portable" and not identity.get("managed"):
-            reason = "update_bootstrap_required"
+        if not identity.get("managed"):
+            reason = "update_installation_unsupported"
+            can_check = False
             can_apply = False
         if identity.get("installation_kind") == "source" and identity.get("branch") != DEFAULT_BRANCH:
             reason = "update_developer_branch"
@@ -880,26 +779,11 @@ def _capabilities(base_dir, identity, state, *, is_owner, task_manager=None, che
             can_apply = False
         if identity.get("installation_kind") == "unknown":
             reason = "update_installation_unsupported"
+            can_check = False
             can_apply = False
-    operation = state.get("operation") or {}
-    can_rollback = bool(
-        is_owner
-        and not checking
-        and not has_active_tasks
-        and not _operation_active(operation)
-        and operation.get("rollback_available")
-        and operation.get("previous_sha")
-        and identity.get("managed")
-        and not identity.get("dirty")
-        and not (
-            identity.get("installation_kind") == "source"
-            and identity.get("branch") != DEFAULT_BRANCH
-        )
-    )
     return {
         "can_check": can_check,
         "can_apply": can_apply,
-        "can_rollback": can_rollback,
         "reason_code": reason,
         "owner_required": True,
     }
@@ -932,7 +816,7 @@ class SelfUpdateManager:
         self.base_dir = os.path.realpath(str(base_dir))
         self.task_manager = task_manager
         self.restart_callback = restart_callback
-        self.resolver_factory = resolver_factory or (lambda: GithubTargetResolver(self.base_dir))
+        self.resolver_factory = resolver_factory or (lambda: GitTargetResolver(self.base_dir))
         self.process_factory = process_factory or subprocess.Popen
         self._lock = threading.RLock()
         self._checking = False
@@ -959,7 +843,6 @@ class SelfUpdateManager:
                         "phase": "failed",
                         "progress": 100,
                         "error_code": exc.code if isinstance(exc, UpdateError) else "update_verification_failed",
-                        "rollback_available": bool(previous_sha and previous_sha != target_sha),
                         "completed_at": utc_now(),
                         "updated_at": utc_now(),
                     }
@@ -970,7 +853,6 @@ class SelfUpdateManager:
                         "phase": "completed",
                         "progress": 100,
                         "error_code": None,
-                        "rollback_available": bool(previous_sha and previous_sha != target_sha),
                         "completed_at": utc_now(),
                         "updated_at": utc_now(),
                     }
@@ -1010,7 +892,6 @@ class SelfUpdateManager:
                     "progress": 100,
                     "error_code": error_code,
                     "rolled_back": bool(current_sha == previous_sha and verified),
-                    "rollback_available": bool(previous_sha and current_sha != previous_sha),
                     "updated_at": utc_now(),
                     "completed_at": utc_now(),
                 }
@@ -1030,10 +911,6 @@ class SelfUpdateManager:
                 for channel, candidate in (state.get("channels") or {}).items()
                 if channel in {"stable", "latest"} and isinstance(candidate, dict)
             }
-            if not is_owner:
-                for candidate in channels.values():
-                    candidate.pop("target_token", None)
-                    candidate.pop("expires_at", None)
             return {
                 "server_instance_id": server_instance_id,
                 "is_owner": bool(is_owner),
@@ -1062,13 +939,27 @@ class SelfUpdateManager:
             if self._checking or _operation_active(state.get("operation")):
                 raise UpdateError("update_in_progress", status_code=409)
             identity = get_installed_identity(self.base_dir, state)
+            capabilities = _capabilities(
+                self.base_dir,
+                identity,
+                state,
+                is_owner=True,
+                task_manager=self.task_manager,
+                checking=False,
+            )
+            if not capabilities["can_check"]:
+                raise UpdateError(capabilities["reason_code"] or "update_not_supported", status_code=409)
             self._checking = True
         try:
             candidate = self.resolver_factory().resolve(channel, identity)
-            error = None
         except UpdateError as exc:
-            candidate = None
-            error = exc
+            with self._lock:
+                state = self._read_state()
+                state.setdefault("channels", {}).pop(channel, None)
+                state["last_check_error_code"] = exc.code
+                state["checked_at"] = utc_now()
+                self._write_state(state)
+            raise
         finally:
             with self._lock:
                 self._checking = False
@@ -1076,23 +967,10 @@ class SelfUpdateManager:
             state = self._read_state()
             if _operation_active(state.get("operation")):
                 raise UpdateError("update_in_progress", status_code=409)
-            try:
-                if error:
-                    raise error
-                state.setdefault("channels", {})[channel] = candidate
-                state["selected_channel"] = channel
-                state["checked_at"] = candidate["checked_at"]
-                state["last_check_error_code"] = None
-            except UpdateError as exc:
-                state["last_check_error_code"] = exc.code
-                state["checked_at"] = utc_now()
-                cached = (state.get("channels") or {}).get(channel)
-                cached_at = parse_timestamp(cached.get("checked_at")) if isinstance(cached, dict) else None
-                if not cached_at or time.time() - cached_at > CHECK_CACHE_MAX_AGE_SECONDS:
-                    self._write_state(state)
-                    raise
-                cached["cached"] = True
-                cached["check_error_code"] = exc.code
+            state.setdefault("channels", {})[channel] = candidate
+            state["selected_channel"] = channel
+            state["checked_at"] = candidate["checked_at"]
+            state["last_check_error_code"] = None
             self._write_state(state)
         return self.status(is_owner=is_owner, server_instance_id=server_instance_id)
 
@@ -1131,7 +1009,6 @@ class SelfUpdateManager:
             "short_previous_sha": previous_sha[:8] if previous_sha else None,
             "error_code": None,
             "rolled_back": False,
-            "rollback_available": False,
             "started_at": now,
             "updated_at": now,
             "_server_pid": os.getpid(),
@@ -1199,24 +1076,20 @@ class SelfUpdateManager:
         if self.restart_callback:
             self.restart_callback()
 
-    def start_apply(self, channel, target_token, *, is_owner=True, server_instance_id=None):
+    def start_apply(self, channel, *, is_owner=True, server_instance_id=None):
         if not is_owner:
             raise UpdateError("update_owner_required", status_code=403)
         if channel not in {"stable", "latest"}:
             raise UpdateError("update_channel_invalid", status_code=400)
-        if not isinstance(target_token, str) or not target_token:
-            raise UpdateError("update_target_untrusted", status_code=400)
         with self._lock:
             state = self._read_state()
             identity = get_installed_identity(self.base_dir, state)
             self._assert_mutation_preconditions(state, identity)
             candidate = (state.get("channels") or {}).get(channel)
-            if not isinstance(candidate, dict) or not secrets.compare_digest(
-                str(candidate.get("target_token") or ""), target_token
-            ):
-                raise UpdateError("update_target_untrusted", status_code=400)
-            expiry = parse_timestamp(candidate.get("expires_at"))
-            if not expiry or expiry < time.time():
+            if not isinstance(candidate, dict):
+                raise UpdateError("update_target_untrusted", status_code=409)
+            checked_at = parse_timestamp(candidate.get("checked_at"))
+            if not checked_at or time.time() - checked_at > CHECK_TTL_SECONDS:
                 raise UpdateError("update_target_expired", status_code=409)
             if not candidate.get("compatible"):
                 raise UpdateError(candidate.get("compatibility_code") or "update_incompatible", status_code=409)
@@ -1244,48 +1117,16 @@ class SelfUpdateManager:
             self._start_operation(state, operation)
         return self.status(is_owner=is_owner, server_instance_id=server_instance_id)
 
-    def start_rollback(self, *, is_owner=True, server_instance_id=None):
-        if not is_owner:
-            raise UpdateError("update_owner_required", status_code=403)
-        with self._lock:
-            state = self._read_state()
-            identity = get_installed_identity(self.base_dir, state)
-            self._assert_mutation_preconditions(state, identity)
-            previous = state.get("operation") or {}
-            target_sha = previous.get("previous_sha") if previous.get("rollback_available") else None
-            if not isinstance(target_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", target_sha):
-                raise UpdateError("update_rollback_unavailable", status_code=409)
-            manifest = manifest_from_git(self.base_dir, target_sha)
-            compatible, code = compare_manifest_compatibility(
-                self.base_dir,
-                manifest,
-                target_frontend_present=git_path_exists(
-                    self.base_dir,
-                    target_sha,
-                    normalize_manifest(manifest)["frontend_entrypoint"],
-                ),
-            )
-            if not compatible:
-                raise UpdateError(code, status_code=409)
-            operation = self._new_operation(
-                action="rollback",
-                channel=identity.get("channel") or "stable",
-                target_sha=target_sha,
-                target_ref=target_sha,
-                target_manifest=manifest,
-                previous_sha=identity.get("commit"),
-                base_version=None,
-            )
-            self._start_operation(state, operation)
-        return self.status(is_owner=is_owner, server_instance_id=server_instance_id)
-
 
 def manifest_from_git(base_dir, revision, *, git_executable=None):
     result = run_git(
         base_dir,
         ["show", f"{revision}:update-manifest.json"],
         git_executable=git_executable,
+        check=False,
     )
+    if result.returncode != 0:
+        raise UpdateError("update_manifest_missing")
     try:
         payload = json.loads(result.stdout)
     except ValueError as exc:
@@ -1389,131 +1230,38 @@ def wait_for_process_exit(pid, timeout=45):
     return not _process_exists(pid)
 
 
-def _ensure_origin(base_dir, git_executable):
-    existing = run_git(
-        base_dir,
-        ["remote", "get-url", "origin"],
-        git_executable=git_executable,
-        check=False,
-    )
-    if existing.returncode == 0:
-        run_git(
-            base_dir,
-            ["remote", "set-url", "origin", CANONICAL_REPOSITORY_URL],
-            git_executable=git_executable,
-        )
-    else:
-        run_git(
-            base_dir,
-            ["remote", "add", "origin", CANONICAL_REPOSITORY_URL],
-            git_executable=git_executable,
-        )
-
-
-def _bootstrap_release_worktree(base_dir, operation, git_executable):
-    base_version = _read_release_version(base_dir)
-    if not base_version:
-        raise UpdateError("update_bootstrap_required")
-    git_dir = Path(base_dir) / ".git"
-    if git_dir.exists():
-        raise UpdateError("update_worktree_invalid")
-    try:
-        subprocess.run(
-            [git_executable, "init", str(base_dir)],
-            cwd=str(base_dir),
-            env=_git_environment(),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=30,
-            check=True,
-        )
-        run_git(
-            base_dir,
-            ["config", "--local", "sharp-gui.installation-kind", "release"],
-            git_executable=git_executable,
-        )
-        _ensure_origin(base_dir, git_executable)
-        run_git(
-            base_dir,
-            ["fetch", "--force", "--depth=1", "origin", f"refs/tags/{base_version}:refs/tags/{base_version}"],
-            git_executable=git_executable,
-            timeout=120,
-        )
-        run_git(base_dir, ["reset", "--mixed", base_version], git_executable=git_executable)
-        snapshot_status = run_git(
-            base_dir,
-            ["status", "--porcelain", "--untracked-files=no"],
-            git_executable=git_executable,
-        ).stdout.splitlines()
-        # Generic release archives intentionally omit maintainer-only tracked
-        # paths (for example frontend/src and CI files). Missing tracked files
-        # are restored from the trusted base tag; any modified tracked content
-        # indicates a stale/custom snapshot and is never overwritten.
-        unexpected = [line for line in snapshot_status if not line.startswith(" D ")]
-        if unexpected:
-            raise UpdateError("update_release_snapshot_mismatch")
-        run_git(base_dir, ["reset", "--hard", base_version], git_executable=git_executable)
-        operation["previous_sha"] = _git_value(base_dir, ["rev-parse", "HEAD"], git_executable=git_executable)
-        operation["short_previous_sha"] = (
-            operation["previous_sha"][:8] if operation.get("previous_sha") else None
-        )
-    except Exception:
-        if git_dir.is_dir():
-            shutil.rmtree(git_dir, ignore_errors=True)
-        elif git_dir.exists():
-            try:
-                git_dir.unlink()
-            except OSError:
-                pass
-        raise
-
-
 def _fetch_exact_target(base_dir, operation, git_executable):
-    _ensure_origin(base_dir, git_executable)
     target_ref = operation.get("target_ref")
     target_sha = operation.get("target_sha")
     channel = operation.get("channel")
-    if channel == "stable" and isinstance(target_ref, str) and target_ref.startswith("refs/tags/"):
+    if channel == "stable" and isinstance(target_ref, str) and re.fullmatch(
+        r"refs/tags/v\d+\.\d+\.\d+",
+        target_ref,
+    ):
         destination = target_ref
-        refspec = f"{target_ref}:{destination}"
-        run_git(
-            base_dir,
-            ["fetch", "--force", "--depth=128", "origin", refspec],
-            git_executable=git_executable,
-            timeout=180,
-        )
-        resolved = _git_value(base_dir, ["rev-parse", f"{destination}^{{commit}}"], git_executable=git_executable)
+        depth = 1
     elif channel == "latest" and target_ref == f"refs/heads/{DEFAULT_BRANCH}":
-        destination = f"refs/remotes/origin/{DEFAULT_BRANCH}"
-        refspec = f"{target_ref}:{destination}"
-        run_git(
-            base_dir,
-            ["fetch", "--force", "--depth=256", "origin", refspec],
-            git_executable=git_executable,
-            timeout=180,
-        )
-        resolved = _git_value(base_dir, ["rev-parse", destination], git_executable=git_executable)
-        manifest = operation.get("target_manifest") or {}
-        base_version = operation.get("base_version") or _pick(manifest, "releaseBaseline", "release_baseline")
-        if base_version and re.fullmatch(r"v\d+\.\d+\.\d+", str(base_version)):
-            run_git(
-                base_dir,
-                ["fetch", "--force", "--depth=256", "origin", f"refs/tags/{base_version}:refs/tags/{base_version}"],
-                git_executable=git_executable,
-                timeout=180,
-                check=False,
-            )
+        destination = f"refs/remotes/sharp-gui-update/{DEFAULT_BRANCH}"
+        depth = 256
     else:
-        resolved = _git_value(base_dir, ["rev-parse", f"{target_sha}^{{commit}}"], git_executable=git_executable)
-        if resolved != target_sha:
-            run_git(
-                base_dir,
-                ["fetch", "--force", "--depth=256", "origin", target_sha],
-                git_executable=git_executable,
-                timeout=180,
-            )
-            resolved = _git_value(base_dir, ["rev-parse", "FETCH_HEAD"], git_executable=git_executable)
+        raise UpdateError("update_target_untrusted")
+    run_git(
+        base_dir,
+        [
+            "fetch",
+            "--force",
+            f"--depth={depth}",
+            CANONICAL_REPOSITORY_URL,
+            f"{target_ref}:{destination}",
+        ],
+        git_executable=git_executable,
+        timeout=180,
+    )
+    resolved = _git_value(
+        base_dir,
+        ["rev-parse", f"{destination}^{{commit}}"],
+        git_executable=git_executable,
+    )
     if resolved != target_sha:
         raise UpdateError("update_target_changed")
 
@@ -1706,12 +1454,7 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
                 ):
                     raise UpdateError("update_developer_branch")
                 if not is_managed_worktree(base_dir, git_executable):
-                    if detect_deployment(base_dir, git_executable)[0] != "release":
-                        raise UpdateError("update_bootstrap_required")
-                    _bootstrap_release_worktree(base_dir, operation, git_executable)
-                    previous_sha = operation.get("previous_sha")
-                    state["operation"] = operation
-                    save_update_state(base_dir, state)
+                    raise UpdateError("update_installation_unsupported")
                 if tracked_worktree_dirty(base_dir, git_executable):
                     raise UpdateError("update_worktree_dirty")
                 actual_previous = _git_value(base_dir, ["rev-parse", "HEAD"], git_executable=git_executable)
@@ -1768,7 +1511,6 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
                     short_previous_sha=previous_sha[:8] if previous_sha else None,
                     error_code=None,
                     rolled_back=False,
-                    rollback_available=bool(previous_sha and previous_sha != target_sha),
                     completed_at=None if relaunch else utc_now(),
                 )
                 if relaunch:
@@ -1784,7 +1526,6 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
                         progress=100,
                         error_code=None,
                         rolled_back=False,
-                        rollback_available=bool(previous_sha and previous_sha != target_sha),
                         completed_at=utc_now(),
                     )
                 return True
@@ -1844,7 +1585,6 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
                     progress=100,
                     error_code=code,
                     rolled_back=rolled_back,
-                    rollback_available=False,
                     completed_at=utc_now(),
                 )
                 return False
@@ -1888,7 +1628,6 @@ def prepare_cli_operation(base_dir, channel, candidate):
         "short_previous_sha": identity.get("short_commit"),
         "error_code": None,
         "rolled_back": False,
-        "rollback_available": False,
         "started_at": utc_now(),
         "updated_at": utc_now(),
         "_server_pid": None,
@@ -1896,58 +1635,5 @@ def prepare_cli_operation(base_dir, channel, candidate):
     state["operation"] = operation
     state.setdefault("channels", {})[channel] = candidate
     state["selected_channel"] = channel
-    save_update_state(base_dir, state)
-    return operation
-
-
-def prepare_cli_rollback(base_dir):
-    """Persist a manual rollback operation without spawning another helper."""
-
-    state = load_update_state(base_dir)
-    identity = get_installed_identity(base_dir, state)
-    assert_mutation_preconditions(state, identity)
-    if not identity.get("managed"):
-        raise UpdateError("update_rollback_unavailable")
-    if identity.get("dirty"):
-        raise UpdateError("update_worktree_dirty")
-    previous = state.get("operation") or {}
-    target_sha = previous.get("previous_sha") if previous.get("rollback_available") else None
-    if not isinstance(target_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", target_sha):
-        raise UpdateError("update_rollback_unavailable")
-    manifest = manifest_from_git(base_dir, target_sha)
-    normalized = normalize_manifest(manifest)
-    compatible, code = compare_manifest_compatibility(
-        base_dir,
-        normalized,
-        target_frontend_present=git_path_exists(
-            base_dir,
-            target_sha,
-            normalized["frontend_entrypoint"],
-        ),
-    )
-    if not compatible:
-        raise UpdateError(code)
-    now = utc_now()
-    operation = {
-        "id": uuid.uuid4().hex,
-        "action": "rollback",
-        "phase": "queued",
-        "progress": 0,
-        "channel": identity.get("channel") or "stable",
-        "target_sha": target_sha,
-        "short_target_sha": target_sha[:8],
-        "target_ref": target_sha,
-        "target_manifest": manifest,
-        "base_version": None,
-        "previous_sha": identity.get("commit"),
-        "short_previous_sha": identity.get("short_commit"),
-        "error_code": None,
-        "rolled_back": False,
-        "rollback_available": False,
-        "started_at": now,
-        "updated_at": now,
-        "_server_pid": None,
-    }
-    state["operation"] = operation
     save_update_state(base_dir, state)
     return operation

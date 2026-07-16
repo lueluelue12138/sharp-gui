@@ -45,7 +45,6 @@ def _persist_operation(base_dir, operation_id, previous_sha, target_sha):
         "short_previous_sha": previous_sha[:8],
         "error_code": None,
         "rolled_back": False,
-        "rollback_available": False,
         "started_at": self_update.utc_now(),
         "updated_at": self_update.utc_now(),
         "_server_pid": None,
@@ -169,7 +168,6 @@ def test_target_restart_health_failure_rolls_back_and_restarts_previous(
     assert failed["phase"] == "failed"
     assert failed["error_code"] == "update_restart_failed"
     assert failed["rolled_back"] is True
-    assert failed["rollback_available"] is False
 
 
 def test_target_is_completed_only_after_restart_health_succeeds(tmp_path, monkeypatch):

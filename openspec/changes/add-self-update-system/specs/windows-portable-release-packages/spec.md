@@ -49,7 +49,7 @@ The Windows portable build verification SHALL prove that the bundled updater is 
 
 ### Requirement: Portable release documentation MUST disclose updater tooling and compatibility boundaries
 
-Portable package notes and bilingual project documentation SHALL identify the full-package bootstrap boundary, Stable and Latest channel meanings, bundled MinGit version/source/license location, code-only compatibility gate, preserved data/runtime paths, rollback behavior, and conditions that require a new complete package.
+Portable package notes and bilingual project documentation SHALL identify the full-package bootstrap boundary, Stable and Latest channel meanings, bundled MinGit version/source/license location, code-only compatibility gate, preserved data/runtime paths, automatic failure recovery, and conditions that require a new complete package.
 
 #### Scenario: User reads portable package notes
 - **WHEN** a user considers applying a Latest commit update

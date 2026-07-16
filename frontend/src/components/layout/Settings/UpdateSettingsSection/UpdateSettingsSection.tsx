@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -6,22 +6,18 @@ import {
   applyUpdate,
   checkForUpdates,
   fetchUpdateStatus,
-  getExpectedUpdateCommit,
   isActiveUpdateOperation,
   pollUpdateStatus,
-  rollbackUpdate,
 } from '@/api';
 import { Button } from '@/components/common/Button';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import {
-  CheckIcon,
   ClockIcon,
   DownloadIcon,
   InfoIcon,
   ResetIcon,
 } from '@/components/common/Icons';
 import type {
-  UpdateAction,
   UpdateCandidate,
   UpdateChannel,
   UpdateStatusResponse,
@@ -37,25 +33,19 @@ interface UpdateSettingsSectionProps {
 
 interface OperationTracker {
   token: number;
-  action: UpdateAction;
   startedInstanceId: string;
-  expectedCommit: string | null;
-  operationId: string | null;
+  expectedCommit: string;
 }
 
-type Confirmation =
-  | { kind: 'apply'; candidate: UpdateCandidate }
-  | { kind: 'rollback' }
-  | null;
+type BusyAction = 'check' | 'apply' | null;
+
+const DEFAULT_UPDATE_BRANCH = 'main';
+const UPDATE_MANIFEST_PATH = 'update-manifest.json';
+const FAILURE_PHASES = new Set(['cancelled', 'failed']);
 
 const PHASE_KEYS: Record<string, string> = {
-  idle: 'updatePhaseIdle',
   queued: 'updatePhaseQueued',
-  checking: 'updatePhaseChecking',
-  resolving: 'updatePhaseResolving',
   fetching: 'updatePhaseFetching',
-  downloading: 'updatePhaseDownloading',
-  preparing: 'updatePhasePreparing',
   validating: 'updatePhaseValidating',
   waiting_for_server: 'updatePhaseWaitingForServer',
   stopping: 'updatePhaseStopping',
@@ -64,23 +54,9 @@ const PHASE_KEYS: Record<string, string> = {
   verifying: 'updatePhaseVerifying',
   restarting: 'updatePhaseRestarting',
   completed: 'updatePhaseCompleted',
-  done: 'updatePhaseCompleted',
-  success: 'updatePhaseCompleted',
   failed: 'updatePhaseFailed',
   rolling_back: 'updatePhaseRollingBack',
   rollback_verifying: 'updatePhaseRollbackVerifying',
-  rolled_back: 'updatePhaseRolledBack',
-  rollback_failed: 'updatePhaseRollbackFailed',
-  cancelled: 'updatePhaseCancelled',
-  ready: 'updatePhaseReady',
-  checked: 'updatePhaseChecked',
-  up_to_date: 'updatePhaseUpToDate',
-};
-
-const ACTION_KEYS: Record<string, string> = {
-  check: 'updateActionCheck',
-  apply: 'updateActionApply',
-  rollback: 'updateActionRollback',
 };
 
 const RELATION_KEYS: Record<string, string> = {
@@ -98,108 +74,54 @@ const INSTALLATION_KEYS: Record<string, string> = {
   source: 'updateInstallationSource',
   release: 'updateInstallationRelease',
   portable: 'updateInstallationPortable',
-  'legacy-release': 'updateInstallationLegacyRelease',
-  'legacy-portable': 'updateInstallationLegacyPortable',
   unknown: 'updateInstallationUnknown',
 };
 
 const CODE_KEYS: Record<string, string> = {
-  owner_required: 'updateReasonOwnerRequired',
   update_owner_required: 'updateReasonOwnerRequired',
-  git_unavailable: 'updateReasonGitUnavailable',
   update_git_unavailable: 'updateReasonGitUnavailable',
   update_git_too_old: 'updateCompatibilityGitTooOld',
-  update_git_failed: 'updateErrorGitFailed',
-  metadata_unavailable: 'updateReasonMetadataUnavailable',
-  update_metadata_unavailable: 'updateReasonMetadataUnavailable',
-  legacy_portable_unsupported: 'updateReasonLegacyPortable',
-  update_legacy_portable_unsupported: 'updateReasonLegacyPortable',
-  update_bootstrap_required: 'updateReasonLegacyPortable',
-  non_default_branch: 'updateReasonNonDefaultBranch',
-  update_non_default_branch: 'updateReasonNonDefaultBranch',
-  update_developer_branch: 'updateReasonNonDefaultBranch',
-  dirty_worktree: 'updateReasonDirtyWorktree',
-  update_dirty_worktree: 'updateReasonDirtyWorktree',
-  update_worktree_dirty: 'updateReasonDirtyWorktree',
-  active_tasks: 'updateReasonActiveTasks',
-  update_active_tasks: 'updateReasonActiveTasks',
-  update_tasks_active: 'updateReasonActiveTasks',
-  operation_in_progress: 'updateReasonOperationInProgress',
-  update_in_progress: 'updateReasonOperationInProgress',
-  runtime_revision_mismatch: 'updateCompatibilityRuntimeMismatch',
-  portable_runtime_mismatch: 'updateCompatibilityRuntimeMismatch',
-  update_runtime_incompatible: 'updateCompatibilityRuntimeMismatch',
-  protocol_revision_mismatch: 'updateCompatibilityProtocolMismatch',
-  update_protocol_incompatible: 'updateCompatibilityProtocolMismatch',
-  update_protocol_mismatch: 'updateCompatibilityProtocolMismatch',
-  package_target_unsupported: 'updateCompatibilityPackageTarget',
-  update_package_target_unsupported: 'updateCompatibilityPackageTarget',
-  frontend_dist_missing: 'updateCompatibilityFrontendMissing',
-  update_frontend_missing: 'updateCompatibilityFrontendMissing',
-  manifest_missing: 'updateCompatibilityManifestMissing',
-  manifest_invalid: 'updateCompatibilityManifestInvalid',
+  update_manifest_missing: 'updateCompatibilityManifestMissing',
   update_manifest_invalid: 'updateCompatibilityManifestInvalid',
-  git_version_too_old: 'updateCompatibilityGitTooOld',
-  target_untrusted: 'updateCompatibilityTargetUntrusted',
-  update_target_untrusted: 'updateCompatibilityTargetUntrusted',
-  update_source_untrusted: 'updateErrorSourceUntrusted',
-  target_expired: 'updateErrorTargetExpired',
-  update_target_expired: 'updateErrorTargetExpired',
-  full_package_required: 'updateCompatibilityFullPackageRequired',
-  update_full_package_required: 'updateCompatibilityFullPackageRequired',
-  rollback_unavailable: 'updateReasonRollbackUnavailable',
-  update_rollback_unavailable: 'updateReasonRollbackUnavailable',
-  update_channel_invalid: 'updateErrorRequestInvalid',
-  update_request_invalid: 'updateErrorRequestInvalid',
-  update_already_current: 'updateErrorAlreadyCurrent',
-  update_incompatible: 'updateCompatibilityFullPackageRequired',
+  update_bootstrap_required: 'updateErrorInstallationUnsupported',
   update_installation_unsupported: 'updateErrorInstallationUnsupported',
+  update_developer_branch: 'updateReasonNonDefaultBranch',
+  update_worktree_dirty: 'updateReasonDirtyWorktree',
+  update_tasks_active: 'updateReasonActiveTasks',
+  update_in_progress: 'updateReasonOperationInProgress',
+  update_runtime_incompatible: 'updateCompatibilityRuntimeMismatch',
+  update_protocol_incompatible: 'updateCompatibilityProtocolMismatch',
+  update_package_target_unsupported: 'updateCompatibilityPackageTarget',
+  update_frontend_missing: 'updateCompatibilityFrontendMissing',
+  update_target_untrusted: 'updateCompatibilityTargetUntrusted',
+  update_target_expired: 'updateErrorTargetExpired',
+  update_full_package_required: 'updateCompatibilityFullPackageRequired',
+  update_incompatible: 'updateCompatibilityFullPackageRequired',
+  update_channel_invalid: 'updateErrorRequestInvalid',
+  update_already_current: 'updateErrorAlreadyCurrent',
   update_installed_revision_changed: 'updateErrorRevisionChanged',
   update_interrupted_rolled_back: 'updateErrorRolledBack',
-  update_not_supported: 'updateErrorNotSupported',
   update_operation_invalid: 'updateErrorOperationInvalid',
+  update_not_supported: 'updateErrorInstallationUnsupported',
   update_recovery_required: 'updateErrorRecoveryRequired',
-  update_release_invalid: 'updateErrorReleaseInvalid',
-  update_release_snapshot_mismatch: 'updateErrorReleaseSnapshotMismatch',
-  update_response_invalid: 'updateErrorResponseInvalid',
-  update_response_too_large: 'updateErrorResponseTooLarge',
+  update_release_invalid: 'updateErrorTargetInvalid',
+  update_rollback_failed: 'updateErrorRollbackFailed',
   update_server_stop_timeout: 'updateErrorServerStopTimeout',
   update_target_changed: 'updateErrorTargetChanged',
   update_target_tracks_runtime: 'updateErrorTargetTracksRuntime',
   update_target_invalid: 'updateErrorTargetInvalid',
-  update_target_metadata_missing: 'updateCompatibilityManifestMissing',
   update_target_unsupported: 'updateCompatibilityPackageTarget',
   update_worktree_invalid: 'updateErrorWorktreeInvalid',
   update_helper_missing: 'updateErrorHelperMissing',
   update_helper_start_failed: 'updateErrorHelperFailed',
-  compatible: 'updateCompatibilityCompatible',
-  update_compatible: 'updateCompatibilityCompatible',
-  check_failed: 'updateErrorCheckFailed',
   update_check_failed: 'updateErrorCheckFailed',
-  rate_limited: 'updateErrorRateLimited',
-  update_rate_limited: 'updateErrorRateLimited',
-  update_check_rate_limited: 'updateErrorRateLimited',
-  network_error: 'updateErrorNetwork',
-  update_network_error: 'updateErrorNetwork',
-  tls_error: 'updateErrorTls',
-  update_tls_error: 'updateErrorTls',
-  apply_failed: 'updateErrorApplyFailed',
   update_apply_failed: 'updateErrorApplyFailed',
-  verification_failed: 'updateErrorVerificationFailed',
   update_verification_failed: 'updateErrorVerificationFailed',
-  rolled_back: 'updateErrorRolledBack',
-  update_rolled_back: 'updateErrorRolledBack',
-  rollback_failed: 'updateErrorRollbackFailed',
-  update_rollback_failed: 'updateErrorRollbackFailed',
-  restart_failed: 'updateErrorRestartFailed',
   update_restart_failed: 'updateErrorRestartFailed',
-  state_corrupt: 'updateErrorStateCorrupt',
   update_state_corrupt: 'updateErrorStateCorrupt',
-  helper_failed: 'updateErrorHelperFailed',
   update_helper_failed: 'updateErrorHelperFailed',
+  update_git_failed: 'updateErrorGitFailed',
 };
-
-const FAILURE_PHASES = new Set(['cancelled', 'failed', 'rollback_failed']);
 
 function normalizeCode(value?: string | null): string {
   return value?.trim().toLowerCase() ?? '';
@@ -217,7 +139,6 @@ function formatTimestamp(value: UpdateTimestamp, locale: string): string | null 
   if (value === null || value === undefined || value === '') {
     return null;
   }
-
   const raw = typeof value === 'number' && value < 10_000_000_000 ? value * 1000 : value;
   const date = new Date(raw);
   if (Number.isNaN(date.getTime())) {
@@ -229,32 +150,17 @@ function formatTimestamp(value: UpdateTimestamp, locale: string): string | null 
   }).format(date);
 }
 
-function isTimestampExpired(value: UpdateTimestamp | undefined): boolean {
-  if (value === null || value === undefined || value === '') {
-    return false;
-  }
-  const raw = typeof value === 'number' && value < 10_000_000_000 ? value * 1000 : value;
-  const timestamp = new Date(raw).getTime();
-  return !Number.isNaN(timestamp) && timestamp <= Date.now();
-}
-
 function commitsMatch(left?: string | null, right?: string | null): boolean {
   if (!left || !right) {
     return false;
   }
-  const normalizedLeft = left.toLowerCase();
-  const normalizedRight = right.toLowerCase();
-  return normalizedLeft === normalizedRight
-    || normalizedLeft.startsWith(normalizedRight)
-    || normalizedRight.startsWith(normalizedLeft);
+  const a = left.toLowerCase();
+  const b = right.toLowerCase();
+  return a === b || a.startsWith(b) || b.startsWith(a);
 }
 
 function isDowngrade(candidate?: UpdateCandidate | null): boolean {
   return candidate?.relation === 'behind' || candidate?.relation === 'downgrade';
-}
-
-function isTransientMutationError(error: unknown): boolean {
-  return !(error instanceof ApiError);
 }
 
 export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSectionProps) {
@@ -262,74 +168,51 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
   const [status, setStatus] = useState<UpdateStatusResponse | null>(null);
   const [selectedChannel, setSelectedChannel] = useState<UpdateChannel>('stable');
   const [isLoading, setIsLoading] = useState(false);
-  const [busyAction, setBusyAction] = useState<UpdateAction | null>(null);
-  const [confirmation, setConfirmation] = useState<Confirmation>(null);
+  const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [confirmation, setConfirmation] = useState<UpdateCandidate | null>(null);
   const [viewErrorKey, setViewErrorKey] = useState<string | null>(null);
   const [isReconnecting, setIsReconnecting] = useState(false);
   const [tracker, setTracker] = useState<OperationTracker | null>(null);
   const reloadStartedRef = useRef(false);
 
-  const selectedCandidate = status?.channels[selectedChannel] ?? null;
+  const candidate = status?.channels[selectedChannel] ?? null;
   const operation = status?.operation ?? null;
-  const operationIsActive = isActiveUpdateOperation(operation);
+  const operationActive = isActiveUpdateOperation(operation);
   const effectiveOwner = isOwner && (status?.is_owner ?? true);
-  const actionsLocked = Boolean(busyAction || operationIsActive || tracker);
-  const updateUnavailable = !effectiveOwner
-    || Boolean(status?.capabilities.reason_code && !status.capabilities.can_apply);
-  const candidateExpired = Boolean(
-    selectedCandidate?.update_available && isTimestampExpired(selectedCandidate.expires_at),
-  );
-  const canCheck = effectiveOwner && Boolean(status?.capabilities.can_check);
-  const canApply = effectiveOwner
-    && !candidateExpired
-    && Boolean(status?.capabilities.can_apply)
-    && Boolean(selectedCandidate?.update_available)
-    && Boolean(selectedCandidate?.compatible)
-    && Boolean(selectedCandidate?.target_token);
-  const canRollback = effectiveOwner
-    && Boolean(status?.capabilities.can_rollback);
-
-  const operationErrorKey = operation?.error_code ? codeKey(operation.error_code) : null;
-  const cachedCheckErrorKey = selectedCandidate?.check_error_code
-    ? codeKey(selectedCandidate.check_error_code)
-    : null;
-  const lastCheckErrorKey = !selectedCandidate && status?.last_check_error_code
-    ? codeKey(status.last_check_error_code)
-    : null;
-  const visibleErrorKey = viewErrorKey
-    ?? operationErrorKey
-    ?? lastCheckErrorKey
-    ?? (candidateExpired ? 'updateErrorTargetExpired' : null);
+  const actionsLocked = Boolean(busyAction || operationActive || tracker);
   const checkedAt = formatTimestamp(
-    selectedCandidate?.checked_at ?? status?.checked_at ?? null,
+    candidate?.checked_at ?? status?.checked_at ?? null,
     i18n.resolvedLanguage ?? i18n.language,
   );
+  const capabilityCode = !operationActive ? status?.capabilities.reason_code : null;
+  const targetCode = candidate && !candidate.compatible
+    ? candidate.compatibility_code
+    : !candidate
+      ? status?.last_check_error_code
+      : null;
+  const operationCode = operation?.error_code ?? null;
 
-  const versionRows = useMemo(() => {
-    if (!status) {
-      return [];
-    }
-    const installationKey = INSTALLATION_KEYS[normalizeCode(status.current.installation_kind)]
-      ?? 'updateInstallationUnknown';
-    return [
-      { label: t('updateInstalledVersion'), value: status.current.display_version || t('updateUnknown') },
-      {
-        label: t('updateCurrentCommit'),
-        value: status.current.short_commit || status.current.commit || t('updateUnknown'),
-        mono: true,
-      },
-      {
-        label: t('updateInstalledChannel'),
-        value: status.current.channel === 'stable'
-          ? t('updateChannelStable')
-          : status.current.channel === 'latest'
-            ? t('updateChannelLatest')
-            : t('updateUnknown'),
-      },
-      { label: t('updateInstallation'), value: t(installationKey) },
-      { label: t('updateBranch'), value: status.current.branch || t('updateUnknown'), mono: true },
-    ];
-  }, [status, t]);
+  const blockerCodes = [
+    !effectiveOwner ? 'update_owner_required' : capabilityCode,
+    targetCode,
+    operationCode,
+    viewErrorKey,
+  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
+  const normalizedBlockers = blockerCodes.map(normalizeCode);
+  const showBranchDetail = normalizedBlockers.includes('update_developer_branch');
+  const showManifestDetail = normalizedBlockers.includes('update_manifest_missing');
+  const phaseKey = PHASE_KEYS[normalizeCode(operation?.phase)] ?? 'updatePhaseWorking';
+  const relationKey = RELATION_KEYS[normalizeCode(candidate?.relation)] ?? 'updateRelationUnknown';
+  const installationKey = INSTALLATION_KEYS[normalizeCode(status?.current.installation_kind)]
+    ?? 'updateInstallationUnknown';
+  const canCheck = effectiveOwner
+    && Boolean(status?.capabilities.can_check)
+    && !actionsLocked;
+  const canApply = effectiveOwner
+    && Boolean(status?.capabilities.can_apply)
+    && Boolean(candidate?.update_available)
+    && Boolean(candidate?.compatible)
+    && !actionsLocked;
 
   useEffect(() => {
     if (!active) {
@@ -340,22 +223,21 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
     const controller = new AbortController();
     setIsLoading(true);
     setViewErrorKey(null);
-
     fetchUpdateStatus({ signal: controller.signal })
       .then((nextStatus) => {
         setStatus(nextStatus);
-        const installedChannel = nextStatus.current.channel;
-        if (installedChannel === 'stable' || installedChannel === 'latest') {
-          setSelectedChannel(installedChannel);
+        if (nextStatus.current.channel === 'stable' || nextStatus.current.channel === 'latest') {
+          setSelectedChannel(nextStatus.current.channel);
         }
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) {
-          return;
+        if (!controller.signal.aborted) {
+          setViewErrorKey(
+            error instanceof ApiError
+              ? apiErrorKey(error, 'updateErrorStatusFailed')
+              : 'updateErrorStatusFailed',
+          );
         }
-        setViewErrorKey(error instanceof ApiError
-          ? apiErrorKey(error, 'updateErrorStatusFailed')
-          : 'updateErrorStatusFailed');
       })
       .finally(() => {
         if (!controller.signal.aborted) {
@@ -366,7 +248,7 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
     return () => controller.abort();
   }, [active]);
 
-  const activeOperationId = operationIsActive ? operation?.id ?? null : null;
+  const activeOperationId = operationActive ? operation?.id ?? null : null;
 
   useEffect(() => {
     if (!active || !status || (!activeOperationId && !tracker)) {
@@ -375,29 +257,9 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
 
     const controller = new AbortController();
     const initialStatus = status;
-    const initialOperationId = initialStatus.operation?.id ?? null;
-    const action = tracker?.action ?? normalizeCode(initialStatus.operation?.action) as UpdateAction;
     const startedInstanceId = tracker?.startedInstanceId ?? initialStatus.server_instance_id;
-    let expectedCommit = tracker?.expectedCommit ?? getExpectedUpdateCommit(initialStatus.operation);
+    let expectedCommit = tracker?.expectedCommit ?? initialStatus.operation?.target_sha ?? '';
     let operationSeen = isActiveUpdateOperation(initialStatus.operation);
-
-    const shouldReload = (nextStatus: UpdateStatusResponse): boolean => {
-      const instanceChanged = Boolean(
-        startedInstanceId && nextStatus.server_instance_id !== startedInstanceId,
-      );
-      const targetReached = commitsMatch(nextStatus.current.commit, expectedCommit);
-      if (
-        (action === 'apply' || action === 'rollback')
-        && instanceChanged
-        && targetReached
-        && !reloadStartedRef.current
-      ) {
-        reloadStartedRef.current = true;
-        window.location.reload();
-        return true;
-      }
-      return false;
-    };
 
     setIsReconnecting(false);
     pollUpdateStatus({
@@ -406,40 +268,19 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
       onStatus: (nextStatus) => {
         setStatus(nextStatus);
         setIsReconnecting(false);
-        expectedCommit ||= getExpectedUpdateCommit(nextStatus.operation);
-        if (
-          isActiveUpdateOperation(nextStatus.operation)
-          || Boolean(nextStatus.operation?.id && nextStatus.operation.id !== initialOperationId)
-        ) {
-          operationSeen = true;
-        }
+        expectedCommit ||= nextStatus.operation?.target_sha ?? '';
+        operationSeen ||= Boolean(nextStatus.operation?.id);
       },
-      onTransientError: () => {
-        if (action === 'apply' || action === 'rollback') {
-          setIsReconnecting(true);
-        }
-      },
+      onTransientError: () => setIsReconnecting(true),
       shouldStop: (nextStatus) => {
-        if (shouldReload(nextStatus)) {
+        const instanceChanged = nextStatus.server_instance_id !== startedInstanceId;
+        const targetReached = commitsMatch(nextStatus.current.commit, expectedCommit);
+        if (instanceChanged && targetReached && !reloadStartedRef.current) {
+          reloadStartedRef.current = true;
+          window.location.reload();
           return true;
         }
-
-        if (isActiveUpdateOperation(nextStatus.operation)) {
-          return false;
-        }
-        if (!operationSeen) {
-          return false;
-        }
-
-        const phase = normalizeCode(nextStatus.operation?.phase);
-        if (
-          FAILURE_PHASES.has(phase)
-          || nextStatus.operation?.error_code
-          || (phase === 'rolled_back' && action === 'apply')
-        ) {
-          return true;
-        }
-        if (action === 'apply' || action === 'rollback') {
+        if (isActiveUpdateOperation(nextStatus.operation) || !operationSeen) {
           return false;
         }
         return true;
@@ -454,81 +295,59 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
         }
       })
       .catch((error: unknown) => {
-        if (controller.signal.aborted) {
-          return;
+        if (!controller.signal.aborted) {
+          setTracker(null);
+          setIsReconnecting(false);
+          setViewErrorKey(
+            error instanceof ApiError
+              ? apiErrorKey(error, 'updateReconnectTimeout')
+              : 'updateReconnectTimeout',
+          );
         }
-        setTracker(null);
-        setIsReconnecting(false);
-        setViewErrorKey(error instanceof ApiError ? codeKey(error.data?.code) : 'updateReconnectTimeout');
       });
 
     return () => controller.abort();
-    // Phase/progress updates are consumed by the poll callback. Restart only for a new operation/tracker.
+    // Poll callbacks consume phase/progress changes; restart only for a new operation.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, activeOperationId, tracker?.token]);
 
-  const startTracker = (
-    action: UpdateAction,
-    startedInstanceId: string,
-    expectedCommit: string | null,
-    operationId: string | null,
-  ) => {
-    setTracker({
-      token: Date.now(),
-      action,
-      startedInstanceId,
-      expectedCommit,
-      operationId,
-    });
-  };
-
-  const handleCheck = async () => {
-    if (!status || !canCheck || actionsLocked) {
-      return;
-    }
-    setBusyAction('check');
-    setViewErrorKey(null);
-    try {
-      const nextStatus = await checkForUpdates(selectedChannel);
-      setStatus(nextStatus);
-      if (isActiveUpdateOperation(nextStatus.operation)) {
-        startTracker(
-          'check',
-          status.server_instance_id,
-          getExpectedUpdateCommit(nextStatus.operation),
-          nextStatus.operation?.id ?? null,
-        );
-      }
-    } catch (error) {
-      setViewErrorKey(error instanceof ApiError
-        ? apiErrorKey(error, 'updateErrorCheckFailed')
-        : 'updateErrorCheckFailed');
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const handleStatusRetry = async () => {
+  const handleRetryStatus = async () => {
     setIsLoading(true);
     setViewErrorKey(null);
     try {
-      const nextStatus = await fetchUpdateStatus();
-      setStatus(nextStatus);
-      const installedChannel = nextStatus.current.channel;
-      if (installedChannel === 'stable' || installedChannel === 'latest') {
-        setSelectedChannel(installedChannel);
-      }
+      setStatus(await fetchUpdateStatus());
     } catch (error) {
-      setViewErrorKey(error instanceof ApiError
-        ? apiErrorKey(error, 'updateErrorStatusFailed')
-        : 'updateErrorStatusFailed');
+      setViewErrorKey(
+        error instanceof ApiError
+          ? apiErrorKey(error, 'updateErrorStatusFailed')
+          : 'updateErrorStatusFailed',
+      );
     } finally {
       setIsLoading(false);
     }
   };
 
-  const runApply = async (candidate: UpdateCandidate) => {
-    if (!status || !effectiveOwner || actionsLocked || !candidate.target_token) {
+  const handleCheck = async () => {
+    if (!canCheck) {
+      return;
+    }
+    setBusyAction('check');
+    setViewErrorKey(null);
+    try {
+      setStatus(await checkForUpdates(selectedChannel));
+    } catch (error) {
+      setViewErrorKey(
+        error instanceof ApiError
+          ? apiErrorKey(error, 'updateErrorCheckFailed')
+          : 'updateErrorCheckFailed',
+      );
+    } finally {
+      setBusyAction(null);
+    }
+  };
+
+  const handleApply = async (target: UpdateCandidate) => {
+    if (!status || !canApply) {
       return;
     }
 
@@ -536,27 +355,27 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
     setBusyAction('apply');
     setViewErrorKey(null);
     try {
-      const nextStatus = await applyUpdate({
-        channel: candidate.channel,
-        target_token: candidate.target_token,
-      });
+      const nextStatus = await applyUpdate({ channel: target.channel });
       setStatus(nextStatus);
-      const phase = normalizeCode(nextStatus.operation?.phase);
-      if (!FAILURE_PHASES.has(phase) && !nextStatus.operation?.error_code) {
-        startTracker(
-          'apply',
+      if (!FAILURE_PHASES.has(normalizeCode(nextStatus.operation?.phase))
+          && !nextStatus.operation?.error_code) {
+        setTracker({
+          token: Date.now(),
           startedInstanceId,
-          candidate.target_sha || getExpectedUpdateCommit(nextStatus.operation),
-          nextStatus.operation?.id ?? null,
-        );
+          expectedCommit: target.target_sha,
+        });
       }
       setConfirmation(null);
     } catch (error) {
-      if (isTransientMutationError(error)) {
-        startTracker('apply', startedInstanceId, candidate.target_sha, null);
+      if (!(error instanceof ApiError)) {
+        setTracker({
+          token: Date.now(),
+          startedInstanceId,
+          expectedCommit: target.target_sha,
+        });
         setIsReconnecting(true);
         setConfirmation(null);
-      } else if (error instanceof ApiError) {
+      } else {
         setViewErrorKey(apiErrorKey(error, 'updateErrorApplyFailed'));
       }
     } finally {
@@ -564,62 +383,11 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
     }
   };
 
-  const runRollback = async () => {
-    if (!status || !effectiveOwner || actionsLocked) {
-      return;
-    }
-
-    const startedInstanceId = status.server_instance_id;
-    setBusyAction('rollback');
-    setViewErrorKey(null);
-    try {
-      const nextStatus = await rollbackUpdate();
-      setStatus(nextStatus);
-      const phase = normalizeCode(nextStatus.operation?.phase);
-      if (!FAILURE_PHASES.has(phase) && !nextStatus.operation?.error_code) {
-        startTracker(
-          'rollback',
-          startedInstanceId,
-          getExpectedUpdateCommit(nextStatus.operation),
-          nextStatus.operation?.id ?? null,
-        );
-      }
-      setConfirmation(null);
-    } catch (error) {
-      if (isTransientMutationError(error)) {
-        startTracker(
-          'rollback',
-          startedInstanceId,
-          getExpectedUpdateCommit(status.operation),
-          null,
-        );
-        setIsReconnecting(true);
-        setConfirmation(null);
-      } else if (error instanceof ApiError) {
-        setViewErrorKey(apiErrorKey(error, 'updateErrorRollbackFailed'));
-      }
-    } finally {
-      setBusyAction(null);
-    }
-  };
-
-  const confirmTitle = confirmation?.kind === 'rollback'
-    ? t('updateRollbackTitle')
-    : t('updateConfirmTitle');
-  const confirmMessage = confirmation?.kind === 'rollback'
-    ? t('updateRollbackMessage')
-    : confirmation?.candidate.channel === 'latest'
-      ? t('updateConfirmLatest', { version: confirmation.candidate.display_version })
-      : isDowngrade(confirmation?.candidate)
-        ? t('updateConfirmDowngrade', { version: confirmation?.candidate.display_version ?? '' })
-        : t('updateConfirmStable', { version: confirmation?.candidate.display_version ?? '' });
-
-  const progress = operation?.progress === null || operation?.progress === undefined
-    ? null
-    : Math.min(100, Math.max(0, operation.progress));
-  const phaseKey = PHASE_KEYS[normalizeCode(operation?.phase)] ?? 'updatePhaseWorking';
-  const actionKey = ACTION_KEYS[normalizeCode(operation?.action)] ?? 'updateActionUpdate';
-  const relationKey = RELATION_KEYS[normalizeCode(selectedCandidate?.relation)] ?? 'updateRelationUnknown';
+  const confirmationMessage = confirmation?.channel === 'latest'
+    ? t('updateConfirmLatest', { version: confirmation.display_version })
+    : isDowngrade(confirmation)
+      ? t('updateConfirmDowngrade', { version: confirmation?.display_version ?? '' })
+      : t('updateConfirmStable', { version: confirmation?.display_version ?? '' });
 
   return (
     <section className={styles.section} aria-labelledby="update-settings-title">
@@ -634,11 +402,17 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
             <p>{t('updateCenterDescription')}</p>
           </div>
           {status && (
-            <span className={`${styles.stateBadge} ${operationIsActive ? styles.stateBusy : updateUnavailable ? styles.stateWarning : styles.stateReady}`}>
-              {operationIsActive
+            <span className={`${styles.stateBadge} ${
+              operationActive
+                ? styles.stateBusy
+                : blockerCodes.length > 0
+                  ? styles.stateWarning
+                  : styles.stateReady
+            }`}>
+              {operationActive
                 ? t(phaseKey)
-                : updateUnavailable
-                  ? t('updateUnavailable')
+                : blockerCodes.length > 0
+                  ? t('updateNeedsAttention')
                   : t('updateReady')}
             </span>
           )}
@@ -652,51 +426,95 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
         ) : status ? (
           <>
             <dl className={styles.versionGrid}>
-              {versionRows.map((row) => (
-                <div className={styles.versionRow} key={row.label}>
-                  <dt>{row.label}</dt>
-                  <dd className={row.mono ? styles.mono : undefined}>{row.value}</dd>
-                </div>
-              ))}
-            </dl>
-
-            {status.current.dirty && (
-              <div className={`${styles.notice} ${styles.warningNotice}`} role="note">
-                <InfoIcon aria-hidden="true" />
-                <div>
-                  <strong>{t('updateDirty')}</strong>
-                  <p>{t('updateDirtyHint')}</p>
-                </div>
+              <div>
+                <dt>{t('updateInstalledVersion')}</dt>
+                <dd>{status.current.display_version || t('updateUnknown')}</dd>
               </div>
-            )}
+              <div>
+                <dt>{t('updateCurrentCommit')}</dt>
+                <dd className={styles.mono}>
+                  {status.current.short_commit || status.current.commit || t('updateUnknown')}
+                </dd>
+              </div>
+              <div>
+                <dt>{t('updateInstallation')}</dt>
+                <dd>{t(installationKey)}</dd>
+              </div>
+              <div>
+                <dt>{t('updateBranch')}</dt>
+                <dd className={styles.mono}>{status.current.branch || t('updateUnknown')}</dd>
+              </div>
+            </dl>
 
             <div className={styles.channelBlock}>
               <div className={styles.blockHeading}>
                 <span>{t('updateChannel')}</span>
-                <span>{checkedAt ? t('updateLastChecked', { time: checkedAt }) : t('updateNeverChecked')}</span>
+                <span>
+                  {checkedAt
+                    ? t('updateLastChecked', { time: checkedAt })
+                    : t('updateNeverChecked')}
+                </span>
               </div>
-              <div className={styles.channelSelector} role="group" aria-label={t('updateChannel')}>
-                {(['stable', 'latest'] as const).map((channel) => (
+              <div className={styles.channelSelector}>
+                {(['stable', 'latest'] as UpdateChannel[]).map((channel) => (
                   <button
+                    className={`${styles.channelButton} ${
+                      channel === selectedChannel ? styles.channelButtonSelected : ''
+                    }`}
+                    disabled={actionsLocked}
                     key={channel}
-                    type="button"
-                    className={`${styles.channelButton} ${selectedChannel === channel ? styles.channelButtonSelected : ''}`}
-                    aria-pressed={selectedChannel === channel}
                     onClick={() => {
                       setSelectedChannel(channel);
                       setViewErrorKey(null);
                     }}
-                    disabled={actionsLocked}
+                    type="button"
                   >
-                    <span>{channel === 'stable' ? t('updateChannelStable') : t('updateChannelLatest')}</span>
-                    <small>{channel === 'stable' ? t('updateStableDescription') : t('updateLatestDescription')}</small>
+                    <span>
+                      {channel === 'stable'
+                        ? t('updateChannelStable')
+                        : t('updateChannelLatest')}
+                    </span>
+                    <small>
+                      {channel === 'stable'
+                        ? t('updateStableDescription')
+                        : t('updateLatestDescription')}
+                    </small>
                   </button>
                 ))}
               </div>
             </div>
 
+            {candidate ? (
+              <div className={styles.candidateCard}>
+                <div className={styles.candidateHeader}>
+                  <div>
+                    <span>{t('updateTargetVersion')}</span>
+                    <strong>{candidate.display_version}</strong>
+                  </div>
+                  <span className={candidate.compatible ? styles.compatible : styles.incompatible}>
+                    {candidate.compatible ? t('updateCompatible') : t('updateIncompatible')}
+                  </span>
+                </div>
+                <dl className={styles.candidateDetails}>
+                  <div>
+                    <dt>{t('updateTargetCommit')}</dt>
+                    <dd className={styles.mono}>{candidate.short_sha}</dd>
+                  </div>
+                  <div>
+                    <dt>{t('updateRelation')}</dt>
+                    <dd>{t(relationKey)}</dd>
+                  </div>
+                </dl>
+                {!candidate.update_available && candidate.compatible && (
+                  <p className={styles.upToDate}>{t('updateUpToDate')}</p>
+                )}
+              </div>
+            ) : (
+              <p className={styles.emptyHint}>{t('updateNotChecked')}</p>
+            )}
+
             {selectedChannel === 'latest' && (
-              <div className={`${styles.notice} ${styles.riskNotice}`} role="note">
+              <div className={`${styles.notice} ${styles.warningNotice}`} role="note">
                 <InfoIcon aria-hidden="true" />
                 <div>
                   <strong>{t('updateLatestRiskTitle')}</strong>
@@ -705,90 +523,60 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
               </div>
             )}
 
-            <div className={styles.candidateCard}>
-              <div className={styles.candidateHeader}>
-                <div>
-                  <span className={styles.eyebrow}>{t('updateTargetVersion')}</span>
-                  <strong>{selectedCandidate?.display_version ?? t('updateNotChecked')}</strong>
+            {blockerCodes.length > 0 && (
+              <div className={`${styles.notice} ${styles.errorNotice}`} role="alert">
+                <InfoIcon aria-hidden="true" />
+                <div className={styles.blockerContent}>
+                  <strong>{t('updateErrorTitle')}</strong>
+                  <ul className={styles.blockerList}>
+                    {blockerCodes.map((code) => (
+                      <li className={styles.blockerItem} key={code}>
+                        <span>
+                          {code === capabilityCode
+                            ? t('updateBlockerCurrentInstallation')
+                            : t('updateBlockerTarget', {
+                              channel: selectedChannel === 'stable'
+                                ? t('updateChannelStable')
+                                : t('updateChannelLatest'),
+                            })}
+                        </span>
+                        <small>{t(code.includes('_') ? codeKey(code) : code)}</small>
+                        {showBranchDetail && normalizeCode(code) === 'update_developer_branch' && (
+                          <small>
+                            {t('updateBlockerBranchDetail', {
+                              branch: status.current.branch || t('updateUnknown'),
+                              defaultBranch: DEFAULT_UPDATE_BRANCH,
+                            })}
+                          </small>
+                        )}
+                        {showManifestDetail && normalizeCode(code) === 'update_manifest_missing' && (
+                          <small>
+                            {t('updateBlockerManifestDetail', { file: UPDATE_MANIFEST_PATH })}
+                          </small>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 </div>
-                {selectedCandidate && (
-                  <span className={`${styles.stateBadge} ${selectedCandidate.compatible ? styles.stateReady : styles.stateWarning}`}>
-                    {selectedCandidate.compatible ? t('updateCompatible') : t('updateIncompatible')}
-                  </span>
-                )}
               </div>
+            )}
 
-              {selectedCandidate ? (
-                <dl className={styles.candidateDetails}>
-                  <div>
-                    <dt>{t('updateTargetCommit')}</dt>
-                    <dd className={styles.mono}>{selectedCandidate.short_sha || selectedCandidate.target_sha}</dd>
-                  </div>
-                  <div>
-                    <dt>{t('updateRelation')}</dt>
-                    <dd>{t(relationKey)}</dd>
-                  </div>
-                  <div>
-                    <dt>{t('updateAvailability')}</dt>
-                    <dd>{selectedCandidate.update_available ? t('updateAvailable') : t('updateUpToDate')}</dd>
-                  </div>
-                  {selectedCandidate.commits_ahead !== null && (
-                    <div>
-                      <dt>{t('updateCommitDistance')}</dt>
-                      <dd>{t('updateCommitsAhead', { count: selectedCandidate.commits_ahead })}</dd>
-                    </div>
-                  )}
-                </dl>
-              ) : (
-                <p className={styles.emptyHint}>{t('updateCheckHint')}</p>
-              )}
-
-              {selectedCandidate?.cached && (
-                <span className={styles.cachedLabel}>{t('updateCachedResult')}</span>
-              )}
-              {cachedCheckErrorKey && (
-                <p className={styles.compatibilityMessage}>
-                  {t('updateCachedCheckWarning')} {t(cachedCheckErrorKey)}
-                </p>
-              )}
-              {selectedCandidate && !selectedCandidate.compatible && (
-                <p className={styles.compatibilityMessage}>
-                  {t(codeKey(selectedCandidate.compatibility_code))}
-                </p>
-              )}
-              {selectedCandidate?.release_url && (
-                <a
-                  className={styles.releaseLink}
-                  href={selectedCandidate.release_url}
-                  target="_blank"
-                  rel="noreferrer noopener"
-                >
-                  {t('updateReleaseNotes')}
-                </a>
-              )}
-            </div>
-
-            {(operation || tracker || isReconnecting) && (
-              <div className={styles.operationPanel} role="status" aria-live="polite">
+            {(operationActive || operation?.error_code) && (
+              <div className={styles.operationPanel} role="status">
                 <div className={styles.operationHeader}>
-                  <div>
-                    <span className={styles.eyebrow}>{t('updateOperationTitle')}</span>
-                    <strong>{t(actionKey)} · {isReconnecting ? t('updateReconnecting') : t(phaseKey)}</strong>
-                  </div>
-                  {progress !== null && <span>{Math.round(progress)}%</span>}
+                  <strong>{t(phaseKey)}</strong>
+                  <span>{Math.max(0, Math.min(100, operation?.progress ?? 0))}%</span>
                 </div>
-                <div
-                  className={styles.progressTrack}
-                  role="progressbar"
-                  aria-label={t('updateProgress')}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={progress ?? undefined}
-                  aria-valuetext={progress === null ? t(phaseKey) : undefined}
-                >
+                <div className={styles.progressTrack}>
                   <span
-                    className={`${styles.progressFill} ${progress === null ? styles.progressIndeterminate : ''}`}
-                    style={progress === null ? undefined : { width: `${progress}%` }}
+                    className={`${styles.progressFill} ${
+                      operation?.progress === null ? styles.progressIndeterminate : ''
+                    }`}
+                    style={{
+                      width: operation?.progress === null
+                        ? undefined
+                        : `${Math.max(0, Math.min(100, operation?.progress ?? 0))}%`,
+                    }}
                   />
                 </div>
                 {isReconnecting && <p>{t('updateConnectionInterruptedHint')}</p>}
@@ -796,8 +584,8 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
             )}
 
             {operation?.rolled_back && (
-              <div className={`${styles.notice} ${styles.successNotice}`} role="status">
-                <CheckIcon aria-hidden="true" />
+              <div className={`${styles.notice} ${styles.warningNotice}`} role="status">
+                <InfoIcon aria-hidden="true" />
                 <div>
                   <strong>{t('updateAutomaticRollbackTitle')}</strong>
                   <p>{t('updateAutomaticRollbackComplete')}</p>
@@ -805,81 +593,40 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
               </div>
             )}
 
-            {!effectiveOwner && (
-              <div className={`${styles.notice} ${styles.infoNotice}`} role="note">
-                <InfoIcon aria-hidden="true" />
-                <p>{t('updateOwnerOnly')}</p>
-              </div>
-            )}
-
-            {effectiveOwner && status.capabilities.reason_code && (
-              <div className={`${styles.notice} ${styles.infoNotice}`} role="note">
-                <InfoIcon aria-hidden="true" />
-                <p>{t(codeKey(status.capabilities.reason_code))}</p>
-              </div>
-            )}
-
-            {visibleErrorKey && (
-              <div className={`${styles.notice} ${styles.errorNotice}`} role="alert">
-                <InfoIcon aria-hidden="true" />
-                <div>
-                  <strong>{t('updateErrorTitle')}</strong>
-                  <p>{t(visibleErrorKey)}</p>
-                </div>
-              </div>
-            )}
-
             <div className={styles.actions}>
               <Button
-                type="button"
-                variant="secondary"
+                disabled={!canCheck}
                 icon={<ResetIcon />}
                 onClick={handleCheck}
-                disabled={!canCheck || actionsLocked}
-              >
-                {busyAction === 'check' ? t('updateChecking') : visibleErrorKey ? t('updateRetry') : t('updateCheck')}
-              </Button>
-              <Button
                 type="button"
-                icon={<DownloadIcon />}
-                onClick={() => selectedCandidate && setConfirmation({ kind: 'apply', candidate: selectedCandidate })}
-                disabled={!canApply || actionsLocked}
+                variant="secondary"
               >
-                {selectedChannel === 'latest'
-                  ? t('updateApplyLatest')
-                  : isDowngrade(selectedCandidate)
-                    ? t('updateSwitchStable')
-                    : t('updateApply')}
+                {busyAction === 'check'
+                  ? t('updateChecking')
+                  : candidate
+                    ? t('updateRetry')
+                    : t('updateCheck')}
               </Button>
-              {(status.capabilities.can_rollback || operation?.rollback_available) && (
+              {candidate?.update_available && (
                 <Button
+                  disabled={!canApply}
+                  icon={<DownloadIcon />}
+                  onClick={() => setConfirmation(candidate)}
                   type="button"
-                  variant="ghost"
-                  icon={<ClockIcon />}
-                  onClick={() => setConfirmation({ kind: 'rollback' })}
-                  disabled={!canRollback || actionsLocked}
                 >
-                  {t('updateRollback')}
+                  {isDowngrade(candidate)
+                    ? t('updateSwitchStable')
+                    : candidate.channel === 'latest'
+                      ? t('updateApplyLatest')
+                      : t('updateApply')}
                 </Button>
               )}
             </div>
           </>
         ) : (
           <div className={styles.statusFailure}>
-            <div className={`${styles.notice} ${styles.errorNotice}`} role="alert">
-              <InfoIcon aria-hidden="true" />
-              <div>
-                <strong>{t('updateErrorTitle')}</strong>
-                <p>{t(viewErrorKey ?? 'updateErrorStatusFailed')}</p>
-              </div>
-            </div>
-            <Button
-              type="button"
-              variant="secondary"
-              icon={<ResetIcon />}
-              onClick={() => void handleStatusRetry()}
-              disabled={isLoading}
-            >
+            <p>{t(viewErrorKey ?? 'updateErrorStatusFailed')}</p>
+            <Button onClick={handleRetryStatus} type="button" variant="secondary">
               {t('updateRetry')}
             </Button>
           </div>
@@ -887,23 +634,17 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
       </div>
 
       <ConfirmDialog
+        confirmLabel={t('updateConfirmApply')}
+        isBusy={busyAction === 'apply'}
         isOpen={Boolean(confirmation)}
-        title={confirmTitle}
-        message={confirmMessage}
-        confirmLabel={confirmation?.kind === 'rollback' ? t('updateConfirmRollback') : t('updateConfirmApply')}
-        isBusy={busyAction === 'apply' || busyAction === 'rollback'}
-        danger={
-          confirmation?.kind === 'rollback'
-          || isDowngrade(confirmation?.candidate)
-        }
-        onClose={() => !busyAction && setConfirmation(null)}
+        message={confirmationMessage}
+        onClose={() => setConfirmation(null)}
         onConfirm={() => {
-          if (confirmation?.kind === 'rollback') {
-            void runRollback();
-          } else if (confirmation?.kind === 'apply') {
-            void runApply(confirmation.candidate);
+          if (confirmation) {
+            void handleApply(confirmation);
           }
         }}
+        title={t('updateConfirmTitle')}
       />
     </section>
   );

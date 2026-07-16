@@ -164,7 +164,7 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | **🥽 VR/AR Preview**       | WebXR VR mode + AR Passthrough on Quest 3/Pro and similar headsets, with controller / touch input.                                                                       |
 | **📤 One-Click Share**     | Export a standalone HTML file powered by Spark 2.0; the compact SPZ payload is embedded by default, double-click to open anywhere.                                       |
 | **🎮 GPU Acceleration**    | Auto-detects NVIDIA GPUs and matches a CUDA-enabled PyTorch (cu118 / cu126 / cu128) for noticeably faster inference.                                                     |
-| **🔄 Safe Self-Update**    | Settings shows the release and exact commit, with Stable / Latest checks, compatible code updates, and one-click rollback; portable bundles need no system Git.          |
+| **🔄 Safe Self-Update**    | Settings shows the release and exact commit, with Stable / Latest checks and compatible one-click code updates; failures restore automatically and portable bundles need no system Git. |
 | **🔐 Security & Privacy**  | Fully local data, one-click self-signed SSL, optional LAN access gate (HttpOnly cookie + access code + brute-force backoff).                                             |
 | **🚀 One-Click Deploy**    | Auto-configures Python / Git, installs deps, pre-downloads models, generates HTTPS certs, and shows skeleton progress. Ready out of the box.                             |
 
@@ -396,38 +396,30 @@ Access **https://127.0.0.1:5050 (recommended)** or **http://127.0.0.1:5050** �
 
 ### Version and Updates
 
-Open **Settings → Version & Updates** to see the installed release baseline, exact Git commit, and channel. A formal release is shown as `vX.Y.Z`; a Latest commit after that release is shown as `vX.Y.Z + N commits (abcdefg)`. The local owner can check, choose a channel, confirm an update, or roll back:
+Open **Application Update** at the bottom of **Settings** to see the current version, choose a channel, check, and install. The app restarts automatically and restores the previous version if verification fails.
 
-- **Stable (recommended)**: the latest published, non-prerelease [GitHub Release](https://github.com/lueluelue12138/sharp-gui/releases/latest).
-- **Latest**: the **exact current commit** at the repository's `main` branch. It receives hotfixes sooner but is less tested than Stable.
+- **Stable (recommended)**: the highest formal `vX.Y.Z` tag in the repository.
+- **Latest**: the newest commit on `main`. It receives hotfixes sooner but is less tested than Stable.
 
-The UI and CLI use the same compatibility checks and transactional update flow:
+Portable bundles use their bundled Python and Git; clean source installations on `main` are supported too. Code updates preserve workspaces, models, configuration, and large Python/CUDA runtimes. If a target needs a different runtime, the app asks for a new complete bundle. Portable bundles at `v1.3.0` or earlier must first move to a complete bundle containing the new updater.
+
+Use Settings if you do not need the command line. The scripts provide equivalent operations:
 
 ```bash
-# Linux / macOS: check Stable or Latest without applying it
+# Linux / macOS
 ./update.sh --channel stable --check
-./update.sh --channel latest --check
-
-# Apply the verified target for that channel (all safety preconditions must pass)
 ./update.sh --channel stable
-./update.sh --channel latest
-
-# Return to the recorded pre-update commit
-./update.sh --rollback
 ```
 
 ```bat
-:: Windows (full portable bundles prefer their bundled Python and MinGit)
+:: Windows
 update.bat --channel stable --check
-update.bat --channel latest --check
 update.bat --channel stable
-update.bat --channel latest
-update.bat --rollback
 ```
 
-A code update replaces only Git-managed Sharp GUI application files. It preserves embedded Python, PyTorch/CUDA, `.video-reconstruction-env/`, models and model caches, every workspace, `config.json`, certificates, logs, package metadata, and `.sharp-gui-tools/`. If the target portable runtime revision differs from the installed bundle, or its compatibility manifest / built frontend is invalid, the updater stops before changing files and asks for a new full portable bundle.
+Replace `stable` with `latest` to check or install Latest. Developers on another branch or with local code changes should keep using the normal Git workflow.
 
-Automatic update and rollback are blocked while generation tasks are active or queued, when managed source files are locally modified, or when a source installation is on a non-`main` development branch. The exact target commit is applied by an external process and health-checked; checkout or verification failure automatically restores and verifies the previous commit before restart. Settings check/apply/rollback actions are restricted to the real localhost owner.
+Developer and maintainer details are available in the Chinese guide: [Self-update development rules](.agents/rules/self-update.md).
 
 ### Uninstall
 
@@ -785,7 +777,7 @@ sharp-gui/
 ├── 📄 update.sh/bat          # Auto-update scripts
 ├── 📄 update-manifest.json   # Update protocol, portable runtime revision, and target compatibility contract
 ├── 📄 release.sh/bat         # Release packaging scripts
-├── 📁 .sharp-gui-update/     # Local update state, cache, lock, and diagnostics (created at runtime)
+├── 📁 .sharp-gui-update/     # Local update state, operation lock, and diagnostics (created at runtime)
 ├── 📁 .sharp-gui-tools/      # Portable package tools, including verified MinGit
 ├── 📁 tools/                 # Utility scripts
 │   ├── 📄 generate_cert.py   # SSL certificate generator

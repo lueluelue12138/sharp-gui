@@ -1,11 +1,8 @@
 export type UpdateChannel = 'stable' | 'latest';
 
-export type UpdateAction = 'check' | 'apply' | 'rollback';
+export type UpdateAction = 'apply';
 
 export type UpdateRelation =
-  | 'ahead'
-  | 'behind'
-  | 'same'
   | 'current'
   | 'upgrade'
   | 'downgrade'
@@ -16,8 +13,6 @@ export type UpdateInstallationKind =
   | 'source'
   | 'release'
   | 'portable'
-  | 'legacy-release'
-  | 'legacy-portable'
   | 'unknown';
 
 export type UpdateTimestamp = number | string | null;
@@ -38,7 +33,6 @@ export interface UpdateInstalledIdentity {
 export interface UpdateCapabilities {
   can_check: boolean;
   can_apply: boolean;
-  can_rollback: boolean;
   reason_code: string | null;
   owner_required?: boolean;
 }
@@ -55,11 +49,6 @@ export interface UpdateCandidate {
   compatible: boolean;
   compatibility_code: string | null;
   checked_at: UpdateTimestamp;
-  cached: boolean;
-  target_token?: string | null;
-  expires_at?: UpdateTimestamp;
-  release_url?: string | null;
-  check_error_code?: string | null;
 }
 
 export interface UpdateOperation {
@@ -70,11 +59,8 @@ export interface UpdateOperation {
   channel: UpdateChannel | null;
   target_sha: string | null;
   short_target_sha: string | null;
-  previous_sha: string | null;
-  short_previous_sha?: string | null;
   error_code: string | null;
   rolled_back?: boolean;
-  rollback_available: boolean;
   started_at?: UpdateTimestamp;
   updated_at: UpdateTimestamp;
   completed_at?: UpdateTimestamp;
@@ -102,5 +88,4 @@ export interface UpdateCheckRequest {
 
 export interface UpdateApplyRequest {
   channel: UpdateChannel;
-  target_token: string;
 }

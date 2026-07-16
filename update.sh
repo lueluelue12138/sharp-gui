@@ -4,8 +4,6 @@
 #   ./update.sh --channel stable --check
 #   ./update.sh --channel stable
 #   ./update.sh --channel latest
-#   ./update.sh --rollback
-# Legacy --pre is accepted as an alias for --channel latest.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

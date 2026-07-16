@@ -165,7 +165,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | **🥽 VR/AR 预览**   | WebXR VR 模式 + AR 透视模式 (Passthrough)，Quest 3/Pro 等头显沉浸式体验，手柄摇杆 + AR 触摸手势                                                   |
 | **📤 零门槛分享**   | 一键导出为 Spark 2.0 版独立 HTML 文件，默认嵌入 SPZ 紧凑模型，双击即可在任何浏览器打开                                                            |
 | **🎮 GPU 加速**     | 自动检测 NVIDIA GPU，智能匹配 CUDA 版本的 PyTorch（cu118 / cu126 / cu128），显著加速推理                                                          |
-| **🔄 安全自更新**   | Settings 显示正式版本与精确提交，支持 Stable / Latest 检查、兼容代码更新和一键回滚；便携包无需系统 Git                                           |
+| **🔄 安全自更新**   | Settings 显示正式版本与精确提交，支持 Stable / Latest 检查和兼容代码一键更新；失败时自动恢复，便携包无需系统 Git                                  |
 | **🔐 安全与隐私**   | 数据完全本地化、自签名 SSL 一键生成、可选局域网门禁（HttpOnly Cookie + 访问码 + 抗暴力猜测）                                                      |
 | **🚀 一键部署运行** | 自动配置 Python/Git 环境、下载依赖、预下载模型、生成 HTTPS 证书、骨架屏加载进度，开箱即用                                                        |
 
@@ -397,38 +397,30 @@ run.bat           # Windows
 
 ### 版本与更新
 
-打开 **Settings → 版本与更新** 可以查看当前正式版本基线、精确 Git 提交和所在通道。例如正式版显示 `vX.Y.Z`，位于正式版之后的 Latest 提交显示 `vX.Y.Z + N commits (abcdefg)`。本机 owner 可以检查更新、选择通道、确认安装或回滚：
+在 **Settings** 底部打开“应用更新”，即可查看当前版本、选择通道、检查并安装更新。更新时应用会自动重启；如果新版本验证失败，会自动恢复上一版本。
 
-- **Stable（推荐）**：最新已发布、非预发布的正式 [GitHub Release](https://github.com/lueluelue12138/sharp-gui/releases/latest)。
-- **Latest**：仓库 `main` 分支当前的**精确提交**，可更早获得 hotfix，但测试程度低于 Stable。
+- **Stable（推荐）**：仓库中版本号最高的正式 `vX.Y.Z` 标签。
+- **Latest**：`main` 分支的最新提交，可更早获得 hotfix，但测试程度低于 Stable。
 
-UI 与命令行使用相同的兼容性检查和事务流程：
+便携包会使用包内 Python 和 Git；干净且位于 `main` 的源码安装也可使用。代码更新会保留 workspace、模型、配置和 Python/CUDA 等大型运行环境；如目标版本需要更换运行环境，应用会提示下载新的完整便携包。`v1.3.0` 及更早便携包需要先升级到包含新更新系统的完整包。
+
+不熟悉命令行时直接使用 Settings 即可；脚本提供等价操作：
 
 ```bash
-# Linux / macOS：只检查 Stable 或 Latest
+# Linux / macOS
 ./update.sh --channel stable --check
-./update.sh --channel latest --check
-
-# 应用对应通道的已验证目标（会要求安全前置条件全部通过）
 ./update.sh --channel stable
-./update.sh --channel latest
-
-# 回滚到更新前记录的上一提交
-./update.sh --rollback
 ```
 
 ```bat
-:: Windows（完整便携包优先使用包内 Python 与 MinGit）
+:: Windows
 update.bat --channel stable --check
-update.bat --channel latest --check
 update.bat --channel stable
-update.bat --channel latest
-update.bat --rollback
 ```
 
-代码更新只替换受 Git 管理的 Sharp GUI 应用文件，并保留嵌入式 Python、PyTorch/CUDA、`.video-reconstruction-env/`、模型与模型缓存、所有 workspace 数据、`config.json`、证书、日志、包元数据和 `.sharp-gui-tools/`。若目标的 portable runtime revision 与当前包不一致，或兼容清单/已构建前端不满足要求，更新会在改动文件前停止并提示下载新的完整便携包。
+将 `stable` 换成 `latest` 即可检查或安装 Latest。开发分支或存在本地代码修改时，请继续使用正常 Git 工作流。
 
-为避免破坏正在进行的工作，存在运行/等待中的生成任务、受管源码有本地修改，或源码安装位于非 `main` 开发分支时，自动更新和回滚都会被阻止。更新在独立进程中应用精确提交并做健康检查；若 checkout 或验证失败，会自动恢复并验证上一提交后重启。Settings 中的检查、安装和回滚仅允许真实 localhost owner 操作。
+开发与维护细节见中文文档：[自更新系统开发规范](.agents/rules/self-update.md)。
 
 ### 卸载
 
@@ -788,7 +780,7 @@ sharp-gui/
 ├── 📄 update.sh/bat          # 自动更新脚本
 ├── 📄 update-manifest.json   # 更新协议、便携运行时 revision 与目标兼容性契约
 ├── 📄 release.sh/bat         # 发布打包脚本
-├── 📁 .sharp-gui-update/     # 本机更新状态、缓存、锁与诊断（运行时生成）
+├── 📁 .sharp-gui-update/     # 本机更新状态、操作锁与诊断（运行时生成）
 ├── 📁 .sharp-gui-tools/      # 便携包自带工具（含校验过的 MinGit）
 ├── 📁 tools/                 # 工具脚本
 │   ├── 📄 generate_cert.py   # SSL 证书生成工具

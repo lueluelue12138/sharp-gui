@@ -1,10 +1,8 @@
 import copy
 import json
-import os
 import shutil
 import subprocess
 import threading
-import time
 
 import pytest
 
@@ -107,23 +105,21 @@ def test_managed_worktree_supports_git_file_layout(tmp_path, git_executable):
     assert self_update.detect_deployment(linked, git_executable) == ("source", True)
 
 
-def test_managed_generic_release_marker_is_not_treated_as_developer_branch(tmp_path, git_executable):
-    repository = _init_repository(tmp_path / "managed-release", git_executable)
-    (repository / "version.txt").write_text("v1.2.3\n", encoding="utf-8")
-    _commit_all(repository, git_executable, "release snapshot")
-    _git(git_executable, repository, "checkout", "--detach", "HEAD")
-    _git(
-        git_executable,
-        repository,
-        "config",
-        "--local",
-        "sharp-gui.installation-kind",
-        "release",
-    )
+def test_generic_release_snapshot_is_status_only(tmp_path, git_executable):
+    (tmp_path / "version.txt").write_text("v1.2.3\n", encoding="utf-8")
+    identity = self_update.get_installed_identity(tmp_path)
 
-    assert self_update.detect_deployment(repository, git_executable) == ("release", True)
-    identity = self_update.get_installed_identity(repository)
-    self_update.assert_mutation_preconditions(self_update.default_update_state(), identity)
+    assert self_update.detect_deployment(tmp_path, git_executable) == ("release", False)
+    assert identity["display_version"] == "v1.2.3"
+    capabilities = self_update._capabilities(
+        tmp_path,
+        identity,
+        self_update.default_update_state(),
+        is_owner=True,
+    )
+    assert capabilities["can_check"] is False
+    assert capabilities["can_apply"] is False
+    assert capabilities["reason_code"] == "update_installation_unsupported"
 
 
 def test_portable_git_resolution_never_falls_back_to_system(tmp_path, monkeypatch):
@@ -262,117 +258,69 @@ def test_status_sanitization_never_exposes_paths_commands_or_private_fields(tmp_
     assert "command" not in serialized
 
 
-class _FakeGithubHttp:
-    release_sha = "1" * 40
-    latest_sha = "2" * 40
-
-    def __init__(self, manifest):
-        self.manifest = manifest
-        self.calls = []
-
-    def get_json(self, url):
-        self.calls.append(url)
-        if url.endswith("/releases/latest"):
-            return {
-                "tag_name": "v1.2.3",
-                "draft": False,
-                "prerelease": False,
-                "html_url": "https://github.com/example/releases/v1.2.3",
-            }, False
-        if url.endswith("/commits/v1.2.3"):
-            return {"sha": self.release_sha, "html_url": "https://github.com/example/release"}, False
-        if url.endswith("/commits/main"):
-            return {"sha": self.latest_sha, "html_url": "https://github.com/example/latest"}, False
-        if "/compare/v1.2.3..." in url:
-            return {"ahead_by": 3}, False
-        if "/compare/" in url:
-            return {"status": "ahead"}, False
-        raise AssertionError(f"Unexpected fake GitHub JSON URL: {url}")
-
-    def get_bytes(self, url, *, accept="application/octet-stream"):
-        self.calls.append(url)
-        if url.endswith("/update-manifest.json"):
-            return json.dumps(self.manifest).encode("utf-8"), False
-        if url.endswith("/frontend/dist/index.html"):
-            return b"<html>built</html>", False
-        raise AssertionError(f"Unexpected fake GitHub bytes URL: {url} ({accept})")
+def _build_update_remote(tmp_path, git_executable):
+    source = _init_repository(tmp_path / "source", git_executable)
+    (source / "frontend" / "dist").mkdir(parents=True)
+    (source / "frontend" / "dist" / "index.html").write_text("stable\n", encoding="utf-8")
+    (source / "update-manifest.json").write_text(json.dumps(_manifest()), encoding="utf-8")
+    (source / "version.txt").write_text("v1.2.3\n", encoding="utf-8")
+    (source / "tracked.txt").write_text("stable\n", encoding="utf-8")
+    stable_sha = _commit_all(source, git_executable, "stable")
+    _git(git_executable, source, "tag", "v1.2.3", stable_sha)
+    _git(git_executable, source, "tag", "v9.0.0-rc1", stable_sha)
+    (source / "tracked.txt").write_text("latest\n", encoding="utf-8")
+    latest_sha = _commit_all(source, git_executable, "latest")
+    remote = tmp_path / "remote.git"
+    subprocess.run(
+        [git_executable, "clone", "--bare", str(source), str(remote)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    install = tmp_path / "install"
+    subprocess.run(
+        [git_executable, "clone", str(remote), str(install)],
+        check=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    return install, remote, stable_sha, latest_sha
 
 
-@pytest.mark.parametrize(
-    ("channel", "expected_sha", "expected_ref", "expected_ahead", "expected_display"),
-    [
-        ("stable", "1" * 40, "refs/tags/v1.2.3", 0, "v1.2.3"),
-        (
-            "latest",
-            "2" * 40,
-            "refs/heads/main",
-            3,
-            "v1.2.3 + 3 commits (22222222)",
-        ),
-    ],
-)
-def test_stable_and_latest_resolver_use_fake_http_exact_targets(
+@pytest.mark.parametrize("channel", ["stable", "latest"])
+def test_stable_and_latest_resolver_use_canonical_git_refs(
     tmp_path,
     monkeypatch,
+    git_executable,
     channel,
-    expected_sha,
-    expected_ref,
-    expected_ahead,
-    expected_display,
 ):
-    fake_http = _FakeGithubHttp(_manifest())
-    monkeypatch.setattr(
-        self_update,
-        "compare_manifest_compatibility",
-        lambda *_args, **_kwargs: (True, "update_compatible"),
-    )
-    resolver = self_update.GithubTargetResolver(tmp_path, http_client=fake_http)
+    install, remote, stable_sha, latest_sha = _build_update_remote(tmp_path, git_executable)
+    monkeypatch.setattr(self_update, "CANONICAL_REPOSITORY_URL", str(remote))
+    resolver = self_update.GitTargetResolver(install, git_executable=git_executable)
 
-    candidate = resolver.resolve(channel, {"commit": "0" * 40})
+    candidate = resolver.resolve(channel, {"commit": stable_sha})
 
+    expected_sha = stable_sha if channel == "stable" else latest_sha
     assert candidate["target_sha"] == expected_sha
-    assert candidate["target_ref"] == expected_ref
-    assert candidate["commits_ahead"] == expected_ahead
-    assert candidate["display_version"] == expected_display
-    assert candidate["relation"] == "upgrade"
-    assert candidate["update_available"] is True
+    assert candidate["target_ref"] == (
+        "refs/tags/v1.2.3" if channel == "stable" else "refs/heads/main"
+    )
+    assert candidate["commits_ahead"] == (0 if channel == "stable" else 1)
+    assert candidate["relation"] == ("current" if channel == "stable" else "upgrade")
+    assert candidate["update_available"] is (channel == "latest")
     assert candidate["compatible"] is True
-    assert candidate["_target_manifest"] == _manifest()
 
 
-@pytest.mark.parametrize("error_code", ["update_check_rate_limited", "update_check_failed"])
-def test_check_returns_fresh_cached_candidate_when_resolver_fails(tmp_path, monkeypatch, error_code):
-    candidate = {
-        "channel": "latest",
-        "target_sha": "2" * 40,
-        "short_sha": "2" * 8,
-        "target_ref": "refs/heads/main",
-        "base_version": "v1.2.3",
-        "commits_ahead": 3,
-        "display_version": "v1.2.3 + 3 commits (22222222)",
-        "relation": "upgrade",
-        "update_available": True,
-        "compatible": True,
-        "compatibility_code": "update_compatible",
-        "checked_at": self_update.utc_now(),
-        "cached": False,
-        "target_token": "cached-token",
-        "expires_at": "2999-01-01T00:00:00Z",
-        "_target_manifest": _manifest(),
-    }
+def test_check_failure_clears_stale_candidate(tmp_path, monkeypatch):
+    (tmp_path / "update-manifest.json").write_text(json.dumps(_manifest()), encoding="utf-8")
     state = self_update.default_update_state()
-    state["channels"] = {"latest": candidate}
+    state["channels"] = {"latest": {"channel": "latest", "target_sha": "2" * 40}}
     self_update.save_update_state(tmp_path, state)
     monkeypatch.setattr(
         self_update,
         "get_installed_identity",
         lambda _base_dir, _state=None: {
-            "base_version": "v1.2.3",
             "commit": "0" * 40,
-            "short_commit": "0" * 8,
-            "commits_ahead": 0,
-            "display_version": "v1.2.3",
-            "channel": "stable",
             "installation_kind": "source",
             "managed": True,
             "dirty": False,
@@ -383,22 +331,24 @@ def test_check_returns_fresh_cached_candidate_when_resolver_fails(tmp_path, monk
 
     class FailingResolver:
         def resolve(self, _channel, _identity):
-            raise self_update.UpdateError(error_code, status_code=503)
+            raise self_update.UpdateError("update_check_failed", status_code=503)
 
     manager = self_update.SelfUpdateManager(
         base_dir=tmp_path,
         resolver_factory=lambda: FailingResolver(),
     )
 
-    status = manager.check("latest")
+    with pytest.raises(self_update.UpdateError) as caught:
+        manager.check("latest")
 
-    assert status["last_check_error_code"] == error_code
-    assert status["channels"]["latest"]["cached"] is True
-    assert status["channels"]["latest"]["check_error_code"] == error_code
-    assert status["channels"]["latest"]["target_sha"] == "2" * 40
+    assert caught.value.code == "update_check_failed"
+    persisted = self_update.load_update_state(tmp_path)
+    assert "latest" not in persisted["channels"]
+    assert persisted["last_check_error_code"] == "update_check_failed"
 
 
 def test_concurrent_checks_are_serialized(tmp_path, monkeypatch):
+    (tmp_path / "update-manifest.json").write_text(json.dumps(_manifest()), encoding="utf-8")
     entered = threading.Event()
     release = threading.Event()
     first_result = []
@@ -416,9 +366,6 @@ def test_concurrent_checks_are_serialized(tmp_path, monkeypatch):
         "compatible": True,
         "compatibility_code": "update_compatible",
         "checked_at": self_update.utc_now(),
-        "cached": False,
-        "target_token": "token",
-        "expires_at": "2999-01-01T00:00:00Z",
         "_target_manifest": _manifest(),
     }
     monkeypatch.setattr(
@@ -534,7 +481,7 @@ def test_mutation_preconditions_block_unsafe_states(
     assert caught.value.code == expected_code
 
 
-def test_start_apply_rejects_expired_or_mismatched_target_token(tmp_path, monkeypatch):
+def test_start_apply_requires_a_recent_checked_candidate(tmp_path, monkeypatch):
     candidate = {
         "channel": "latest",
         "target_sha": "2" * 40,
@@ -542,8 +489,7 @@ def test_start_apply_rejects_expired_or_mismatched_target_token(tmp_path, monkey
         "base_version": "v1.2.3",
         "update_available": True,
         "compatible": True,
-        "target_token": "trusted-token",
-        "expires_at": "2000-01-01T00:00:00Z",
+        "checked_at": "2000-01-01T00:00:00Z",
         "_target_manifest": _manifest(),
     }
     state = self_update.default_update_state()
@@ -566,12 +512,16 @@ def test_start_apply_rejects_expired_or_mismatched_target_token(tmp_path, monkey
         process_factory=lambda *_args, **_kwargs: pytest.fail("expired target spawned helper"),
     )
 
-    with pytest.raises(self_update.UpdateError) as mismatched:
-        manager.start_apply("latest", "wrong-token")
-    assert mismatched.value.code == "update_target_untrusted"
+    state["channels"] = {}
+    self_update.save_update_state(tmp_path, state)
+    with pytest.raises(self_update.UpdateError) as missing:
+        manager.start_apply("latest")
+    assert missing.value.code == "update_target_untrusted"
 
+    state["channels"] = {"latest": candidate}
+    self_update.save_update_state(tmp_path, state)
     with pytest.raises(self_update.UpdateError) as expired:
-        manager.start_apply("latest", "trusted-token")
+        manager.start_apply("latest")
     assert expired.value.code == "update_target_expired"
 
 
@@ -585,8 +535,7 @@ def _trusted_cli_candidate():
         "base_version": "v1.2.3",
         "update_available": True,
         "compatible": True,
-        "target_token": "trusted-token",
-        "expires_at": "2999-01-01T00:00:00Z",
+        "checked_at": self_update.utc_now(),
         "_target_manifest": _manifest(),
     }
 
@@ -757,7 +706,6 @@ def test_failed_reset_after_partial_mutation_is_rolled_back(tmp_path, monkeypatc
         "short_previous_sha": previous_sha[:8],
         "error_code": None,
         "rolled_back": False,
-        "rollback_available": False,
         "started_at": self_update.utc_now(),
         "updated_at": self_update.utc_now(),
         "_server_pid": None,
@@ -829,24 +777,6 @@ def test_failed_reset_after_partial_mutation_is_rolled_back(tmp_path, monkeypatc
     assert failed["rolled_back"] is True
 
 
-def test_frontend_network_error_is_not_reported_as_missing_build(tmp_path):
-    class FrontendNetworkFailure(_FakeGithubHttp):
-        def get_bytes(self, url, *, accept="application/octet-stream"):
-            if url.endswith("/frontend/dist/index.html"):
-                raise self_update.UpdateError("update_check_failed", status_code=503)
-            return super().get_bytes(url, accept=accept)
-
-    resolver = self_update.GithubTargetResolver(
-        tmp_path,
-        http_client=FrontendNetworkFailure(_manifest()),
-    )
-
-    with pytest.raises(self_update.UpdateError) as caught:
-        resolver.resolve("latest", {"commit": "0" * 40})
-
-    assert caught.value.code == "update_check_failed"
-
-
 def test_reconcile_verifies_target_before_marking_restart_complete(tmp_path, monkeypatch):
     previous_sha = "1" * 40
     target_sha = "2" * 40
@@ -888,203 +818,4 @@ def test_reconcile_verifies_target_before_marking_restart_complete(tmp_path, mon
     status = self_update.SelfUpdateManager(base_dir=tmp_path).status(is_owner=True)
 
     assert verified == [(str(tmp_path.resolve()), target_sha)]
-    assert status["operation"]["phase"] == "completed"
-
-
-def _transaction_operation(operation_id, previous_sha, target_sha):
-    return {
-        "id": operation_id,
-        "action": "apply",
-        "phase": "queued",
-        "progress": 0,
-        "channel": "latest",
-        "target_sha": target_sha,
-        "short_target_sha": target_sha[:8],
-        "target_ref": "refs/heads/main",
-        "target_manifest": _manifest(),
-        "base_version": "v1.2.3",
-        "previous_sha": previous_sha,
-        "short_previous_sha": previous_sha[:8],
-        "error_code": None,
-        "rolled_back": False,
-        "rollback_available": False,
-        "started_at": self_update.utc_now(),
-        "updated_at": self_update.utc_now(),
-        "_server_pid": None,
-    }
-
-
-def _mock_relaunch_transaction(monkeypatch, current, resets, verifications):
-    monkeypatch.setattr(self_update, "resolve_git_executable", lambda _base_dir: "git")
-    monkeypatch.setattr(
-        self_update,
-        "get_installed_identity",
-        lambda *_args, **_kwargs: {
-            "installation_kind": "portable",
-            "managed": True,
-            "dirty": False,
-            "branch": None,
-        },
-    )
-    monkeypatch.setattr(self_update, "is_managed_worktree", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(self_update, "tracked_worktree_dirty", lambda *_args, **_kwargs: False)
-    monkeypatch.setattr(self_update, "_git_value", lambda *_args, **_kwargs: current["sha"])
-    monkeypatch.setattr(self_update, "_fetch_exact_target", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(self_update, "manifest_from_git", lambda *_args, **_kwargs: _manifest())
-    monkeypatch.setattr(self_update, "git_path_exists", lambda *_args, **_kwargs: True)
-    monkeypatch.setattr(
-        self_update,
-        "compare_manifest_compatibility",
-        lambda *_args, **_kwargs: (True, "update_compatible"),
-    )
-    monkeypatch.setattr(self_update, "target_tracks_protected_runtime", lambda *_args, **_kwargs: False)
-
-    def fake_run_git(_base_dir, arguments, **_kwargs):
-        if arguments[:2] == ["reset", "--hard"]:
-            current["sha"] = arguments[2]
-            resets.append(arguments[2])
-        return subprocess.CompletedProcess(["git", *arguments], 0, "", "")
-
-    def fake_verify(_base_dir, expected_sha, **_kwargs):
-        verifications.append(expected_sha)
-        assert current["sha"] == expected_sha
-        return True
-
-    monkeypatch.setattr(self_update, "run_git", fake_run_git)
-    monkeypatch.setattr(self_update, "verify_checked_out_revision", fake_verify)
-
-
-def test_restart_health_failure_rolls_back_and_restarts_previous_revision(tmp_path, monkeypatch):
-    previous_sha = "1" * 40
-    target_sha = "2" * 40
-    operation_id = "restart-failure"
-    state = self_update.default_update_state()
-    state["operation"] = _transaction_operation(operation_id, previous_sha, target_sha)
-    self_update.save_update_state(tmp_path, state)
-    current = {"sha": previous_sha}
-    resets = []
-    verifications = []
-    _mock_relaunch_transaction(monkeypatch, current, resets, verifications)
-
-    launched = []
-    terminated = []
-    health_checks = []
-
-    def fake_launch(_base_dir):
-        process = object()
-        launched.append(process)
-        return process
-
-    def fake_health(_process, expected_sha, **kwargs):
-        health_checks.append((expected_sha, kwargs.get("fail_on_operation_error", True)))
-        return expected_sha == previous_sha
-
-    monkeypatch.setattr(self_update, "launch_application", fake_launch)
-    monkeypatch.setattr(self_update, "wait_for_application_health", fake_health)
-    monkeypatch.setattr(self_update, "terminate_application_process", terminated.append)
-
-    assert self_update.run_update_operation(
-        tmp_path,
-        operation_id,
-        wait_for_server=False,
-        relaunch=True,
-    ) is False
-    assert resets == [target_sha, previous_sha]
-    assert verifications == [target_sha, previous_sha]
-    assert health_checks == [(target_sha, True), (previous_sha, False)]
-    assert len(launched) == 2
-    assert terminated == [launched[0]]
-    final = self_update.load_update_state(tmp_path)["operation"]
-    assert final["phase"] == "failed"
-    assert final["error_code"] == "update_restart_failed"
-    assert final["rolled_back"] is True
-    assert current["sha"] == previous_sha
-
-
-def test_update_completes_only_after_target_health_succeeds(tmp_path, monkeypatch):
-    previous_sha = "1" * 40
-    target_sha = "2" * 40
-    operation_id = "restart-success"
-    state = self_update.default_update_state()
-    state["operation"] = _transaction_operation(operation_id, previous_sha, target_sha)
-    self_update.save_update_state(tmp_path, state)
-    current = {"sha": previous_sha}
-    resets = []
-    verifications = []
-    _mock_relaunch_transaction(monkeypatch, current, resets, verifications)
-    process = object()
-    monkeypatch.setattr(self_update, "launch_application", lambda _base_dir: process)
-    monkeypatch.setattr(
-        self_update,
-        "wait_for_application_health",
-        lambda actual_process, expected_sha, **_kwargs: actual_process is process and expected_sha == target_sha,
-    )
-    monkeypatch.setattr(
-        self_update,
-        "terminate_application_process",
-        lambda _process: pytest.fail("healthy process must not be terminated"),
-    )
-
-    assert self_update.run_update_operation(
-        tmp_path,
-        operation_id,
-        wait_for_server=False,
-        relaunch=True,
-    ) is True
-    assert resets == [target_sha]
-    assert verifications == [target_sha]
-    final = self_update.load_update_state(tmp_path)["operation"]
-    assert final["phase"] == "completed"
-    assert final["progress"] == 100
-    assert final["rollback_available"] is True
-
-
-def test_operation_lock_preserves_fresh_empty_file_and_reclaims_stale_one(tmp_path):
-    lock_path = tmp_path / self_update.STATE_DIR_NAME / self_update.LOCK_FILE_NAME
-    lock_path.parent.mkdir(parents=True)
-    lock_path.write_bytes(b"")
-
-    with pytest.raises(self_update.UpdateError) as caught:
-        with self_update.operation_lock(tmp_path, "contender"):
-            pytest.fail("fresh initializing lock must not be acquired")
-    assert caught.value.code == "update_in_progress"
-    assert lock_path.is_file()
-
-    stale_time = time.time() - self_update.LOCK_INITIALIZATION_GRACE_SECONDS - 1
-    os.utime(lock_path, (stale_time, stale_time))
-    with self_update.operation_lock(tmp_path, "recovered"):
-        payload = json.loads(lock_path.read_text(encoding="utf-8"))
-        assert payload["operation_id"] == "recovered"
-    assert not lock_path.exists()
-
-
-def test_reconcile_invalid_timestamp_reverifies_target_even_with_live_pid(tmp_path, monkeypatch):
-    previous_sha = "1" * 40
-    target_sha = "2" * 40
-    state = self_update.default_update_state()
-    operation = _transaction_operation("invalid-timestamp", previous_sha, target_sha)
-    operation.update({"phase": "applying", "updated_at": "not-a-timestamp", "_helper_pid": os.getpid()})
-    state["operation"] = operation
-    self_update.save_update_state(tmp_path, state)
-    monkeypatch.setattr(
-        self_update,
-        "get_installed_identity",
-        lambda *_args, **_kwargs: {
-            "commit": target_sha,
-            "installation_kind": "portable",
-            "managed": True,
-            "dirty": False,
-            "git_version": "git version 2.45.1",
-        },
-    )
-    verified = []
-    monkeypatch.setattr(
-        self_update,
-        "verify_checked_out_revision",
-        lambda _base_dir, expected_sha, **_kwargs: verified.append(expected_sha) or True,
-    )
-
-    status = self_update.SelfUpdateManager(base_dir=tmp_path).status(is_owner=True)
-
-    assert verified == [target_sha]
     assert status["operation"]["phase"] == "completed"

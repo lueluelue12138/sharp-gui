@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""Safe command-line entry point for Sharp GUI code updates.
-
-Stable means the latest published GitHub Release. Latest means the exact head
-of the canonical ``main`` branch. Large Python/CUDA/video runtimes are never
-changed by this command; incompatible targets require a complete package.
-"""
+"""Safe command-line entry point for Sharp GUI code updates."""
 
 from __future__ import annotations
 
 import argparse
 import os
-import re
 import socket
 import sys
 from pathlib import Path
@@ -27,29 +21,22 @@ from backend.services.self_update import (  # noqa: E402
     get_installed_identity,
     load_update_state,
     prepare_cli_operation,
-    prepare_cli_rollback,
     run_update_operation,
 )
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
-        description="Check, apply, or roll back a verified Sharp GUI code update.",
+        description="Check or apply a verified Sharp GUI code update.",
     )
     parser.add_argument(
         "--channel",
         choices=("stable", "latest"),
         default="stable",
-        help="stable = latest formal Release; latest = current main commit",
+        help="stable = highest formal vX.Y.Z tag; latest = current main commit",
     )
     parser.add_argument("--check", action="store_true", help="check only; do not modify files")
-    parser.add_argument("--rollback", action="store_true", help="restore the recorded previous commit")
     parser.add_argument("--yes", "-y", action="store_true", help="apply without an interactive confirmation")
-    parser.add_argument(
-        "--pre",
-        action="store_true",
-        help=argparse.SUPPRESS,
-    )
     parser.add_argument("--internal-run", metavar="OPERATION_ID", help=argparse.SUPPRESS)
     return parser
 
@@ -67,8 +54,6 @@ def print_candidate(candidate):
     print(f"Target commit:   {candidate['short_sha']}")
     print(f"Relationship:    {candidate['relation']}")
     print(f"Compatibility:   {candidate['compatibility_code']}")
-    if candidate.get("cached"):
-        print(f"Check source:    cached ({candidate.get('check_error_code') or 'network unavailable'})")
 
 
 def local_server_is_running():
@@ -111,9 +96,7 @@ def run_cli(args):
     if args.internal_run:
         return 0 if run_update_operation(BASE_DIR, args.internal_run) else 1
 
-    channel = "latest" if args.pre else args.channel
-    if args.pre:
-        print("Note: legacy --pre now selects the Latest (main commit) channel.")
+    channel = args.channel
 
     manager = SelfUpdateManager(base_dir=BASE_DIR)
     # Reconcile a previously interrupted terminal/restart state before deciding
@@ -135,24 +118,6 @@ def run_cli(args):
 
     identity = get_installed_identity(BASE_DIR, state)
     print_identity(identity)
-
-    if args.rollback:
-        if local_server_is_running():
-            raise UpdateError("update_server_running")
-        previous = state.get("operation") or {}
-        rollback_target = previous.get("previous_sha") if previous.get("rollback_available") else None
-        if not isinstance(rollback_target, str) or not re.fullmatch(r"[0-9a-f]{40}", rollback_target):
-            raise UpdateError("update_rollback_unavailable")
-        if not args.yes and not confirm(
-            f"Roll back to {rollback_target[:8]}?"
-        ):
-            print("Rollback cancelled.")
-            return 0
-        operation = prepare_cli_rollback(BASE_DIR)
-        print("Rolling back with the same compatibility and verification checks...")
-        success = run_update_operation(BASE_DIR, operation["id"], wait_for_server=False, relaunch=False)
-        print("Rollback completed." if success else "Rollback failed; see the stable error code above/status file.")
-        return 0 if success else 1
 
     candidate = checked_candidate(manager, channel)
     print_candidate(candidate)

@@ -21,33 +21,33 @@ The system SHALL expose a structured installed identity containing the formal re
 
 ### Requirement: The system SHALL provide stable and latest update channels
 
-The system SHALL define Stable as the latest published non-prerelease GitHub Release tag and Latest as the canonical `main` branch head, and SHALL return the exact resolved target revision, user-facing version identity, relationship to the installed revision, and channel risk/availability state.
+The system SHALL define Stable as the highest canonical formal release tag matching `vX.Y.Z` and Latest as the canonical `main` branch head, and SHALL return the exact resolved target revision, user-facing version identity, relationship to the installed revision, and channel risk/availability state.
 
 #### Scenario: Owner checks Stable
 - **WHEN** the owner requests a Stable channel check
-- **THEN** the system SHALL resolve the latest published formal Release tag and its commit
-- **AND** draft or prerelease releases MUST NOT be selected
+- **THEN** the system SHALL resolve the highest canonical formal `vX.Y.Z` tag and its commit
+- **AND** prerelease-shaped tags MUST NOT be selected
 
 #### Scenario: Owner checks Latest
 - **WHEN** the owner requests a Latest channel check
 - **THEN** the system SHALL resolve the canonical `main` head
 - **AND** it SHALL report the formal release baseline and commits-ahead count when that relationship is known
 
-#### Scenario: Check service is unavailable or rate-limited
-- **WHEN** the trusted update source cannot be reached or reports a rate limit
-- **THEN** the system SHALL return a stable localized error state and any explicitly marked cached result
+#### Scenario: Check service is unavailable
+- **WHEN** the trusted Git update source cannot be reached
+- **THEN** the system SHALL return a stable localized error state
 - **AND** it MUST NOT report that the installation is up to date solely because the check failed
 
 ### Requirement: Update mutation SHALL be restricted to the localhost owner
 
-The system MUST explicitly classify checking, applying, switching channels, and rollback as Owner operations in the centralized access-control matrix. Read-only sanitized current update status MAY be available to Unlocked clients, but no remote session or client-controlled forwarding header may authorize executable-code mutation or restart.
+The system MUST explicitly classify checking and applying updates as Owner operations in the centralized access-control matrix. Read-only sanitized current update status MAY be available to Unlocked clients, but no remote session or client-controlled forwarding header may authorize executable-code mutation or restart.
 
 #### Scenario: Local owner checks or applies an update
-- **WHEN** a real localhost owner submits a valid check, apply, or rollback request
+- **WHEN** a real localhost owner submits a valid check or apply request
 - **THEN** the system SHALL process the request subject to update preconditions
 
 #### Scenario: Authenticated remote client attempts an update
-- **WHEN** an authenticated non-local client submits check, apply, or rollback
+- **WHEN** an authenticated non-local client submits check or apply
 - **THEN** the system MUST reject the request as owner-only
 - **AND** it MUST NOT fetch an apply target, alter files, or stop the server
 
@@ -73,6 +73,19 @@ Every automatically applicable target MUST provide recognized update metadata de
 - **THEN** the system MUST treat the target as incompatible
 - **AND** it MUST NOT infer safety from the changed file list alone
 
+### Requirement: CI SHALL guard portable runtime revision discipline
+
+CI SHALL compare runtime-sensitive dependency, installer, and portable-builder changes with `portableRuntimeRevision`, while allowing ordinary tracked application source and built-frontend file changes without a revision bump.
+
+#### Scenario: Application files are added, removed, renamed, or refactored
+- **WHEN** a change only modifies tracked backend source, frontend source, or built frontend assets
+- **THEN** the compatibility guard SHALL pass without requiring a portable runtime revision bump
+
+#### Scenario: A runtime-sensitive input changes
+- **WHEN** a dependency manifest, runtime installer, or portable-package builder changes
+- **THEN** CI MUST fail unless the target `portableRuntimeRevision` is a positive integer greater than the base revision
+- **AND** the failure SHALL list the triggering paths and explain that a new complete portable package is required
+
 ### Requirement: Update apply SHALL be transactional and recoverable
 
 The system SHALL apply an exact trusted Git revision outside the serving process, persist progress across restart, verify the target before reporting success, and automatically restore the previously installed commit when checkout or verification fails.
@@ -90,24 +103,20 @@ The system SHALL apply an exact trusted Git revision outside the serving process
 #### Scenario: Update process is interrupted
 - **WHEN** the service or updater starts with an operation recorded in a non-terminal phase
 - **THEN** the system SHALL reconcile the actual installed revision with the recorded previous/target revisions
-- **AND** it MUST recover or offer rollback before allowing another apply
-
-#### Scenario: Owner requests rollback
-- **WHEN** a previous successful revision remains available and the owner confirms rollback
-- **THEN** the system SHALL apply and verify that recorded revision using the same transactional lifecycle
+- **AND** it MUST reconcile or recover before allowing another apply
 
 ### Requirement: Update preconditions MUST protect active work and local modifications
 
-The system MUST serialize update operations and reject apply or rollback while generation tasks are active, another update owns the operation lock, the checked target is stale/untrusted, or tracked application files contain local modifications.
+The system MUST serialize update operations and reject apply while generation tasks are active, another update owns the operation lock, the checked target is stale/untrusted, or tracked application files contain local modifications.
 
 #### Scenario: Generation task is active
 - **WHEN** any image or video generation task is pending, running, or processing
-- **THEN** apply/rollback MUST be rejected with an active-task reason
+- **THEN** apply MUST be rejected with an active-task reason
 - **AND** the generation task MUST NOT be interrupted by the updater
 
 #### Scenario: Managed worktree is dirty
 - **WHEN** a tracked application file differs from the installed commit
-- **THEN** automatic apply/rollback MUST be rejected without resetting the modification
+- **THEN** automatic apply MUST be rejected without resetting the modification
 - **AND** the user SHALL receive a safe localized explanation
 
 #### Scenario: Concurrent update is requested
@@ -116,7 +125,7 @@ The system MUST serialize update operations and reject apply or rollback while g
 
 ### Requirement: Code updates MUST preserve user and package runtime state
 
-Automatic code update and rollback MUST leave project configuration, certificates, logs, workspace inputs/outputs/model assets/indexes/caches, model cache, embedded Python/CUDA dependencies, bundled Git, package metadata, and optional video-reconstruction runtime outside the managed checkout and unchanged.
+Automatic code update and failure recovery MUST leave project configuration, certificates, logs, workspace inputs/outputs/model assets/indexes/caches, model cache, embedded Python/CUDA dependencies, bundled Git, package metadata, and optional video-reconstruction runtime outside the managed checkout and unchanged.
 
 #### Scenario: Portable user has workspace and runtime data
 - **WHEN** a compatible update changes, deletes, and renames tracked application files
@@ -129,7 +138,7 @@ Automatic code update and rollback MUST leave project configuration, certificate
 
 ### Requirement: The Update Center SHALL provide localized, accessible progress and confirmation
 
-React Settings SHALL present current version, installed/target channel, check time, update availability, compatibility, and operation stages using synchronized English and Chinese resources. Apply, stable downgrade, and rollback MUST require confirmation; active operations MUST expose semantic status/progress, survive expected reconnect failures, and prevent duplicate actions.
+React Settings SHALL present current version, installed/target channel, check time, update availability, compatibility, and operation stages using synchronized English and Chinese resources. Apply and stable downgrade MUST require confirmation; active operations MUST expose semantic status/progress, survive expected reconnect failures, and prevent duplicate actions.
 
 #### Scenario: User opens Settings
 - **WHEN** Settings opens on an authorized device
@@ -145,9 +154,14 @@ React Settings SHALL present current version, installed/target channel, check ti
 - **WHEN** the Update Center is used with reduced motion, keyboard focus, or a narrow touch viewport
 - **THEN** controls, focus states, progress, status, and confirmations SHALL remain perceivable and operable without motion-only or hover-only meaning
 
+#### Scenario: Multiple conditions block an update
+- **WHEN** the current installation and the selected target each have an unmet update condition
+- **THEN** the UI SHALL list every blocker separately and identify whether it belongs to the current installation, target, or check operation
+- **AND** developer-branch and missing-manifest blockers SHALL name the current/default branch, selected channel, required `update-manifest.json` file, and an actionable recovery path without exposing server filesystem paths
+
 ### Requirement: Command-line update entry points SHALL use the same safety model
 
-`update.sh` and `update.bat` SHALL support Stable and Latest checks/applies through the same version, compatibility, target validation, transaction, and rollback rules as the UI. The Windows entry point SHALL prefer package-local portable Python before virtual-environment or system Python.
+`update.sh` and `update.bat` SHALL support Stable and Latest checks/applies through the same version, compatibility, target validation, transaction, and automatic failure rollback rules as the UI. The Windows entry point SHALL prefer package-local portable Python before virtual-environment or system Python.
 
 #### Scenario: Portable user runs update.bat without system tools
 - **WHEN** a new Windows portable package user runs `update.bat` on a machine without system Python or Git
