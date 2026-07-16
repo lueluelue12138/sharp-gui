@@ -1,6 +1,7 @@
 ﻿param(
     [string]$Version = "",
     [string]$OutputDir = "",
+    [string]$MinGitCacheDir = "",
     [int]$CompressionLevel = 1,
     [switch]$PlanOnly,
     [switch]$AllowLocalVersion,
@@ -13,6 +14,16 @@
 )
 
 $ErrorActionPreference = "Stop"
+
+$script:CanonicalRepository = "https://github.com/lueluelue12138/sharp-gui.git"
+$script:MinGitVersion = "2.55.0.windows.3"
+$script:MinGitReleaseTag = "v2.55.0.windows.3"
+$script:MinGitAssetName = "MinGit-2.55.0.3-64-bit.zip"
+$script:MinGitSha256 = "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05"
+$script:MinGitUrl = "https://github.com/git-for-windows/git/releases/download/$($script:MinGitReleaseTag)/$($script:MinGitAssetName)"
+$script:MinGitExecutableRelativePath = ".sharp-gui-tools\git\cmd\git.exe"
+$script:SupportedManifestSchemaVersion = 1
+$script:SupportedUpdateProtocolRevision = 1
 
 function Write-Step {
     param([string]$Message)
@@ -29,6 +40,248 @@ function Fail {
     param([string]$Message)
     Write-Host "[错误] $Message" -ForegroundColor Red
     exit 1
+}
+
+function Get-RequiredObjectPropertyValue {
+    param(
+        [object]$Object,
+        [string]$Name,
+        [string]$Context
+    )
+
+    if ($null -eq $Object) {
+        Fail "update-manifest.json 缺少必填对象: $Context"
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+    if (-not $property -or $null -eq $property.Value) {
+        Fail "update-manifest.json 缺少必填字段: $Context.$Name"
+    }
+
+    return $property.Value
+}
+
+function Test-VersionAtLeast {
+    param(
+        [string]$Actual,
+        [string]$Minimum
+    )
+
+    if ($Actual -notmatch '^(\d+)\.(\d+)\.(\d+)') {
+        return $false
+    }
+    $actualVersion = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $Matches[3])
+
+    if ($Minimum -notmatch '^(\d+)\.(\d+)\.(\d+)') {
+        return $false
+    }
+    $minimumVersion = [version]("{0}.{1}.{2}" -f $Matches[1], $Matches[2], $Matches[3])
+    return $actualVersion -ge $minimumVersion
+}
+
+function Get-SourceVersion {
+    param(
+        [string]$Root,
+        [string]$SourceRevision
+    )
+
+    $versionSpec = "{0}:version.txt" -f $SourceRevision
+    try {
+        $raw = @(& git -C $Root show --no-ext-diff --no-textconv $versionSpec 2>$null)
+        $exitCode = $LASTEXITCODE
+    } catch {
+        Fail "无法读取 source revision 的 version.txt: $($_.Exception.Message)"
+    }
+
+    $sourceVersion = ([string]($raw | Select-Object -First 1)).Trim()
+    if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($sourceVersion)) {
+        Fail "source revision $SourceRevision 缺少有效的 version.txt"
+    }
+    return ($sourceVersion -replace '^refs/tags/', '')
+}
+
+function Get-CommitsAhead {
+    param(
+        [string]$Root,
+        [string]$ReleaseBaseline,
+        [string]$SourceRevision
+    )
+
+    $range = "{0}..{1}" -f $ReleaseBaseline, $SourceRevision
+    try {
+        $raw = @(& git -C $Root rev-list --count $range 2>$null)
+        $exitCode = $LASTEXITCODE
+    } catch {
+        return $null
+    }
+
+    $value = ([string]($raw | Select-Object -First 1)).Trim()
+    if ($exitCode -ne 0 -or $value -notmatch '^\d+$') {
+        return $null
+    }
+    return [int]$value
+}
+
+function Get-PortableUpdateContext {
+    param(
+        [string]$Root,
+        [string]$Version,
+        [bool]$AllowVersionMismatch
+    )
+
+    try {
+        $raw = @(& git -C $Root rev-parse --verify HEAD 2>$null)
+        $exitCode = $LASTEXITCODE
+        $sourceRevision = ([string]($raw | Select-Object -First 1)).Trim().ToLowerInvariant()
+        if ($exitCode -ne 0 -or $sourceRevision -notmatch '^[0-9a-f]{40}$') {
+            Fail "无法解析当前 Sharp GUI 源代码的 exact Git SHA"
+        }
+    } catch {
+        Fail "无法解析当前 Sharp GUI 源代码 revision: $($_.Exception.Message)"
+    }
+
+    $sourceVersion = Get-SourceVersion -Root $Root -SourceRevision $sourceRevision
+    if ($sourceVersion -ne $Version) {
+        if (-not $AllowVersionMismatch) {
+            Fail "source revision 的 version.txt ($sourceVersion) 与 -Version ($Version) 不一致"
+        }
+        Write-Info "本地测试版本标签 '$Version' 与 source version '$sourceVersion' 不同；元数据仍以 source version 为准。"
+    }
+
+    $releaseBaseline = $sourceVersion
+    try {
+        $raw = @(& git -C $Root describe --tags --abbrev=0 $sourceRevision 2>$null)
+        $exitCode = $LASTEXITCODE
+        $tag = ([string]($raw | Select-Object -First 1)).Trim()
+        if ($exitCode -eq 0 -and $tag -match '^v\d+\.\d+\.\d+([.-](rc|alpha|beta|preview)\.?\d*)?$') {
+            $releaseBaseline = $tag
+        }
+    } catch {
+    }
+    $commitsAhead = Get-CommitsAhead -Root $Root -ReleaseBaseline $releaseBaseline -SourceRevision $sourceRevision
+
+    $manifestPath = Join-Path $Root "update-manifest.json"
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
+        Fail "缺少 update-manifest.json，无法确定便携包更新兼容边界"
+    }
+    try {
+        $manifest = Get-Content -Raw -LiteralPath $manifestPath -Encoding UTF8 | ConvertFrom-Json
+    } catch {
+        Fail "update-manifest.json 无法解析: $($_.Exception.Message)"
+    }
+
+    $schemaVersionValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "schemaVersion" -Context "manifest"
+    $application = [string](Get-RequiredObjectPropertyValue -Object $manifest -Name "application" -Context "manifest")
+    $repositoryNode = Get-RequiredObjectPropertyValue -Object $manifest -Name "repository" -Context "manifest"
+    $repository = [string](Get-RequiredObjectPropertyValue -Object $repositoryNode -Name "url" -Context "repository")
+    $defaultBranch = [string](Get-RequiredObjectPropertyValue -Object $manifest -Name "defaultBranch" -Context "manifest")
+    $protocolRevisionValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "updateProtocolRevision" -Context "manifest"
+    $runtimeRevisionValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "portableRuntimeRevision" -Context "manifest"
+    $minimumGitVersion = [string](Get-RequiredObjectPropertyValue -Object $manifest -Name "minimumGitVersion" -Context "manifest")
+    $frontendNode = Get-RequiredObjectPropertyValue -Object $manifest -Name "frontend" -Context "manifest"
+    $builtAssetsRequired = Get-RequiredObjectPropertyValue -Object $frontendNode -Name "builtAssetsRequired" -Context "frontend"
+    $frontendEntrypoint = [string](Get-RequiredObjectPropertyValue -Object $frontendNode -Name "entrypoint" -Context "frontend")
+    $supportedTargetsValue = Get-RequiredObjectPropertyValue -Object $manifest -Name "supportedPortableTargets" -Context "manifest"
+
+    if ([string]$schemaVersionValue -notmatch '^-?\d+$' -or
+        [string]$protocolRevisionValue -notmatch '^-?\d+$' -or
+        [string]$runtimeRevisionValue -notmatch '^-?\d+$') {
+        Fail "update-manifest.json 的 schema/runtime/protocol revision 必须是整数"
+    }
+    $schemaVersion = [int]$schemaVersionValue
+    $updateProtocolRevision = [int]$protocolRevisionValue
+    $portableRuntimeRevision = [int]$runtimeRevisionValue
+
+    if ($repository -ne $script:CanonicalRepository) {
+        Fail "更新兼容清单 repository 必须是官方仓库: $($script:CanonicalRepository)"
+    }
+    $supportedTargets = @($supportedTargetsValue) | ForEach-Object { ([string]$_).Trim() }
+
+    $context = [PSCustomObject]@{
+        ManifestSource = "update-manifest.json"
+        SchemaVersion = $schemaVersion
+        Application = $application
+        Repository = $repository
+        DefaultBranch = $defaultBranch
+        SourceRevision = $sourceRevision
+        SourceVersion = $sourceVersion
+        ReleaseBaseline = $releaseBaseline
+        CommitsAhead = $commitsAhead
+        PortableRuntimeRevision = $portableRuntimeRevision
+        UpdateProtocolRevision = $updateProtocolRevision
+        MinimumGitVersion = $minimumGitVersion
+        BuiltAssetsRequired = [bool]$builtAssetsRequired
+        FrontendEntrypoint = $frontendEntrypoint
+        SupportedPortableTargets = $supportedTargets
+    }
+    if ($context.SchemaVersion -ne $script:SupportedManifestSchemaVersion) {
+        Fail "不支持 update-manifest.json schemaVersion=$($context.SchemaVersion)，当前仅支持 $($script:SupportedManifestSchemaVersion)"
+    }
+    if ($context.UpdateProtocolRevision -ne $script:SupportedUpdateProtocolRevision) {
+        Fail "不支持 updateProtocolRevision=$($context.UpdateProtocolRevision)，当前仅支持 $($script:SupportedUpdateProtocolRevision)"
+    }
+    if ($context.PortableRuntimeRevision -lt 1) {
+        Fail "更新兼容清单 portableRuntimeRevision 必须为正整数"
+    }
+    if ($context.Application -ne "sharp-gui" -or $context.DefaultBranch -ne "main") {
+        Fail "更新兼容清单必须声明 application=sharp-gui 且 defaultBranch=main"
+    }
+    if (-not $context.SupportedPortableTargets -or $context.SupportedPortableTargets.Count -eq 0 -or @($context.SupportedPortableTargets | Where-Object { [string]::IsNullOrWhiteSpace($_) }).Count -gt 0) {
+        Fail "更新兼容清单未声明 supportedPortableTargets"
+    }
+    if ([string]::IsNullOrWhiteSpace($context.MinimumGitVersion)) {
+        Fail "更新兼容清单 minimumGitVersion 不能为空"
+    }
+    if ($builtAssetsRequired -isnot [bool]) {
+        Fail "更新兼容清单 frontend.builtAssetsRequired 必须是布尔值"
+    }
+    if ([string]::IsNullOrWhiteSpace($context.FrontendEntrypoint)) {
+        Fail "更新兼容清单 frontend.entrypoint 不能为空"
+    }
+    if ([System.IO.Path]::IsPathRooted($context.FrontendEntrypoint) -or $context.FrontendEntrypoint.StartsWith("/") -or (($context.FrontendEntrypoint -split '[\\/]') -contains "..")) {
+        Fail "更新兼容清单 frontend.entrypoint 必须是安全的相对路径"
+    }
+    if (-not (Test-VersionAtLeast -Actual $script:MinGitVersion -Minimum $context.MinimumGitVersion)) {
+        Fail "固定 MinGit $($script:MinGitVersion) 低于兼容清单最低版本 $($context.MinimumGitVersion)"
+    }
+    return $context
+}
+
+function Write-PortableUpdatePlanInfo {
+    param([object]$Context)
+
+    Write-Info "Source SHA: $($Context.SourceRevision)"
+    Write-Info "Source version: $($Context.SourceVersion)"
+    Write-Info "Release baseline: $($Context.ReleaseBaseline)"
+    $commitsAheadText = if ($null -eq $Context.CommitsAhead) { "unknown" } else { [string]$Context.CommitsAhead }
+    Write-Info "Commits ahead: $commitsAheadText"
+    Write-Info "兼容清单: $($Context.ManifestSource) (schema=$($Context.SchemaVersion))"
+    Write-Info "Portable runtime revision: $($Context.PortableRuntimeRevision)"
+    Write-Info "Update protocol revision: $($Context.UpdateProtocolRevision)"
+    Write-Info "Manifest minimum Git: $($Context.MinimumGitVersion)"
+    Write-Info "MinGit: $($script:MinGitReleaseTag) standard x64 / $($script:MinGitAssetName)"
+    Write-Info "MinGit URL: $($script:MinGitUrl)"
+    Write-Info "MinGit SHA256: $($script:MinGitSha256)"
+    Write-Info "MinGit executable: $($script:MinGitExecutableRelativePath)"
+}
+
+function Assert-SourceRepositoryClean {
+    param([string]$Root)
+
+    try {
+        $status = @(& git -C $Root status --porcelain=v1 --untracked-files=all)
+        $exitCode = $LASTEXITCODE
+    } catch {
+        Fail "无法检查源仓库状态: $($_.Exception.Message)"
+    }
+    if ($exitCode -ne 0) {
+        Fail "无法检查源仓库状态"
+    }
+    if ($status.Count -gt 0) {
+        Write-Host "构建源仓库存在未提交内容，拒绝生成无法对应 exact source SHA 的便携包:" -ForegroundColor Yellow
+        $status | Select-Object -First 20 | ForEach-Object { Write-Host "  $_" }
+        Fail "请先提交或移走源仓库改动后再执行真实便携包构建；-PlanOnly 不受影响。"
+    }
 }
 
 function Remove-DirectoryTree {
@@ -87,12 +340,12 @@ function Get-ReleaseVersion {
         return ($RequestedVersion.Trim() -replace "^refs/tags/", "")
     }
 
-    $versionFile = Join-Path $Root "version.txt"
-    if (Test-Path -LiteralPath $versionFile) {
-        $fromFile = (Get-Content -LiteralPath $versionFile -Encoding UTF8 | Select-Object -First 1).Trim()
-        if (-not [string]::IsNullOrWhiteSpace($fromFile)) {
-            return $fromFile
+    try {
+        $sourceRevision = ([string](& git -C $Root rev-parse --verify HEAD 2>$null | Select-Object -First 1)).Trim().ToLowerInvariant()
+        if ($LASTEXITCODE -eq 0 -and $sourceRevision -match '^[0-9a-f]{40}$') {
+            return (Get-SourceVersion -Root $Root -SourceRevision $sourceRevision)
         }
+    } catch {
     }
 
     try {
@@ -214,12 +467,15 @@ function Invoke-PackageBuild {
     param(
         [string]$Root,
         [string]$Version,
+        [string]$SourceRevision,
         [string]$Target,
         [string]$VenvDir,
         [string]$OutputDir,
+        [string]$MinGitCacheDir,
         [int]$CompressionLevel,
         [bool]$SkipFrontendBuild,
-        [bool]$PlanOnly
+        [bool]$PlanOnly,
+        [bool]$AllowLocalVersion
     )
 
     $args = @(
@@ -227,6 +483,7 @@ function Invoke-PackageBuild {
         "-ExecutionPolicy", "Bypass",
         "-File", (Join-Path $Root "tools\build_portable_package.ps1"),
         "-Version", $Version,
+        "-ExpectedSourceRevision", $SourceRevision,
         "-Target", $Target,
         "-VenvDir", $VenvDir,
         "-OutputDir", $OutputDir,
@@ -236,8 +493,14 @@ function Invoke-PackageBuild {
     if ($SkipFrontendBuild) {
         $args += "-SkipFrontendBuild"
     }
+    if (-not [string]::IsNullOrWhiteSpace($MinGitCacheDir)) {
+        $args += @("-MinGitCacheDir", $MinGitCacheDir)
+    }
     if ($PlanOnly) {
         $args += "-PlanOnly"
+    }
+    if ($AllowLocalVersion) {
+        $args += "-AllowLocalVersion"
     }
 
     & powershell @args
@@ -256,11 +519,83 @@ function Test-Archive {
     }
 }
 
+function Get-PortablePackageArchivePath {
+    param(
+        [string]$OutputDir,
+        [string]$Version,
+        [string]$Target
+    )
+
+    return Join-Path $OutputDir "sharp-gui-$Version-windows-$Target-portable.zip"
+}
+
+function Read-PortablePackageMetadata {
+    param(
+        [string]$SevenZip,
+        [string]$ZipPath
+    )
+
+    $raw = @(& $SevenZip e -so -bd -y $ZipPath "portable-package.json" 2>$null)
+    $exitCode = $LASTEXITCODE
+    $metadataText = ($raw -join "`n").TrimStart([char]0xFEFF).Trim()
+    if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($metadataText)) {
+        Fail "便携 ZIP 缺少可读取的 portable-package.json: $ZipPath"
+    }
+
+    try {
+        return $metadataText | ConvertFrom-Json
+    } catch {
+        Fail "便携 ZIP 中的 portable-package.json 无法解析: $ZipPath ($($_.Exception.Message))"
+    }
+}
+
+function Assert-PortablePackageMetadata {
+    param(
+        [object]$Metadata,
+        [string]$Target,
+        [object]$UpdateContext,
+        [string]$ZipPath
+    )
+
+    $checks = [ordered]@{
+        sourceRevision = [string]$UpdateContext.SourceRevision
+        target = $Target
+        portableRuntimeRevision = [string]$UpdateContext.PortableRuntimeRevision
+        updateProtocolRevision = [string]$UpdateContext.UpdateProtocolRevision
+    }
+    foreach ($name in $checks.Keys) {
+        $property = $Metadata.PSObject.Properties[$name]
+        if (-not $property) {
+            Fail "便携 ZIP 元数据缺少 ${name}: $ZipPath"
+        }
+        if ([string]$property.Value -ne [string]$checks[$name]) {
+            Fail "便携 ZIP 元数据 $name 不匹配: $($property.Value) != $($checks[$name]) ($ZipPath)"
+        }
+    }
+}
+
+function Assert-NoUnexpectedVersionArchives {
+    param(
+        [string]$OutputDir,
+        [string]$Version,
+        [string[]]$RequestedArchiveNames
+    )
+
+    $unexpectedArchives = @(Get-ChildItem -LiteralPath $OutputDir -File -Filter "sharp-gui-$Version-windows-*-portable.zip" -ErrorAction SilentlyContinue | Where-Object {
+        $RequestedArchiveNames -notcontains $_.Name
+    })
+    if ($unexpectedArchives.Count -gt 0) {
+        $names = ($unexpectedArchives.Name | Sort-Object) -join ", "
+        Fail "输出目录含有本次未构建的同版本旧 ZIP，拒绝混入发布结果: $names。请使用 -CleanOldArtifacts 或单独的 -OutputDir。"
+    }
+}
+
 function Write-ReleaseTemplate {
     param(
         [string]$OutputDir,
         [string]$Version,
-        [object[]]$Packages
+        [object[]]$Packages,
+        [object]$UpdateContext
     )
 
     $template = Join-Path $OutputDir "portable-release-template-$Version.md"
@@ -312,6 +647,24 @@ function Write-ReleaseTemplate {
     $lines.Add("- 需要本地视频 3DGS 重建且使用 RTX 50 系列：下载视频重建完整包。")
     $lines.Add("")
     $lines.Add("> 当前完整便携包只支持 NVIDIA GPU，不提供纯 CPU 包；视频重建完整包仅按 RTX 50 / CUDA 12.8 路线发布，不代表所有 NVIDIA GPU 都已完成验证。")
+    $lines.Add("")
+    $lines.Add("### 自更新基线与工具来源")
+    $lines.Add("")
+    $lines.Add("- Release 基线：``$($UpdateContext.ReleaseBaseline)``")
+    $commitsAheadText = if ($null -eq $UpdateContext.CommitsAhead) { "unknown" } else { [string]$UpdateContext.CommitsAhead }
+    $lines.Add("- 相对 Release 基线新增提交数：``$commitsAheadText``")
+    $lines.Add("- 源代码 revision：``$($UpdateContext.SourceRevision)``")
+    $lines.Add("- Portable runtime revision：``$($UpdateContext.PortableRuntimeRevision)``")
+    $lines.Add("- Update protocol revision：``$($UpdateContext.UpdateProtocolRevision)``")
+    $lines.Add("- 受管仓库：$($UpdateContext.Repository)")
+    $lines.Add("- 内置 Git：Git for Windows MinGit ``$($script:MinGitReleaseTag)`` standard x64")
+    $lines.Add("  - 官方资产：[$($script:MinGitAssetName)]($($script:MinGitUrl))")
+    $lines.Add("  - SHA256：``$($script:MinGitSha256)``")
+    $lines.Add('  - 包内可执行文件：`.sharp-gui-tools\git\cmd\git.exe`；完整许可证目录随 MinGit 原样保留。')
+    $lines.Add("")
+    $lines.Add("这是首批带受管 Git 基线的自更新包；更旧的便携包需要先完整下载一次本包或后续完整包。Stable 对应最新正式 Release，Latest 对应 ``main`` 最新提交且测试程度较低。自动更新只应用 runtime revision 兼容的代码并支持回滚；Python、CUDA、PyTorch、COLMAP、ffmpeg 或视频重建运行时变化时，必须重新下载完整包。")
+    $lines.Add("")
+    $lines.Add("更新会保留配置、工作区输入/输出/模型资产和索引缓存、模型缓存、包内 Python/CUDA、MinGit、更新状态及可选视频重建环境。ZIP 本身仍须按上表 SHA256 校验后再使用。")
 
     Set-Content -LiteralPath $template -Encoding UTF8 -Value ($lines -join "`r`n")
     Write-Info "Release 模板: $template"
@@ -324,8 +677,28 @@ $version = Get-ReleaseVersion -Root $root -RequestedVersion $Version
 if (-not $AllowLocalVersion -and -not (Test-VersionIsReleaseLike -Version $version)) {
     Fail "当前解析到的版本号 '$version' 不像正式发布版本。请使用 -Version vX.Y.Z，或测试时加 -AllowLocalVersion。"
 }
+$updateContext = Get-PortableUpdateContext -Root $root -Version $version -AllowVersionMismatch:$AllowLocalVersion
+$requestedTargets = @()
+if (-not $SkipCu128) { $requestedTargets += "cu128-rtx50" }
+if (-not $SkipVideoRecon) { $requestedTargets += "cu128-rtx50-video-recon" }
+if (-not $SkipCu126) { $requestedTargets += "cu126-mainstream" }
+if ($requestedTargets.Count -eq 0) {
+    Fail "至少需要选择一个便携包目标，不能同时跳过全部目标"
+}
+foreach ($requestedTarget in $requestedTargets) {
+    if (@($updateContext.SupportedPortableTargets | Where-Object { $_ -eq $requestedTarget }).Count -eq 0) {
+        Fail "更新兼容清单不支持便携目标 '$requestedTarget'"
+    }
+}
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $root "portable-dist"
+}
+if ([string]::IsNullOrWhiteSpace($MinGitCacheDir)) {
+    $effectiveMinGitCacheDir = Join-Path $root ".portable-venvs\downloads\mingit"
+} elseif ([System.IO.Path]::IsPathRooted($MinGitCacheDir)) {
+    $effectiveMinGitCacheDir = [System.IO.Path]::GetFullPath($MinGitCacheDir)
+} else {
+    $effectiveMinGitCacheDir = Join-Path $root $MinGitCacheDir
 }
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
@@ -337,6 +710,21 @@ if ($CleanOldArtifacts -and -not $PlanOnly) {
         Remove-Item -Force
     Get-ChildItem -LiteralPath $OutputDir -File -Filter "portable-release-template-*.md" -ErrorAction SilentlyContinue |
         Remove-Item -Force
+}
+
+$requestedArchivePaths = @{}
+foreach ($requestedTarget in $requestedTargets) {
+    $requestedArchivePaths[$requestedTarget] = Get-PortablePackageArchivePath `
+        -OutputDir $OutputDir `
+        -Version $version `
+        -Target $requestedTarget
+}
+$requestedArchiveNames = @($requestedArchivePaths.Values | ForEach-Object { Split-Path -Leaf $_ })
+if (-not $PlanOnly) {
+    Assert-NoUnexpectedVersionArchives `
+        -OutputDir $OutputDir `
+        -Version $version `
+        -RequestedArchiveNames $requestedArchiveNames
 }
 
 $mainPython = Join-Path $root "venv\Scripts\python.exe"
@@ -357,6 +745,12 @@ Write-Info "版本: $version"
 Write-Info "输出目录: $OutputDir"
 Write-Info "压缩等级: $CompressionLevel"
 Write-Info "7-Zip: $sevenZip"
+Write-Info "MinGit 下载缓存: $effectiveMinGitCacheDir"
+Write-PortableUpdatePlanInfo -Context $updateContext
+
+if (-not $PlanOnly) {
+    Assert-SourceRepositoryClean -Root $root
+}
 
 $mainInfo = Test-PythonCuda -PythonExe $mainPython
 Write-Info "主环境: torch=$($mainInfo.torch), cuda=$($mainInfo.cuda), device=$($mainInfo.device)"
@@ -373,20 +767,21 @@ if (-not $SkipCu126) {
 
 if ($PlanOnly) {
     if (-not $SkipCu128) {
-        Invoke-PackageBuild -Root $root -Version $version -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$false -PlanOnly:$true
+        Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$false -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
     }
     if (-not $SkipVideoRecon) {
-        Invoke-PackageBuild -Root $root -Version $version -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$true
+        Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
     }
     if (-not $SkipCu126) {
         if (Test-Path -LiteralPath (Join-Path $cu126Venv "Scripts\python.exe")) {
-            Invoke-PackageBuild -Root $root -Version $version -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$true
+            Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
         } else {
             Write-Step "打包计划"
             Write-Info "版本: $version"
             Write-Info "目标包: cu126-mainstream"
             Write-Info "依赖虚拟环境: $cu126Venv"
             Write-Info "输出 ZIP: $(Join-Path $OutputDir "sharp-gui-$version-windows-cu126-mainstream-portable.zip")"
+            Write-PortableUpdatePlanInfo -Context $updateContext
             Write-Info "cu126 缓存环境尚不存在，真实运行时会自动创建。"
         }
     }
@@ -395,30 +790,47 @@ if ($PlanOnly) {
     exit 0
 }
 
+Write-Step "清理本次请求目标的旧同名产物"
+foreach ($archivePath in $requestedArchivePaths.Values) {
+    $shaPath = [System.IO.Path]::ChangeExtension($archivePath, ".sha256.txt")
+    Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $shaPath -Force -ErrorAction SilentlyContinue
+}
+
 if (-not $SkipCu128) {
-    Invoke-PackageBuild -Root $root -Version $version -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$false -PlanOnly:$false
+    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$false -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
 }
 
 if (-not $SkipVideoRecon) {
     $skipVideoFrontendBuild = -not $SkipCu128
-    Invoke-PackageBuild -Root $root -Version $version -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$skipVideoFrontendBuild -PlanOnly:$false
+    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$skipVideoFrontendBuild -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
 }
 
 if (-not $SkipCu126) {
-    Invoke-PackageBuild -Root $root -Version $version -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$false
+    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
 }
 
 $packages = @()
-foreach ($zip in Get-ChildItem -LiteralPath $OutputDir -Filter "sharp-gui-$version-windows-*-portable.zip" | Sort-Object Name) {
-    $hash = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash
-    $shaPath = Join-Path $zip.DirectoryName ($zip.BaseName + ".sha256.txt")
-    Set-Content -LiteralPath $shaPath -Encoding ASCII -Value "$hash  $($zip.Name)"
+foreach ($target in $requestedTargets) {
+    $zipPath = $requestedArchivePaths[$target]
+    if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
+        Fail "本次构建未生成请求的便携 ZIP: $zipPath"
+    }
+    $zip = Get-Item -LiteralPath $zipPath
 
     if (-not $SkipArchiveTest) {
         Test-Archive -SevenZip $sevenZip -ZipPath $zip.FullName
     }
+    $metadata = Read-PortablePackageMetadata -SevenZip $sevenZip -ZipPath $zip.FullName
+    Assert-PortablePackageMetadata `
+        -Metadata $metadata `
+        -Target $target `
+        -UpdateContext $updateContext `
+        -ZipPath $zip.FullName
 
-    $target = if ($zip.Name -match "windows-(.+)-portable\.zip$") { $Matches[1] } else { "unknown" }
+    $hash = (Get-FileHash -LiteralPath $zip.FullName -Algorithm SHA256).Hash
+    $shaPath = Join-Path $zip.DirectoryName ($zip.BaseName + ".sha256.txt")
+    Set-Content -LiteralPath $shaPath -Encoding ASCII -Value "$hash  $($zip.Name)"
     $packages += [PSCustomObject]@{
         File = $zip.Name
         SizeGiB = [math]::Round($zip.Length / 1GB, 2)
@@ -426,8 +838,11 @@ foreach ($zip in Get-ChildItem -LiteralPath $OutputDir -Filter "sharp-gui-$versi
         Target = $target
     }
 }
+if ($packages.Count -ne $requestedTargets.Count) {
+    Fail "便携包聚合数量不一致: $($packages.Count) != $($requestedTargets.Count)"
+}
 
-Write-ReleaseTemplate -OutputDir $OutputDir -Version $version -Packages $packages
+Write-ReleaseTemplate -OutputDir $OutputDir -Version $version -Packages $packages -UpdateContext $updateContext
 
 if ($CleanBuildVenvs -and -not $PlanOnly) {
     Write-Step "清理临时打包环境"
@@ -445,6 +860,7 @@ Write-Host "下一步：把 ZIP 和 .sha256.txt 上传到网盘，然后把 port
 Write-Host ""
 Write-Host "缓存说明："
 Write-Host "  cu126 打包缓存: $(Join-Path $root ".portable-venvs")"
+Write-Host "  MinGit 下载缓存: $effectiveMinGitCacheDir"
 Write-Host "  视频重建环境: $(Join-Path $root ".video-reconstruction-env")"
 Write-Host "  pip 缓存: $env:LOCALAPPDATA\pip\Cache"
 Write-Host "  npm 缓存: $env:LOCALAPPDATA\npm-cache"

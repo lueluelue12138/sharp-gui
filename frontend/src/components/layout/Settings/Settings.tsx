@@ -18,6 +18,7 @@ import {
     updateAuthSettings,
 } from '@/api';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { UpdateSettingsSection } from '@/components/layout/Settings/UpdateSettingsSection';
 import type {
     AuthStatusResponse,
     ModelFormat,
@@ -529,6 +530,7 @@ export const Settings: React.FC = () => {
                 <h3 className={styles.title}>⚙️ {t('settings')}</h3>
 
                 <div className={styles.body}>
+                <UpdateSettingsSection active={settingsModalOpen} isOwner={isLocalAccess} />
                 <div className={styles.group}>
                     <label className={styles.label}>{t('accessControlTitle')}</label>
 

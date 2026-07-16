@@ -60,7 +60,8 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 [Recent Highlights](#-recent-highlights)<br>
 [Quick Start](#-quick-start)<br>
-[Usage Guide](#-usage)
+[Usage Guide](#-usage)<br>
+[Version & Updates](#version-and-updates)
 
 </td>
 <td width="190" align="center" valign="top">
@@ -163,7 +164,7 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | **🥽 VR/AR Preview**       | WebXR VR mode + AR Passthrough on Quest 3/Pro and similar headsets, with controller / touch input.                                                                       |
 | **📤 One-Click Share**     | Export a standalone HTML file powered by Spark 2.0; the compact SPZ payload is embedded by default, double-click to open anywhere.                                       |
 | **🎮 GPU Acceleration**    | Auto-detects NVIDIA GPUs and matches a CUDA-enabled PyTorch (cu118 / cu126 / cu128) for noticeably faster inference.                                                     |
-| **🔄 Auto-Update**         | One-click update to the latest release with a pre-release channel; preserves `inputs/` `outputs/` `config.json` and other user data.                                     |
+| **🔄 Safe Self-Update**    | Settings shows the release and exact commit, with Stable / Latest checks, compatible code updates, and one-click rollback; portable bundles need no system Git.          |
 | **🔐 Security & Privacy**  | Fully local data, one-click self-signed SSL, optional LAN access gate (HttpOnly cookie + access code + brute-force backoff).                                             |
 | **🚀 One-Click Deploy**    | Auto-configures Python / Git, installs deps, pre-downloads models, generates HTTPS certs, and shows skeleton progress. Ready out of the box.                             |
 
@@ -313,6 +314,8 @@ The same folder is kept up to date with the latest version. Pick the package for
 Download the ZIP and matching `.sha256.txt`, verify SHA256 first, then extract and double-click `portable-run.bat`.
 
 > 💡 Full portable bundles currently target NVIDIA GPUs only; there is no CPU-only portable bundle. The video reconstruction bundle currently targets the RTX 50 / CUDA 12.8 route and does not mean every NVIDIA GPU has been verified.
+>
+> 🔄 **Self-update bootstrap boundary**: the next full portable release containing the new updater is the first bootstrap bundle. Portable bundles at `v1.3.0` or earlier have neither a managed Git worktree nor bundled MinGit, so they require one final full-package download. Compatible code hotfixes can be applied incrementally after moving to the bootstrap bundle.
 
 ### Option 2: Install from Source (Recommended for macOS / Linux / Developers)
 
@@ -391,18 +394,40 @@ Access **https://127.0.0.1:5050 (recommended)** or **http://127.0.0.1:5050** �
 
 > 🩺 When reporting an issue, run in verbose mode: `./run_verbose.sh` / `run_verbose.bat`. It captures runtime info, command paths, PATH, and full exception traces into `sharp-gui-verbose.log`.
 
-### Update
+### Version and Updates
+
+Open **Settings → Version & Updates** to see the installed release baseline, exact Git commit, and channel. A formal release is shown as `vX.Y.Z`; a Latest commit after that release is shown as `vX.Y.Z + N commits (abcdefg)`. The local owner can check, choose a channel, confirm an update, or roll back:
+
+- **Stable (recommended)**: the latest published, non-prerelease [GitHub Release](https://github.com/lueluelue12138/sharp-gui/releases/latest).
+- **Latest**: the **exact current commit** at the repository's `main` branch. It receives hotfixes sooner but is less tested than Stable.
+
+The UI and CLI use the same compatibility checks and transactional update flow:
 
 ```bash
-# Update to latest stable release
-./update.sh       # Linux/macOS
-update.bat        # Windows
+# Linux / macOS: check Stable or Latest without applying it
+./update.sh --channel stable --check
+./update.sh --channel latest --check
 
-# Update to latest version (including pre-releases)
-./update.sh --pre
+# Apply the verified target for that channel (all safety preconditions must pass)
+./update.sh --channel stable
+./update.sh --channel latest
+
+# Return to the recorded pre-update commit
+./update.sh --rollback
 ```
 
-> 💡 The update script auto-detects the latest Release and downloads it, preserving your models and output files.
+```bat
+:: Windows (full portable bundles prefer their bundled Python and MinGit)
+update.bat --channel stable --check
+update.bat --channel latest --check
+update.bat --channel stable
+update.bat --channel latest
+update.bat --rollback
+```
+
+A code update replaces only Git-managed Sharp GUI application files. It preserves embedded Python, PyTorch/CUDA, `.video-reconstruction-env/`, models and model caches, every workspace, `config.json`, certificates, logs, package metadata, and `.sharp-gui-tools/`. If the target portable runtime revision differs from the installed bundle, or its compatibility manifest / built frontend is invalid, the updater stops before changing files and asks for a new full portable bundle.
+
+Automatic update and rollback are blocked while generation tasks are active or queued, when managed source files are locally modified, or when a source installation is on a non-`main` development branch. The exact target commit is applied by an external process and health-checked; checkout or verification failure automatically restores and verifies the previous commit before restart. Settings check/apply/rollback actions are restricted to the real localhost owner.
 
 ### Uninstall
 
@@ -751,14 +776,17 @@ sharp-gui/
 │   ├── 📄 config.py          # config.json and access-control normalization
 │   ├── 📄 paths.py           # workspace/inputs/outputs/cache path context
 │   ├── 📁 security/          # LAN access gate, permission matrix, request hooks
-│   ├── 📁 services/          # Model asset/photo gallery, video reconstruction, task queue, export, static-file services
-│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
+│   ├── 📁 services/          # Model asset/photo gallery, video reconstruction, task queue, self-update, export, static-file services
+│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/updates/files/export/frontend
 ├── 📄 install.sh/bat         # One-click install scripts
 ├── 📄 run.sh/bat             # Startup scripts (supports --legacy flag)
 ├── 📄 run_verbose.sh/bat     # Verbose entry (writes sharp-gui-verbose.log)
 ├── 📄 build.sh/bat           # Frontend build scripts
 ├── 📄 update.sh/bat          # Auto-update scripts
+├── 📄 update-manifest.json   # Update protocol, portable runtime revision, and target compatibility contract
 ├── 📄 release.sh/bat         # Release packaging scripts
+├── 📁 .sharp-gui-update/     # Local update state, cache, lock, and diagnostics (created at runtime)
+├── 📁 .sharp-gui-tools/      # Portable package tools, including verified MinGit
 ├── 📁 tools/                 # Utility scripts
 │   ├── 📄 generate_cert.py   # SSL certificate generator
 │   ├── 📄 download_model.py  # Model downloader
@@ -924,7 +952,9 @@ Since local deployment has **no content restrictions**, 3D models generated by t
 
 This project is open source under the MIT License.
 
-Note: ML-Sharp models have a separate [Model License](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL), for non-commercial use only.
+When portable bundles include MinGit or other third-party components, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for their provenance, versions, and license locations.
+
+Note: the Sharp GUI code's MIT License does not cover the ML-Sharp models. Those models remain under Apple's separate [Model License](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL), for non-commercial use only.
 
 ---
 

@@ -12,10 +12,23 @@ setlocal enabledelayedexpansion
 set SCRIPT_DIR=%~dp0
 cd /d "%SCRIPT_DIR%"
 
+for %%F in (version.txt update-manifest.json THIRD_PARTY_NOTICES.md LICENSE) do (
+    if not exist "%SCRIPT_DIR%%%F" (
+        echo [Error] Missing required release file: %%F
+        exit /b 1
+    )
+)
+
 REM Get version
 set VERSION=%1
 if "%VERSION%"=="" (
-    for /f "tokens=1-3 delims=/" %%a in ('date /t') do set VERSION=%%c%%a%%b
+    for /f "usebackq delims=" %%v in ("%SCRIPT_DIR%version.txt") do if not defined VERSION set "VERSION=%%v"
+)
+set "SOURCE_VERSION="
+for /f "usebackq delims=" %%v in ("%SCRIPT_DIR%version.txt") do if not defined SOURCE_VERSION set "SOURCE_VERSION=%%v"
+if not "%VERSION%"=="%SOURCE_VERSION%" (
+    echo [Error] version.txt ^(%SOURCE_VERSION%^) does not match requested release ^(%VERSION%^)
+    exit /b 1
 )
 
 echo.
@@ -31,6 +44,18 @@ call build.bat
 if %ERRORLEVEL% neq 0 (
     echo [Error] Build failed
     pause
+    exit /b 1
+)
+where git >nul 2>&1
+if errorlevel 1 (
+    echo [Error] Git is required to verify an exact release snapshot
+    exit /b 1
+)
+set "DIRTY_RELEASE_TREE="
+for /f "delims=" %%L in ('git status --porcelain --untracked-files^=all') do set "DIRTY_RELEASE_TREE=1"
+if defined DIRTY_RELEASE_TREE (
+    echo [Error] Frontend build or source tree differs from the committed revision. Commit the exact release snapshot first.
+    git status --short
     exit /b 1
 )
 
@@ -57,6 +82,9 @@ copy release.bat "%RELEASE_DIR%\" >nul 2>nul
 copy README.md "%RELEASE_DIR%\" >nul 2>nul
 copy README.en.md "%RELEASE_DIR%\" >nul 2>nul
 copy LICENSE "%RELEASE_DIR%\" >nul 2>nul
+copy THIRD_PARTY_NOTICES.md "%RELEASE_DIR%\" >nul 2>nul
+copy update-manifest.json "%RELEASE_DIR%\" >nul
+copy version.txt "%RELEASE_DIR%\" >nul
 
 REM Copy directories
 xcopy /E /I /Q backend "%RELEASE_DIR%\backend" >nul

@@ -34,11 +34,22 @@ jobs:
           rm -f package-lock.json
           npm install
           npm run build
+          # The build above validates the frontend, but self-update bootstrap
+          # requires every tracked archive byte to match the exact tag. Restore
+          # the committed lockfile/dist snapshot and discard generated extras
+          # before the generic Release ZIP is assembled.
+          rm -rf dist
+          git restore --source=HEAD --staged --worktree package-lock.json dist
 
       # 4. 创建发布包
       - name: Create Release Archive
         run: |
           VERSION=${{ github.ref_name }}
+          SOURCE_VERSION="$(tr -d '\r\n' < version.txt)"
+          if [ "$SOURCE_VERSION" != "$VERSION" ]; then
+            echo "version.txt ($SOURCE_VERSION) does not match release tag ($VERSION)" >&2
+            exit 1
+          fi
 
           # 创建干净的发布目录
           mkdir -p release-build
@@ -46,7 +57,7 @@ jobs:
           # 复制核心文件
           cp app.py release-build/
           cp install.sh install.bat run.sh run.bat build.sh build.bat update.sh update.bat release-build/
-          cp README.md README.en.md LICENSE release-build/ 2>/dev/null || true
+          cp README.md README.en.md LICENSE THIRD_PARTY_NOTICES.md update-manifest.json version.txt release-build/
 
           # 复制目录
           cp -r backend tools templates static release-build/
@@ -56,9 +67,6 @@ jobs:
           rm -rf release-build/frontend/node_modules
           rm -rf release-build/frontend/.vite
           rm -rf release-build/frontend/src  # 普通用户不需要源码
-
-          # 写入版本号
-          echo "${VERSION}" > release-build/version.txt
 
           # 创建 zip
           cd release-build

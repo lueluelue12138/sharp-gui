@@ -17,10 +17,22 @@ NC='\033[0m'
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+for required_file in version.txt update-manifest.json THIRD_PARTY_NOTICES.md LICENSE; do
+    if [[ ! -f "$SCRIPT_DIR/$required_file" ]]; then
+        echo "[Error] Missing required release file: $required_file" >&2
+        exit 1
+    fi
+done
+
 # Get version
-VERSION=${1:-$(date +%Y%m%d)}
+SOURCE_VERSION="$(tr -d '\r\n' < "$SCRIPT_DIR/version.txt")"
+VERSION=${1:-$SOURCE_VERSION}
 if [[ ! $VERSION =~ ^v ]]; then
     VERSION="v$VERSION"
+fi
+if [[ "$VERSION" != "$SOURCE_VERSION" ]]; then
+    echo "[Error] version.txt ($SOURCE_VERSION) does not match requested release ($VERSION)" >&2
+    exit 1
 fi
 
 echo ""
@@ -33,6 +45,15 @@ echo ""
 # 1. Build frontend using build.sh
 echo -e "${BLUE}==>${NC} Building frontend..."
 ./build.sh
+if ! command -v git >/dev/null 2>&1; then
+    echo "[Error] Git is required to verify an exact release snapshot" >&2
+    exit 1
+fi
+if [[ -n "$(git status --porcelain --untracked-files=all)" ]]; then
+    echo "[Error] Frontend build or source tree differs from the committed revision. Commit the exact release snapshot first." >&2
+    git status --short
+    exit 1
+fi
 
 # 2. Create release package
 echo -e "${BLUE}==>${NC} Creating release package..."
@@ -44,7 +65,7 @@ mkdir -p "$RELEASE_DIR"
 cp app.py "$RELEASE_DIR/"
 cp install.sh install.bat run.sh run.bat build.sh build.bat update.sh update.bat "$RELEASE_DIR/"
 cp release.sh release.bat "$RELEASE_DIR/" 2>/dev/null || true
-cp README.md README.en.md LICENSE "$RELEASE_DIR/" 2>/dev/null || true
+cp README.md README.en.md LICENSE THIRD_PARTY_NOTICES.md update-manifest.json version.txt "$RELEASE_DIR/"
 
 # Copy directories
 cp -r backend tools templates static frontend "$RELEASE_DIR/"

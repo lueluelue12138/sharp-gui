@@ -15,7 +15,9 @@ from backend.security.hooks import register_security_hooks
 from backend.services import video_reconstruction
 from backend.services.model_gallery import generate_thumbnail
 from backend.services.photo_gallery import migrate_photo_gallery_roots_config
+from backend.services.self_update import SelfUpdateManager
 from backend.services.task_queue import TaskManager
+from backend.server import stop_process_for_update_later
 
 
 def create_app(start_background_workers=False):
@@ -45,6 +47,11 @@ def create_app(start_background_workers=False):
         thumbnail_generator=lambda input_path, filename: generate_thumbnail(paths, input_path, filename),
     )
     app.config["TASK_MANAGER"] = task_manager
+    app.config["UPDATE_MANAGER"] = SelfUpdateManager(
+        base_dir=runtime.BASE_DIR,
+        task_manager=task_manager,
+        restart_callback=stop_process_for_update_later,
+    )
 
     register_security_hooks(app)
     register_routes(app)

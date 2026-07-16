@@ -93,6 +93,21 @@ def restart_process_later():
     threading.Thread(target=do_restart, daemon=True).start()
 
 
+def stop_process_for_update_later():
+    """Stop the serving process after the detached updater has been spawned.
+
+    A supervised Windows child exits normally so the old supervisor also
+    finishes; the updater starts a fresh ``app.py`` only after the checkout is
+    verified.  This avoids a supervisor restart racing the Git transaction.
+    """
+    def do_stop():
+        time.sleep(1)
+        print("Stopping server for application update...", flush=True)
+        os._exit(0)
+
+    threading.Thread(target=do_stop, daemon=True).start()
+
+
 def run_server(app):
     """Run the Flask service and explicitly start background workers."""
     runtime.configure_werkzeug_logging()
