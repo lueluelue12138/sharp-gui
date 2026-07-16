@@ -32,7 +32,7 @@
 - [x] 5.1 Add pinned official x64 MinGit acquisition, SHA256 verification, reusable cache, complete license preservation, and plan output to the portable builder.
 - [x] 5.2 Seed each package with a clean shallow managed Sharp GUI worktree at the exact source revision and a package-local exclude configuration that preserves all runtime/user paths.
 - [x] 5.3 Extend `portable-package.json`, package notes, release template, and build validation with source/runtime/update/Git provenance and compatibility information.
-- [ ] 5.4 Add packaging/integration checks that use bundled Python and MinGit with system tools hidden and verify a compatible code update plus an incompatible-runtime refusal.
+- [x] 5.4 Add packaging/integration checks that use bundled Python and MinGit with system tools hidden and verify a compatible code update plus an incompatible-runtime refusal.
 
 ## 6. Documentation and project guidance
 
@@ -45,4 +45,4 @@
 - [x] 7.1 Run all backend pytest suites and targeted updater integration tests; fix every regression.
 - [x] 7.2 Run frontend lint, TypeScript/Vite production build, i18n key parity checks, and confirm committed `frontend/dist` matches the new UI.
 - [x] 7.3 Run strict OpenSpec validation, portable release `-PlanOnly`, MinGit checksum/version/license checks, and ZIP/staging integrity checks proportional to the package build.
-- [ ] 7.4 Perform a clean extracted Windows portable smoke test with system Git/Python excluded, verify app/API startup and user markers after update/rollback, and run the existing video-runtime command gate when the enhanced bundle is exercised.
+- [x] 7.4 Perform a clean extracted Windows portable smoke test with system Git/Python excluded, verify app/API startup and user markers after update/rollback, and run the existing video-runtime command gate when the enhanced bundle is exercised.
