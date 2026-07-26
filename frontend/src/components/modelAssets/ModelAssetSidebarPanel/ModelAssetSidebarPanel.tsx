@@ -46,7 +46,6 @@ export function ModelAssetSidebarPanel({
   const {
     modelAssetTotal,
     currentModelId,
-    selectedModelAssetId,
     preferredModelFormat,
     setSelectedModelAsset,
     setCurrentModel,
@@ -57,7 +56,6 @@ export function ModelAssetSidebarPanel({
     useShallow((state) => ({
       modelAssetTotal: state.modelAssetTotal,
       currentModelId: state.currentModelId,
-      selectedModelAssetId: state.selectedModelAssetId,
       preferredModelFormat: state.localModelFormat ?? state.serverModelFormat,
       setSelectedModelAsset: state.setSelectedModelAsset,
       setCurrentModel: state.setCurrentModel,
@@ -228,7 +226,7 @@ export function ModelAssetSidebarPanel({
                 key={asset.id}
                 className={[
                   styles.recentItem,
-                  (selectedModelAssetId === asset.id || currentModelId === asset.id)
+                  currentModelId === asset.id
                     ? styles.recentItemActive
                     : '',
                 ].filter(Boolean).join(' ')}
