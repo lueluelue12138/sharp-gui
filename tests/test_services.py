@@ -1623,7 +1623,11 @@ def test_video_task_creation_writes_source_metadata(config_file, workspace, monk
     assert metadata["source_name"] == "clip.mp4"
 
 
-def test_gallery_backfills_legacy_video_metadata_from_unique_source(config_file, workspace, monkeypatch):
+def test_catalog_refresh_backfills_legacy_video_metadata_from_unique_source(
+    config_file,
+    workspace,
+    monkeypatch,
+):
     album_dir = workspace / "album"
     album_dir.mkdir()
     video_path = album_dir / "clip.mp4"
@@ -1654,6 +1658,7 @@ def test_gallery_backfills_legacy_video_metadata_from_unique_source(config_file,
         fake_generate_video_thumbnail,
     )
 
+    model_assets.refresh_model_asset_catalog(paths)
     item = model_gallery.build_gallery_item(paths, "clip-2.ply", repair_missing_thumbnail=True)
 
     assert item["thumb_url"] == "/api/thumbnail/clip-2"

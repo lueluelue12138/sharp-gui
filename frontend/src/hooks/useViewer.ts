@@ -20,6 +20,16 @@ import {
   type RevealEffectId,
   updateRevealEffectPlayback,
 } from '@/utils/viewerRevealEffects';
+import {
+  composeViewerModelQuaternion,
+  getViewerModelLoadKey,
+  isViewerLoadCurrent,
+} from '@/utils/viewerRuntime';
+import { resolveViewerOrientation } from '@/utils/viewerOrientation';
+import type {
+  ViewerOrientationMode,
+  ViewerOrientationReason,
+} from '@/types';
 import { useKeyboard } from './useKeyboard';
 import { useGyroscope } from './useGyroscope';
 import { useJoystick } from './useJoystick';
@@ -31,26 +41,24 @@ const missingRadCache = new Set<string>();
 const CAMERA_RESET_CENTER_LATERAL_RATIO = 0.25;
 const CAMERA_RESET_CENTER_MIN_OFFSET = 0.2;
 const CAMERA_RESET_FIT_PADDING = 1.15;
-const CAMERA_RESET_Y_FRONT_DEPTH_RATIO = 0.65;
 const DEBUG_UPDATE_INTERVAL_MS = 250;
 
-type ViewerResetMode =
+type ViewerFramingMode =
   | 'default'
   | 'bounds-centered'
-  | 'bounds-y-front'
   | 'bounds-default'
   | 'bounds-unavailable';
 
 type VectorTuple = [number, number, number];
 
 type ControlsLimitConfig = typeof DEFAULT_CAMERA_CONFIG.limits;
-type ViewerOrientationMode = 'default' | 'y-front';
-
-const Y_FRONT_ORIENTATION_QUATERNION = new THREE.Quaternion()
-  .setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2);
 
 export interface ViewerDebugInfo {
-  resetMode: ViewerResetMode;
+  framingMode: ViewerFramingMode;
+  orientation: {
+    mode: ViewerOrientationMode;
+    reason: ViewerOrientationReason;
+  };
   camera: {
     position: VectorTuple;
     rotationDeg: VectorTuple;
@@ -143,55 +151,6 @@ function shouldCenterResetOnBounds(box: THREE.Box3, defaultLookAt: THREE.Vector3
   );
 }
 
-function shouldUseYFrontResetOnBounds(box: THREE.Box3): boolean {
-  const size = box.getSize(new THREE.Vector3());
-  const wideAxis = Math.max(size.x, size.y, 0.001);
-
-  return (
-    size.x > 0.001
-    && size.y > 0.001
-    && size.z > 0.001
-    && size.z / wideAxis < CAMERA_RESET_Y_FRONT_DEPTH_RATIO
-    && size.y > size.z
-  );
-}
-
-function shouldUseCurrentModelVideoOrientation(): boolean {
-  const state = useAppStore.getState();
-  if (!state.currentModelId) {
-    return false;
-  }
-
-  const currentItem = state.galleryItems.find((item) => item.id === state.currentModelId);
-  return currentItem?.source_media_type === 'video' || Boolean(currentItem?.source_video_url);
-}
-
-async function resolveCurrentModelVideoOrientation(signal?: AbortSignal): Promise<boolean> {
-  const state = useAppStore.getState();
-  if (!state.currentModelId || state.currentModelUrl?.startsWith('blob:')) {
-    return false;
-  }
-
-  if (shouldUseCurrentModelVideoOrientation()) {
-    return true;
-  }
-
-  const currentItem = state.galleryItems.find((item) => item.id === state.currentModelId);
-  if (!currentItem || currentItem.image_url) {
-    return false;
-  }
-
-  try {
-    const response = await fetch(
-      `/api/gallery/${encodeURIComponent(state.currentModelId)}/source-video`,
-      { method: 'HEAD', signal },
-    );
-    return response.ok;
-  } catch {
-    return false;
-  }
-}
-
 function getBoundsCenteredCameraPosition(
   camera: THREE.PerspectiveCamera,
   box: THREE.Box3,
@@ -250,13 +209,7 @@ function applySplatTransform(
     transform.positionY,
     transform.positionZ,
   );
-  const userQuaternion = new THREE.Quaternion().setFromEuler(
-    new THREE.Euler(transform.rotationX, transform.rotationY, transform.rotationZ),
-  );
-  if (orientationMode === 'y-front') {
-    userQuaternion.premultiply(Y_FRONT_ORIENTATION_QUATERNION);
-  }
-  splatMesh.quaternion.copy(userQuaternion);
+  splatMesh.quaternion.copy(composeViewerModelQuaternion(transform, orientationMode));
   splatMesh.scale.setScalar(Math.max(0.05, transform.scale));
   splatMesh.updateMatrixWorld(true);
 }
@@ -311,8 +264,11 @@ export interface ViewerContext {
   sparkRenderer: SparkRenderer;
   splatMesh: SplatMesh | null;
   debugBounds: THREE.Box3 | null;
-  lastResetMode: ViewerResetMode;
+  lastFramingMode: ViewerFramingMode;
   orientationMode: ViewerOrientationMode;
+  orientationReason: ViewerOrientationReason;
+  loadGeneration: number;
+  modelLoadKey: string | null;
 }
 
 interface UseViewerOptions {
@@ -327,10 +283,9 @@ export const useViewer = (
   const viewerRef = useRef<ViewerContext | null>(null);
   const revealEffectRuntimeRef = useRef(createRevealEffectRuntime());
   const lastDebugUpdateRef = useRef(0);
+  const modelLoadGenerationRef = useRef(0);
+  const activeModelLoadingGenerationRef = useRef<number | null>(null);
   const {
-    currentModelUrl,
-    currentModelFormat,
-    currentModelSize,
     setLoading,
     resetLoadingProgress,
     setLoadingProgress,
@@ -338,19 +293,14 @@ export const useViewer = (
     setCanCompareLod,
     setUsedRadLastLoad,
   } = useAppStore();
-  const currentModelSourceSignature = useAppStore((state) => {
-    const item = state.currentModelId
-      ? state.galleryItems.find((candidate) => candidate.id === state.currentModelId)
-      : null;
-
-    return item
-      ? [
-        item.id,
-        item.source_media_type ?? '',
-        item.source_video_url ? 'source-video' : '',
-      ].join('|')
-      : '';
-  });
+  const currentModelDescriptor = useAppStore((state) => state.currentModelDescriptor);
+  const currentModelReloadToken = useAppStore((state) => state.currentModelReloadToken);
+  const currentModelUrl = currentModelDescriptor?.url ?? null;
+  const currentModelFormat = currentModelDescriptor?.format ?? null;
+  const currentModelSize = currentModelDescriptor?.size ?? null;
+  const currentModelSourceMediaType = currentModelDescriptor?.sourceMediaType ?? null;
+  const currentModelOrientationHint = currentModelDescriptor?.viewerOrientation ?? null;
+  const currentModelLoadKey = getViewerModelLoadKey(currentModelDescriptor);
   const [isViewerReady, setIsViewerReady] = useState(false);
   const [debugInfo, setDebugInfo] = useState<ViewerDebugInfo | null>(null);
 
@@ -400,7 +350,11 @@ export const useViewer = (
     }
 
     return {
-      resetMode: ctx.lastResetMode,
+      framingMode: ctx.lastFramingMode,
+      orientation: {
+        mode: ctx.orientationMode,
+        reason: ctx.orientationReason,
+      },
       camera: {
         position: toVectorTuple(cameraPosition),
         rotationDeg: toEulerDegreesTuple(cameraEuler),
@@ -463,7 +417,10 @@ export const useViewer = (
     if (!ctx?.splatMesh) return;
     if (ctx.renderer.xr.isPresenting) return;
 
-    const transform = useAppStore.getState().viewerTransformApplied;
+    const state = useAppStore.getState();
+    if (ctx.modelLoadKey !== getViewerModelLoadKey(state.currentModelDescriptor)) return;
+
+    const transform = state.viewerTransformApplied;
     applySplatTransform(ctx.splatMesh, transform, ctx.orientationMode);
     refreshDebugBounds(ctx);
     ctx.sparkRenderer.sortDirty = true;
@@ -493,6 +450,21 @@ export const useViewer = (
 
     const activeCtx = ctx;
     const c = activeCtx.controls;
+    const resetLoadGeneration = activeCtx.loadGeneration;
+    const resetModelLoadKey = activeCtx.modelLoadKey;
+    const isCurrentReset = () => isViewerLoadCurrent({
+      cancelled: false,
+      generation: resetLoadGeneration,
+      activeGeneration: modelLoadGenerationRef.current,
+      context: activeCtx,
+      activeContext: viewerRef.current,
+    })
+      && activeCtx.loadGeneration === resetLoadGeneration
+      && getViewerModelLoadKey(
+        useAppStore.getState().currentModelDescriptor,
+      ) === resetModelLoadKey;
+
+    if (!isCurrentReset()) return;
 
     let targetPos = new THREE.Vector3(...DEFAULT_CAMERA_CONFIG.initialPosition);
     const targetLookAt = new THREE.Vector3(0, 0, 0);
@@ -502,41 +474,31 @@ export const useViewer = (
     // and push the focus point inward proportionally (a quadratic curve modeled from sample data)
     let dynamicOffset = DEFAULT_CAMERA_CONFIG.orbitTargetOffset || 1.5;
     let splatBounds: THREE.Box3 | null = null;
-    const shouldPreferVideoOrientation =
-      activeCtx.orientationMode === 'y-front' || shouldUseCurrentModelVideoOrientation();
-    ctx.lastResetMode = 'bounds-unavailable';
+    activeCtx.lastFramingMode = 'default';
 
     if (
       activeCtx.splatMesh &&
-      typeof activeCtx.splatMesh.getBoundingBox === 'function' &&
       !activeCtx.renderer.xr.isPresenting
     ) {
-      try {
-        splatBounds = refreshDebugBounds(activeCtx);
+      activeCtx.lastFramingMode = 'bounds-unavailable';
+      if (typeof activeCtx.splatMesh.getBoundingBox === 'function') {
+        try {
+          splatBounds = refreshDebugBounds(activeCtx);
 
-        if (splatBounds) {
-          const shouldAdaptYFront =
-            activeCtx.orientationMode === 'default'
-            && (shouldPreferVideoOrientation || shouldUseYFrontResetOnBounds(splatBounds));
+          if (splatBounds) {
+            activeCtx.lastFramingMode = 'bounds-default';
+            // Camera is positioned at targetPos.
+            // Since camera initially looks down -Z, the frontest point of the model is max.z.
+            const frontZ = splatBounds.max.z;
+            // DF (Distance to Front): Distance from camera to the frontest visible surface.
+            const distToFront = Math.max(0.1, targetPos.z - frontZ);
 
-          if (shouldAdaptYFront) {
-            activeCtx.orientationMode = 'y-front';
-            applyCurrentTransformSettings();
-            splatBounds = refreshDebugBounds(activeCtx) ?? splatBounds;
+            // Best-fit curve from user samples: Offset = DF + 0.08 * DF^2.
+            dynamicOffset = distToFront + 0.08 * Math.pow(distToFront, 2);
           }
-
-          activeCtx.lastResetMode = 'bounds-default';
-          // Camera is positioned at targetPos.
-          // Since camera initially looks down -Z, the frontest point of the model is max.z.
-          const frontZ = splatBounds.max.z;
-          // DF (Distance to Front): Distance from camera to the frontest visible surface.
-          const distToFront = Math.max(0.1, targetPos.z - frontZ);
-
-          // Best-fit curve from user samples: Offset = DF + 0.08 * DF^2.
-          dynamicOffset = distToFront + 0.08 * Math.pow(distToFront, 2);
+        } catch (error) {
+          console.warn('[Viewer] Bounding box unavailable, using default reset offset:', error);
         }
-      } catch (error) {
-        console.warn('[Viewer] Bounding box unavailable, using default reset offset:', error);
       }
     }
 
@@ -546,15 +508,14 @@ export const useViewer = (
 
     if (
       splatBounds
-      && (shouldPreferVideoOrientation || shouldCenterResetOnBounds(splatBounds, targetLookAt))
+      && (
+        activeCtx.orientationMode === 'y-front'
+        || shouldCenterResetOnBounds(splatBounds, targetLookAt)
+      )
     ) {
       splatBounds.getCenter(targetLookAt);
       targetPos = getBoundsCenteredCameraPosition(activeCtx.camera, splatBounds, targetLookAt);
-      activeCtx.lastResetMode = activeCtx.orientationMode === 'y-front'
-        ? 'bounds-y-front'
-        : 'bounds-centered';
-    } else if (!splatBounds) {
-      activeCtx.lastResetMode = 'default';
+      activeCtx.lastFramingMode = 'bounds-centered';
     }
 
     const startPos = c.object.position.clone();
@@ -566,6 +527,8 @@ export const useViewer = (
     const duration = DEFAULT_CAMERA_CONFIG.resetAnimationDuration;
 
     function animate() {
+      if (!isCurrentReset()) return;
+
       const now = performance.now();
       const progress = Math.min((now - startTime) / duration, 1);
       const ease = 1 - Math.pow(1 - progress, 3);
@@ -582,7 +545,7 @@ export const useViewer = (
     }
 
     requestAnimationFrame(animate);
-  }, [applyCurrentTransformSettings, getViewerDebugInfo, refreshDebugBounds]);
+  }, [getViewerDebugInfo, refreshDebugBounds]);
 
   // Child hooks — they read viewerRef.current.camera / .controls
   const { speedMode } = useKeyboard(viewerRef, resetCamera);
@@ -703,6 +666,9 @@ export const useViewer = (
           const activeContext = viewerRef.current;
           if (
             activeContext
+            && activeContext.modelLoadKey === getViewerModelLoadKey(
+              useAppStore.getState().currentModelDescriptor,
+            )
             && useAppStore.getState().quickControlsOpen
             && now - lastDebugUpdateRef.current >= DEBUG_UPDATE_INTERVAL_MS
           ) {
@@ -730,6 +696,20 @@ export const useViewer = (
 
           const ctx = viewerRef.current;
           if (!ctx?.splatMesh) return;
+          const focusLoadGeneration = ctx.loadGeneration;
+          const focusModelLoadKey = ctx.modelLoadKey;
+          const isCurrentFocus = () => isViewerLoadCurrent({
+            cancelled: false,
+            generation: focusLoadGeneration,
+            activeGeneration: modelLoadGenerationRef.current,
+            context: ctx,
+            activeContext: viewerRef.current,
+          })
+            && ctx.loadGeneration === focusLoadGeneration
+            && getViewerModelLoadKey(
+              useAppStore.getState().currentModelDescriptor,
+            ) === focusModelLoadKey;
+          if (!isCurrentFocus()) return;
 
           const rect = renderer.domElement.getBoundingClientRect();
           ndcCoord.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -748,6 +728,8 @@ export const useViewer = (
           const duration = Math.min(600, Math.max(300, dist * 400));
 
           function animateFocus() {
+            if (!isCurrentFocus()) return;
+
             const elapsed = performance.now() - startTime;
             const t = Math.min(elapsed / duration, 1);
             // Exponential ease-out: fast start, very smooth deceleration
@@ -773,8 +755,11 @@ export const useViewer = (
           sparkRenderer,
           splatMesh: null,
           debugBounds: null,
-          lastResetMode: 'default',
+          lastFramingMode: 'default',
           orientationMode: 'default',
+          orientationReason: 'unknown-fallback',
+          loadGeneration: modelLoadGenerationRef.current,
+          modelLoadKey: null,
         };
         applyCurrentInteractionSettings();
         setIsViewerReady(true);
@@ -928,36 +913,76 @@ export const useViewer = (
 
   // ── Load Model ──────────────────────────────────────────────────────
   useEffect(() => {
+    const loadGeneration = modelLoadGenerationRef.current + 1;
+    modelLoadGenerationRef.current = loadGeneration;
     const ctx = viewerRef.current;
-    if (!ctx || !currentModelUrl) {
-      setCanCompareLod(false);
-      setUsedRadLastLoad(false);
-      setDebugInfo(null);
-      return;
-    }
 
-    let cancelled = false;
-    const abortController = new AbortController();
-
-    const load = async () => {
-      resetLoadingProgress();
-      setLoading(true, 'Loading Scene...');
-
-      try {
-        const useVideoOrientation = await resolveCurrentModelVideoOrientation(abortController.signal);
-        if (cancelled) {
-          return;
-        }
-
-        // Remove previous splatMesh if any
+    if (!ctx || !currentModelDescriptor || !currentModelUrl) {
+      if (ctx) {
         if (ctx.splatMesh) {
           ctx.scene.remove(ctx.splatMesh);
           ctx.splatMesh.dispose();
           ctx.splatMesh = null;
-          ctx.debugBounds = null;
-          ctx.orientationMode = 'default';
         }
+        ctx.debugBounds = null;
+        ctx.lastFramingMode = 'default';
+        ctx.orientationMode = 'default';
+        ctx.orientationReason = 'unknown-fallback';
+        ctx.loadGeneration = loadGeneration;
+        ctx.modelLoadKey = null;
+      }
 
+      setCanCompareLod(false);
+      setUsedRadLastLoad(false);
+      setDebugInfo(null);
+      if (
+        !currentModelDescriptor
+        && activeModelLoadingGenerationRef.current !== null
+      ) {
+        activeModelLoadingGenerationRef.current = null;
+        resetLoadingProgress();
+        setLoading(false);
+      }
+      return;
+    }
+
+    let cancelled = false;
+    const isCurrentLoad = () => isViewerLoadCurrent({
+      cancelled,
+      generation: loadGeneration,
+      activeGeneration: modelLoadGenerationRef.current,
+      context: ctx,
+      activeContext: viewerRef.current,
+    })
+      && ctx.loadGeneration === loadGeneration
+      && getViewerModelLoadKey(
+        useAppStore.getState().currentModelDescriptor,
+      ) === currentModelLoadKey;
+    const resolvedOrientation = resolveViewerOrientation({
+      viewerOrientation: currentModelOrientationHint,
+      sourceMediaType: currentModelSourceMediaType,
+    });
+
+    ctx.loadGeneration = loadGeneration;
+    ctx.orientationMode = resolvedOrientation.mode;
+    ctx.orientationReason = resolvedOrientation.reason;
+    ctx.lastFramingMode = 'bounds-unavailable';
+    ctx.debugBounds = null;
+    ctx.modelLoadKey = currentModelLoadKey;
+    setDebugInfo(null);
+
+    if (ctx.splatMesh) {
+      ctx.scene.remove(ctx.splatMesh);
+      ctx.splatMesh.dispose();
+      ctx.splatMesh = null;
+    }
+
+    const load = async () => {
+      activeModelLoadingGenerationRef.current = loadGeneration;
+      resetLoadingProgress();
+      setLoading(true, 'Loading Scene...');
+
+      try {
         const state = useAppStore.getState();
         const preset = getLodPresetConfig(state.lodPreset);
         const quality = state.viewerQualityApplied;
@@ -980,7 +1005,7 @@ export const useViewer = (
           paged?: boolean;
         }) => {
           const handleProgress = (event: ProgressEvent) => {
-            if (cancelled || !Number.isFinite(event.loaded) || event.loaded <= 0) {
+            if (!isCurrentLoad() || !Number.isFinite(event.loaded) || event.loaded <= 0) {
               return;
             }
 
@@ -1042,8 +1067,15 @@ export const useViewer = (
               fileType: SplatFileType.RAD,
               paged: state.radPagedEnabled,
             });
+            if (!isCurrentLoad()) {
+              splatMesh.dispose();
+              return;
+            }
             loadedWithRad = true;
           } catch (error) {
+            if (!isCurrentLoad()) {
+              return;
+            }
             if (!looksLikeRad && isNotFoundError(error)) {
               missingRadCache.add(radCandidateUrl);
             }
@@ -1059,17 +1091,26 @@ export const useViewer = (
           });
         }
 
-        if (cancelled) {
+        if (!isCurrentLoad()) {
           splatMesh.dispose();
           return;
         }
 
         ctx.scene.add(splatMesh);
         ctx.splatMesh = splatMesh;
-        ctx.orientationMode = useVideoOrientation ? 'y-front' : 'default';
         applyRevealEffectToMesh(revealEffectRuntimeRef.current, splatMesh);
         applyCurrentTransformSettings();
         refreshDebugBounds(ctx);
+
+        if (!isCurrentLoad()) {
+          ctx.scene.remove(splatMesh);
+          splatMesh.dispose();
+          if (ctx.splatMesh === splatMesh) {
+            ctx.splatMesh = null;
+            ctx.debugBounds = null;
+          }
+          return;
+        }
 
         const hasComparison = lodEnabled && hasLodComparisonData(splatMesh);
         setCanCompareLod(hasComparison);
@@ -1077,16 +1118,18 @@ export const useViewer = (
         applyCurrentLodSettings();
 
         setLoadingProgress(100);
+        activeModelLoadingGenerationRef.current = null;
         setLoading(false);
 
         // Apply limits and reset camera after model loads
         applyLimits();
         resetCamera();
       } catch (error) {
-        if (!cancelled) {
+        if (isCurrentLoad()) {
           console.error('[Viewer] Error loading model:', error);
           setCanCompareLod(false);
           setUsedRadLastLoad(false);
+          activeModelLoadingGenerationRef.current = null;
           setLoading(false);
         }
       }
@@ -1095,14 +1138,14 @@ export const useViewer = (
     load();
     return () => {
       cancelled = true;
-      abortController.abort();
+      if (modelLoadGenerationRef.current === loadGeneration) {
+        modelLoadGenerationRef.current += 1;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    currentModelUrl,
-    currentModelFormat,
-    currentModelSize,
-    currentModelSourceSignature,
+    currentModelLoadKey,
+    currentModelReloadToken,
     isViewerReady,
     applyCurrentLodSettings,
     applyCurrentTransformSettings,

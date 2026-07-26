@@ -9,6 +9,7 @@ import uuid
 from backend import runtime
 from backend.services import model_gallery, video_reconstruction
 from backend.services.model_convert import ply_to_spz
+from backend.services.model_orientation import VIEWER_ORIENTATION_DEFAULT
 from backend.services.workspace_lock import WorkspaceInstanceLock
 
 TASK_RETENTION_SECONDS = 3600
@@ -61,6 +62,7 @@ class TaskManager:
                 **existing_metadata,
                 "display_name": display_name,
                 "source_media_type": "image",
+                "viewer_orientation": VIEWER_ORIENTATION_DEFAULT,
                 "source_name": source_name,
                 "generation_status": generation_status,
             },

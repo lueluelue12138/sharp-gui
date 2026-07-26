@@ -5,3 +5,5 @@ export * from './tasks';
 export * from './modelAssets';
 export * from './modelAssetErrors';
 export * from './modelCoverRenderer';
+export * from './modelPreviewState';
+export * from './viewerOrientation';

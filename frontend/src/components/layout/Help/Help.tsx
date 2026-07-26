@@ -69,7 +69,7 @@ export const Help: React.FC<HelpProps> = ({ showCloseModel = false }) => {
             {showCloseModel && currentModelUrl ? (
                 <button
                     className={styles.closeBtn}
-                    onClick={() => setCurrentModel(null, null)}
+                    onClick={() => setCurrentModel(null)}
                     aria-label={t('closeModel')}
                     data-tooltip={t('closeModel')}
                     type="button"

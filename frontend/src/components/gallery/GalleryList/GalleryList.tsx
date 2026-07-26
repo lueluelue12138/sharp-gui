@@ -172,7 +172,15 @@ export function GalleryList() {
 
   const handleSelectModel = useCallback((item: GalleryItemType) => {
     const nextModel = getGalleryModelSource(item, preferredFormat);
-    setCurrentModel(item.id, nextModel.url, nextModel.format, nextModel.size);
+    setCurrentModel({
+      id: item.id,
+      url: nextModel.url,
+      format: nextModel.format,
+      size: nextModel.size,
+      source: 'gallery',
+      sourceMediaType: nextModel.sourceMediaType,
+      viewerOrientation: nextModel.viewerOrientation,
+    });
 
     if (window.innerWidth <= 768 && sidebarOpen) {
       setSidebarOpen(false);

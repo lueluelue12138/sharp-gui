@@ -1,3 +1,5 @@
+import type { ViewerOrientationHint } from '@/types/modelPreview';
+
 export type ModelAssetFormat = 'ply' | 'spz' | 'splat' | 'rad';
 
 export type ModelAssetSourceType = 'generated' | 'imported' | 'video';
@@ -28,6 +30,8 @@ export interface ModelAssetFile {
   download_url?: string | null;
   modified_at?: string | null;
   primary?: boolean;
+  source_media_type?: string | null;
+  viewer_orientation?: ViewerOrientationHint | null;
 }
 
 export interface ModelAsset {
@@ -55,6 +59,7 @@ export interface ModelAsset {
   is_generated?: boolean;
   is_imported?: boolean;
   source_media_type?: string | null;
+  viewer_orientation?: ViewerOrientationHint | null;
   source_media_id?: string | null;
   source_name?: string | null;
   source_video_url?: string | null;

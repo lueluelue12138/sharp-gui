@@ -262,7 +262,7 @@ function App() {
   }, []);
 
   const openModelAssetLibrary = useCallback(() => {
-    setCurrentModel(null, null);
+    setCurrentModel(null);
     replaceTemporaryModelPreview(null);
     setModelAssetLibraryOpen(true);
     setSidebarOpen(false);
@@ -347,7 +347,15 @@ function App() {
     const blobUrl = URL.createObjectURL(file);
     replaceTemporaryModelPreview({ file, format, url: blobUrl });
     setModelAssetLibraryOpen(false);
-    setCurrentModel(file.name, blobUrl, format, file.size, 'temporary');
+    setCurrentModel({
+      id: `temporary:${blobUrl}`,
+      url: blobUrl,
+      format,
+      size: file.size,
+      source: 'temporary',
+      sourceMediaType: null,
+      viewerOrientation: 'unknown',
+    });
   }, [replaceTemporaryModelPreview, setCurrentModel]);
 
   const showGenerationPermissionError = useCallback(() => {
@@ -421,13 +429,17 @@ function App() {
         && (origin === 'preview' || origin === 'main-batch')
       ) {
         setModelAssetLibraryOpen(false);
-        setCurrentModel(
-          firstAsset.id,
-          firstModelSource.url,
-          firstModelSource.format,
-          firstModelSource.size,
-          firstAsset.is_imported ? 'model-asset-imported' : 'model-asset-generated',
-        );
+        setCurrentModel({
+          id: firstAsset.id,
+          url: firstModelSource.url,
+          format: firstModelSource.format,
+          size: firstModelSource.size,
+          source: firstAsset.source_type === 'imported' || firstAsset.is_imported
+            ? 'model-asset-imported'
+            : 'model-asset-generated',
+          sourceMediaType: firstModelSource.sourceMediaType,
+          viewerOrientation: firstModelSource.viewerOrientation,
+        });
         replaceTemporaryModelPreview(null);
       }
       setModelAssetImporting(false);
@@ -682,7 +694,7 @@ function App() {
                     <button
                       className="viewer-library-back"
                       type="button"
-                      onClick={() => setCurrentModel(null, null)}
+                      onClick={() => setCurrentModel(null)}
                     >
                       {t('modelAssetBackToLibrary')}
                     </button>
