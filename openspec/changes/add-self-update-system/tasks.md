@@ -59,3 +59,14 @@
 - [x] 8.5 Consolidate portable build update helpers and duplicate recovery tests without weakening MinGit provenance, managed-worktree isolation, runtime revision CI, or transaction coverage.
 - [x] 8.6 Align bilingual README, developer rules, package notes, and generated frontend assets with the lean scope and removal of manual rollback.
 - [x] 8.7 Run targeted/full pytest, frontend lint/build, i18n parity, strict OpenSpec validation, compatibility guard tests, portable `-PlanOnly`, and final diff/line-count review.
+
+## 9. Post-implementation review hardening
+
+- [x] 9.1 Accept a structured loopback auth refusal as a healthy restart so a locked installation cannot roll back a successful update, and cover the route response together with the probe classifier.
+- [x] 9.2 Keep bytecode compilation and the import subprocess out of the request path by reconciling interrupted operations with a shallow revision verification.
+- [x] 9.3 Detect targets that track protected runtime/user paths during check, and narrow the user-data family matching so ordinary tracked root files cannot block every update.
+- [x] 9.4 Return every unmet installation condition as an ordered `reason_codes` list and group UI blockers by current installation, selected target, or last operation.
+- [x] 9.5 Surface a non-blocking runtime-revision advisory for source installs, and serialize checking with the same installation operation lock as applying.
+- [x] 9.6 Raise the client polling budget above the server worst case, add semantic progress attributes, and remove phase/error mappings the backend never emits.
+- [x] 9.7 Persist the relaunched instance's output to a bounded restart log and document the advisory workspace-lock dependency of the update stop path.
+- [x] 9.8 Re-run backend pytest, frontend lint/build, i18n parity, and strict OpenSpec validation; record the remaining Windows-only verification steps for the maintainer.

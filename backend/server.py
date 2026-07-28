@@ -99,6 +99,13 @@ def stop_process_for_update_later():
     A supervised Windows child exits normally so the old supervisor also
     finishes; the updater starts a fresh ``app.py`` only after the checkout is
     verified.  This avoids a supervisor restart racing the Git transaction.
+
+    ``os._exit`` skips ``atexit`` and the ``run_server`` cleanup block, so the
+    updated instance can only acquire the workspace lock because
+    ``WorkspaceInstanceLock`` uses an OS advisory lock (``flock`` /
+    ``msvcrt.locking``) that the kernel releases when the process dies.  A
+    future switch to a PID or marker file lock would silently break every
+    self-update restart and must stop the process gracefully instead.
     """
     def do_stop():
         time.sleep(1)

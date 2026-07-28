@@ -36,6 +36,7 @@ STATE_DIR_NAME = ".sharp-gui-update"
 STATE_FILE_NAME = "state.json"
 LOCK_FILE_NAME = "operation.lock"
 UPDATER_LOG_NAME = "updater.log"
+RESTART_LOG_NAME = "restart.log"
 UPDATER_LOG_MAX_BYTES = 2 * 1024 * 1024
 CHECK_TTL_SECONDS = 30 * 60
 OPERATION_STALE_SECONDS = 30 * 60
@@ -76,6 +77,11 @@ PROTECTED_RUNTIME_PATHS = {
     "workspace",
     "便携包说明.md",
 }
+# ``.gitignore`` protects whole user-data directory families such as ``inputs/``
+# and ``outputs2/``.  Only a directory may match these prefixes so an ordinary
+# tracked root file like ``outputs-format.md`` never blocks every update.
+PROTECTED_RUNTIME_DIR_PREFIXES = ("inputs", "outputs", "model-assets")
+PROTECTED_RUNTIME_SUFFIXES = (".pem", ".log")
 
 
 class UpdateError(RuntimeError):
@@ -110,6 +116,22 @@ def _atomic_write_json(path, payload):
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temporary, path)
+
+
+def open_rotating_update_log(base_dir, name):
+    """Open a bounded append log inside the installation update state directory."""
+
+    state_dir = Path(base_dir) / STATE_DIR_NAME
+    state_dir.mkdir(parents=True, exist_ok=True)
+    log_path = state_dir / name
+    if log_path.is_file() and log_path.stat().st_size >= UPDATER_LOG_MAX_BYTES:
+        rotated_path = log_path.with_suffix(f"{log_path.suffix}.1")
+        try:
+            rotated_path.unlink(missing_ok=True)
+            os.replace(log_path, rotated_path)
+        except OSError:
+            pass
+    return log_path.open("ab")
 
 
 def _read_json(path, default=None):
@@ -507,6 +529,31 @@ def compare_manifest_compatibility(base_dir, target_manifest, *, target_frontend
     return True, "update_compatible"
 
 
+def runtime_change_advisory(base_dir, target_manifest, *, installation_kind):
+    """Warn source installs when the target declares different runtime inputs.
+
+    Portable packages are hard-blocked by the runtime revision gate.  Source
+    installs stay updatable, but the same signal is the only reliable predictor
+    of a post-update dependency import failure, so surface it as advice.
+    """
+
+    if installation_kind == "portable":
+        return None
+    try:
+        installed = load_local_manifest(base_dir)
+    except UpdateError:
+        return None
+    installed_revision = installed.get("portable_runtime_revision")
+    target_revision = target_manifest.get("portable_runtime_revision")
+    if (
+        isinstance(installed_revision, int)
+        and isinstance(target_revision, int)
+        and installed_revision != target_revision
+    ):
+        return "update_runtime_revision_changed"
+    return None
+
+
 FORMAL_RELEASE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 
 
@@ -635,6 +682,20 @@ class GitTargetResolver:
             normalized_manifest,
             target_frontend_present=frontend_present,
         )
+        # The helper repeats this before mutation, but detecting it now avoids
+        # stopping the server just to refuse the target afterwards.
+        if compatible and target_tracks_protected_runtime(
+            self.base_dir,
+            target_sha,
+            git_executable=self.git_executable,
+        ):
+            compatible = False
+            compatibility_code = "update_target_tracks_runtime"
+        advisory_code = runtime_change_advisory(
+            self.base_dir,
+            normalized_manifest,
+            installation_kind=current_identity.get("installation_kind"),
+        )
         relation = self._relation(current_identity.get("commit"), target_sha)
         short_sha = target_sha[:8]
         if commits_ahead is not None and commits_ahead > 0:
@@ -655,6 +716,7 @@ class GitTargetResolver:
             "update_available": relation != "current",
             "compatible": compatible,
             "compatibility_code": compatibility_code,
+            "advisory_code": advisory_code,
             "checked_at": utc_now(),
             "_target_manifest": raw_manifest,
         }
@@ -683,6 +745,7 @@ PUBLIC_CANDIDATE_KEYS = {
     "update_available",
     "compatible",
     "compatibility_code",
+    "advisory_code",
     "checked_at",
 }
 PUBLIC_OPERATION_KEYS = {
@@ -735,56 +798,54 @@ def assert_mutation_preconditions(state, identity, *, task_manager=None, checkin
 
 
 def _capabilities(base_dir, identity, state, *, is_owner, task_manager=None, checking=False):
-    reason = None
-    can_check = True
-    can_apply = True
-    has_active_tasks = bool(task_manager and task_manager.list_tasks()[1])
+    """Collect every unmet condition so the UI can list all blockers at once.
+
+    Reasons are ordered most-actionable first; ``reason_code`` stays the primary
+    reason for callers that only handle a single code.
+    """
+
+    reasons = []
+    blocks_check = set()
+
+    def block(code, *, check=False):
+        if code not in reasons:
+            reasons.append(code)
+        if check:
+            blocks_check.add(code)
+
     if not is_owner:
-        reason = "update_owner_required"
-        can_check = False
-        can_apply = False
-    elif checking or _operation_active(state.get("operation")):
-        reason = "update_in_progress"
-        can_apply = False
-    elif has_active_tasks:
-        reason = "update_tasks_active"
-        can_apply = False
+        block("update_owner_required", check=True)
     else:
+        if checking or _operation_active(state.get("operation")):
+            block("update_in_progress")
+        if task_manager and task_manager.list_tasks()[1]:
+            block("update_tasks_active")
+        if not identity.get("managed") or identity.get("installation_kind") == "unknown":
+            block("update_installation_unsupported", check=True)
+        if not identity.get("git_version"):
+            block("update_git_unavailable", check=True)
         try:
             manifest = load_local_manifest(base_dir)
         except UpdateError as exc:
             manifest = None
-            reason = exc.code
-            can_check = False
-            can_apply = False
-        if manifest and manifest.get("update_protocol_revision") != SUPPORTED_UPDATE_PROTOCOL:
-            reason = "update_protocol_incompatible"
-            can_apply = False
-        if not identity.get("git_version"):
-            reason = "update_git_unavailable"
-            can_check = False
-            can_apply = False
-        elif manifest and not version_at_least(identity["git_version"], manifest["minimum_git_version"]):
-            reason = "update_git_too_old"
-            can_apply = False
-        if not identity.get("managed"):
-            reason = "update_installation_unsupported"
-            can_check = False
-            can_apply = False
+            block(exc.code, check=True)
+        if manifest:
+            if manifest.get("update_protocol_revision") != SUPPORTED_UPDATE_PROTOCOL:
+                block("update_protocol_incompatible")
+            if identity.get("git_version") and not version_at_least(
+                identity["git_version"],
+                manifest["minimum_git_version"],
+            ):
+                block("update_git_too_old")
         if identity.get("installation_kind") == "source" and identity.get("branch") != DEFAULT_BRANCH:
-            reason = "update_developer_branch"
-            can_apply = False
-        elif identity.get("managed") and identity.get("dirty"):
-            reason = "update_worktree_dirty"
-            can_apply = False
-        if identity.get("installation_kind") == "unknown":
-            reason = "update_installation_unsupported"
-            can_check = False
-            can_apply = False
+            block("update_developer_branch")
+        if identity.get("managed") and identity.get("dirty"):
+            block("update_worktree_dirty")
     return {
-        "can_check": can_check,
-        "can_apply": can_apply,
-        "reason_code": reason,
+        "can_check": not blocks_check,
+        "can_apply": not reasons,
+        "reason_code": reasons[0] if reasons else None,
+        "reason_codes": list(reasons),
         "owner_required": True,
     }
 
@@ -836,7 +897,7 @@ class SelfUpdateManager:
         previous_sha = operation.get("previous_sha")
         if operation.get("phase") == "restarting" and current_sha == target_sha:
             try:
-                verify_checked_out_revision(self.base_dir, target_sha)
+                verify_checked_out_revision(self.base_dir, target_sha, deep=False)
             except Exception as exc:
                 operation.update(
                     {
@@ -869,7 +930,7 @@ class SelfUpdateManager:
             verification_code = None
             if current_sha == target_sha:
                 try:
-                    verify_checked_out_revision(self.base_dir, target_sha)
+                    verify_checked_out_revision(self.base_dir, target_sha, deep=False)
                     verified = True
                 except Exception as exc:
                     verification_code = exc.code if isinstance(exc, UpdateError) else "update_verification_failed"
@@ -877,7 +938,7 @@ class SelfUpdateManager:
                 error_code = None if verified else verification_code
             elif current_sha == previous_sha:
                 try:
-                    verify_checked_out_revision(self.base_dir, previous_sha)
+                    verify_checked_out_revision(self.base_dir, previous_sha, deep=False)
                     verified = True
                 except Exception:
                     verified = False
@@ -951,14 +1012,18 @@ class SelfUpdateManager:
                 raise UpdateError(capabilities["reason_code"] or "update_not_supported", status_code=409)
             self._checking = True
         try:
-            candidate = self.resolver_factory().resolve(channel, identity)
+            # Git fetches into a shared repository, so a UI check must not race a
+            # CLI check or a helper transaction in another process.
+            with operation_lock(self.base_dir, f"check-{uuid.uuid4().hex}"):
+                candidate = self.resolver_factory().resolve(channel, identity)
         except UpdateError as exc:
-            with self._lock:
-                state = self._read_state()
-                state.setdefault("channels", {}).pop(channel, None)
-                state["last_check_error_code"] = exc.code
-                state["checked_at"] = utc_now()
-                self._write_state(state)
+            if exc.code != "update_in_progress":
+                with self._lock:
+                    state = self._read_state()
+                    state.setdefault("channels", {}).pop(channel, None)
+                    state["last_check_error_code"] = exc.code
+                    state["checked_at"] = utc_now()
+                    self._write_state(state)
             raise
         finally:
             with self._lock:
@@ -1018,16 +1083,6 @@ class SelfUpdateManager:
         helper = Path(self.base_dir) / "tools" / "update.py"
         if not helper.is_file():
             raise UpdateError("update_helper_missing", status_code=500)
-        state_dir = Path(self.base_dir) / STATE_DIR_NAME
-        state_dir.mkdir(parents=True, exist_ok=True)
-        log_path = state_dir / UPDATER_LOG_NAME
-        if log_path.is_file() and log_path.stat().st_size >= UPDATER_LOG_MAX_BYTES:
-            rotated_path = log_path.with_suffix(f"{log_path.suffix}.1")
-            try:
-                rotated_path.unlink(missing_ok=True)
-                os.replace(log_path, rotated_path)
-            except OSError:
-                pass
         environment = os.environ.copy()
         environment["SHARP_UPDATE_HELPER"] = "1"
         environment.pop("WERKZEUG_RUN_MAIN", None)
@@ -1040,7 +1095,7 @@ class SelfUpdateManager:
             popen_kwargs["creationflags"] = creationflags
         else:
             popen_kwargs["start_new_session"] = True
-        with log_path.open("ab") as log_handle:
+        with open_rotating_update_log(self.base_dir, UPDATER_LOG_NAME) as log_handle:
             process = self.process_factory(
                 [sys.executable, str(helper), "--internal-run", operation["id"]],
                 stdout=log_handle,
@@ -1158,15 +1213,12 @@ def target_tracks_protected_runtime(base_dir, revision, *, git_executable=None):
         path = raw_path.strip().replace("\\", "/").casefold()
         if not path:
             continue
-        first = path.split("/", 1)[0]
-        if (
-            path in protected
-            or any(path.startswith(f"{prefix}/") for prefix in protected)
-            or first.startswith("inputs")
-            or first.startswith("outputs")
-            or first.startswith("model-assets")
-            or ("/" not in path and (path.endswith(".pem") or path.endswith(".log")))
-        ):
+        if path in protected or any(path.startswith(f"{prefix}/") for prefix in protected):
+            return True
+        if path.endswith(PROTECTED_RUNTIME_SUFFIXES):
+            return True
+        head, separator, _ = path.partition("/")
+        if separator and head.startswith(PROTECTED_RUNTIME_DIR_PREFIXES):
             return True
     return False
 
@@ -1266,7 +1318,15 @@ def _fetch_exact_target(base_dir, operation, git_executable):
         raise UpdateError("update_target_changed")
 
 
-def verify_checked_out_revision(base_dir, expected_sha, *, git_executable=None):
+def verify_checked_out_revision(base_dir, expected_sha, *, git_executable=None, deep=True):
+    """Verify the worktree matches ``expected_sha`` and can run.
+
+    ``deep=False`` skips bytecode compilation and the import subprocess.  The
+    serving process uses the shallow form so a status request can never trigger
+    a full ``compileall`` plus interpreter spawn; the updater helper always runs
+    the deep form before accepting or rolling back a revision.
+    """
+
     current = _git_value(base_dir, ["rev-parse", "HEAD"], git_executable=git_executable)
     if current != expected_sha:
         raise UpdateError("update_verification_failed")
@@ -1292,6 +1352,10 @@ def verify_checked_out_revision(base_dir, expected_sha, *, git_executable=None):
     )
     if not compatible:
         raise UpdateError(compatibility_code)
+    if not deep:
+        if tracked_worktree_dirty(base_dir, git_executable):
+            raise UpdateError("update_verification_failed")
+        return True
     for relative in ("backend", "tools"):
         path = Path(base_dir) / relative
         if not path.is_dir() or not compileall.compile_dir(str(path), quiet=2, force=True):
@@ -1320,6 +1384,14 @@ def verify_checked_out_revision(base_dir, expected_sha, *, git_executable=None):
 
 
 def launch_application(base_dir):
+    """Start the updated application detached from the finished updater helper.
+
+    The original console belonged to the process that stopped for the update, so
+    the restarted instance has nowhere interactive to write.  Its output goes to
+    a bounded log under the update state directory instead of being discarded,
+    which is the only record available when a restart misbehaves.
+    """
+
     environment = os.environ.copy()
     for key in ("SHARP_UPDATE_HELPER", "SHARP_WINDOWS_SERVER_CHILD", "WERKZEUG_RUN_MAIN", "WERKZEUG_SERVER_FD"):
         environment.pop(key, None)
@@ -1334,12 +1406,20 @@ def launch_application(base_dir):
         )
     else:
         kwargs["start_new_session"] = True
-    return subprocess.Popen(
-        [sys.executable, str(Path(base_dir) / "app.py")],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        **kwargs,
-    )
+    try:
+        log_handle = open_rotating_update_log(base_dir, RESTART_LOG_NAME)
+    except OSError:
+        log_handle = None
+    try:
+        return subprocess.Popen(
+            [sys.executable, str(Path(base_dir) / "app.py")],
+            stdout=log_handle or subprocess.DEVNULL,
+            stderr=subprocess.STDOUT if log_handle else subprocess.DEVNULL,
+            **kwargs,
+        )
+    finally:
+        if log_handle is not None:
+            log_handle.close()
 
 
 def terminate_application_process(process):
@@ -1365,6 +1445,29 @@ def terminate_application_process(process):
             process.kill()
         except OSError:
             pass
+
+
+def _is_locked_service_response(error):
+    """Recognize our own running service refusing an unauthenticated probe.
+
+    ``GET /api/updates/status`` is an Unlocked route, so an installation that
+    enables the access code *and* disables the localhost bypass answers the
+    loopback probe with a structured auth error.  That response still proves the
+    updated Flask application imported, registered routes, and is serving, so it
+    must count as healthy instead of triggering a needless rollback.
+    """
+
+    if getattr(error, "code", None) not in {401, 403}:
+        return False
+    try:
+        payload = json.loads(error.read(64 * 1024).decode("utf-8"))
+    except (AttributeError, OSError, ValueError, UnicodeDecodeError):
+        return False
+    return isinstance(payload, dict) and payload.get("code") in {
+        "ACCESS_SETUP_REQUIRED",
+        "AUTH_REQUIRED",
+        "OWNER_REQUIRED",
+    }
 
 
 def wait_for_application_health(
@@ -1408,7 +1511,11 @@ def wait_for_application_health(
                     expected_sha is None or current.get("commit") == expected_sha
                 ):
                     return True
-            except (HTTPError, URLError, TimeoutError, ssl.SSLError, OSError, ValueError, UnicodeDecodeError):
+            except HTTPError as exc:
+                if _is_locked_service_response(exc):
+                    return True
+                continue
+            except (URLError, TimeoutError, ssl.SSLError, OSError, ValueError, UnicodeDecodeError):
                 continue
         time.sleep(0.25)
     return False

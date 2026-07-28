@@ -819,3 +819,204 @@ def test_reconcile_verifies_target_before_marking_restart_complete(tmp_path, mon
 
     assert verified == [(str(tmp_path.resolve()), target_sha)]
     assert status["operation"]["phase"] == "completed"
+
+
+@pytest.mark.parametrize(
+    "tracked_path",
+    [
+        "inputs/photo.png",
+        "inputs2/photo.png",
+        "outputs/model.ply",
+        "model-assets-old/cover.jpg",
+        "backend/private.pem",
+        "logs/server.log",
+    ],
+)
+def test_target_protected_runtime_detects_user_data_families(
+    tmp_path,
+    monkeypatch,
+    tracked_path,
+):
+    """Ignored user-data directory families and secret/log suffixes stay blocked."""
+
+    monkeypatch.setattr(
+        self_update,
+        "run_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "ls-tree"],
+            returncode=0,
+            stdout=f"{tracked_path}\n",
+            stderr="",
+        ),
+    )
+
+    assert self_update.target_tracks_protected_runtime(tmp_path, "2" * 40) is True
+
+
+@pytest.mark.parametrize(
+    "tracked_path",
+    [
+        "outputs-format.md",
+        "inputs_schema.json",
+        "model-assets.md",
+        "backend/routes/inputs.py",
+    ],
+)
+def test_target_protected_runtime_allows_ordinary_root_files(
+    tmp_path,
+    monkeypatch,
+    tracked_path,
+):
+    """A tracked file whose name merely starts with a data prefix is not runtime state."""
+
+    monkeypatch.setattr(
+        self_update,
+        "run_git",
+        lambda *_args, **_kwargs: subprocess.CompletedProcess(
+            args=["git", "ls-tree"],
+            returncode=0,
+            stdout=f"{tracked_path}\n",
+            stderr="",
+        ),
+    )
+
+    assert self_update.target_tracks_protected_runtime(tmp_path, "2" * 40) is False
+
+
+def test_capabilities_report_every_unmet_condition(tmp_path, monkeypatch):
+    """The UI needs the full blocker list, not only the last condition evaluated."""
+
+    (tmp_path / "update-manifest.json").write_text(
+        json.dumps(_manifest(minimum_git_version="99.0.0")) + "\n",
+        encoding="utf-8",
+    )
+    identity = {
+        "installation_kind": "source",
+        "managed": True,
+        "dirty": True,
+        "branch": "feature/experiment",
+        "git_version": "git version 2.30.0",
+    }
+
+    capabilities = self_update._capabilities(
+        tmp_path,
+        identity,
+        self_update.default_update_state(),
+        is_owner=True,
+    )
+
+    assert capabilities["can_check"] is True
+    assert capabilities["can_apply"] is False
+    assert capabilities["reason_codes"] == [
+        "update_git_too_old",
+        "update_developer_branch",
+        "update_worktree_dirty",
+    ]
+    assert capabilities["reason_code"] == capabilities["reason_codes"][0]
+
+
+def test_capabilities_keep_transient_reasons_first(tmp_path, monkeypatch):
+    (tmp_path / "update-manifest.json").write_text(
+        json.dumps(_manifest()) + "\n",
+        encoding="utf-8",
+    )
+    identity = {
+        "installation_kind": "source",
+        "managed": True,
+        "dirty": True,
+        "branch": "main",
+        "git_version": "git version 2.44.0",
+    }
+    state = self_update.default_update_state()
+    state["operation"] = {"id": "abc", "phase": "applying"}
+
+    capabilities = self_update._capabilities(
+        tmp_path,
+        identity,
+        state,
+        is_owner=True,
+    )
+
+    assert capabilities["reason_codes"] == ["update_in_progress", "update_worktree_dirty"]
+    assert capabilities["can_check"] is True
+
+
+def test_runtime_change_advisory_is_source_only(tmp_path):
+    (tmp_path / "update-manifest.json").write_text(
+        json.dumps(_manifest(runtime_revision=1)) + "\n",
+        encoding="utf-8",
+    )
+    target = self_update.normalize_manifest(_manifest(runtime_revision=2))
+
+    assert self_update.runtime_change_advisory(
+        tmp_path,
+        target,
+        installation_kind="source",
+    ) == "update_runtime_revision_changed"
+    assert self_update.runtime_change_advisory(
+        tmp_path,
+        target,
+        installation_kind="portable",
+    ) is None
+    assert self_update.runtime_change_advisory(
+        tmp_path,
+        self_update.normalize_manifest(_manifest(runtime_revision=1)),
+        installation_kind="source",
+    ) is None
+
+
+def test_shallow_verification_skips_compilation_and_import(tmp_path, monkeypatch):
+    """Reconciliation runs inside a request, so it must not compile or spawn."""
+
+    expected_sha = "2" * 40
+    (tmp_path / "backend" / "routes").mkdir(parents=True)
+    (tmp_path / "backend" / "app_factory.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "backend" / "routes" / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "tools").mkdir()
+    (tmp_path / "tools" / "update.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "frontend" / "dist").mkdir(parents=True)
+    (tmp_path / "frontend" / "dist" / "index.html").write_text("<html/>\n", encoding="utf-8")
+    (tmp_path / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+    (tmp_path / "version.txt").write_text("v1.0.0\n", encoding="utf-8")
+    (tmp_path / "update-manifest.json").write_text(
+        json.dumps(_manifest()) + "\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        self_update,
+        "_git_value",
+        lambda *_args, **_kwargs: expected_sha,
+    )
+    monkeypatch.setattr(self_update, "tracked_worktree_dirty", lambda *_a, **_k: False)
+    monkeypatch.setattr(
+        self_update,
+        "compare_manifest_compatibility",
+        lambda *_a, **_k: (True, "update_compatible"),
+    )
+
+    def _forbidden(*_args, **_kwargs):
+        raise AssertionError("shallow verification must not compile or spawn")
+
+    monkeypatch.setattr(self_update.compileall, "compile_dir", _forbidden)
+    monkeypatch.setattr(self_update.compileall, "compile_file", _forbidden)
+    monkeypatch.setattr(self_update.subprocess, "run", _forbidden)
+
+    assert self_update.verify_checked_out_revision(tmp_path, expected_sha, deep=False) is True
+
+
+def test_check_refuses_target_that_tracks_protected_runtime(tmp_path, monkeypatch, git_executable):
+    """Refusing at check time avoids stopping the server just to reject the target."""
+
+    install, remote, stable_sha, _latest_sha = _build_update_remote(tmp_path, git_executable)
+    monkeypatch.setattr(self_update, "CANONICAL_REPOSITORY_URL", str(remote))
+    source = tmp_path / "source"
+    (source / "config.json").write_text('{"must":"never-be-tracked"}\n', encoding="utf-8")
+    _git(git_executable, source, "add", "--force", "config.json")
+    _commit_all(source, git_executable, "track protected runtime state")
+    _git(git_executable, source, "push", str(remote), "main")
+
+    resolver = self_update.GitTargetResolver(install, git_executable=git_executable)
+    candidate = resolver.resolve("latest", {"commit": stable_sha})
+
+    assert candidate["compatible"] is False
+    assert candidate["compatibility_code"] == "update_target_tracks_runtime"

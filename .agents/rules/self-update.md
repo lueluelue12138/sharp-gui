@@ -107,6 +107,30 @@
 
 前端只展示当前版本、通道、目标、明确阻断原因、检查/安装按钮和重启进度。服务重启造成的短暂断线是正常流程，页面在新实例和目标 commit 可见后刷新。
 
+### 5.1 重启健康探针
+
+helper 通过 loopback 请求 **GET /api/updates/status** 判断新实例是否起来。该路由是 Unlocked，因此同时启用访问码并关闭 `allow_localhost_bypass` 的安装会用鉴权错误回应探针。
+
+> 该配置目前没有设置界面开关，只能手工编辑 `config.json` 或直接调 `POST /api/auth/settings`；而且它会同时取消 owner 身份，导致 check/apply 直接 403，所以现在还触发不到探针误判。但 README 与启动横幅已经把它作为"反向代理下强制访问码"的正式手段，一旦补上 UI 或调整 owner 判定就会变成真问题，因此探针必须自己扛住这种回应。
+
+这类响应同样证明新代码已经导入并在服务，因此：
+
+- `200` 且 `current.commit` 等于目标 SHA → 健康；
+- `401` / `403` 且响应体 code 为 **AUTH_REQUIRED**、**ACCESS_SETUP_REQUIRED** 或 **OWNER_REQUIRED** → 健康；
+- 其他状态码、非结构化响应体或 commit 不匹配 → 继续等待，超时后判定失败。
+
+不要把探针改成只判断端口连通，也不要因为鉴权失败就回滚已验证的目标。探针使用未校验的 TLS context 是有意为之（本机自签名证书），信任来自 helper 刚刚检出并验证过的 exact commit。
+
+### 5.2 请求路径不做重活
+
+对账（`_reconcile`）发生在 status 请求内，只允许 **shallow** 校验：HEAD、必需文件、前端入口、清单兼容和 tracked 干净。`compileall` 和 import 子进程只能出现在 helper 事务里（`verify_checked_out_revision(deep=True)`）。否则任意 Unlocked 客户端就能在重启窗口触发全量字节码编译和解释器 fork。
+
+### 5.3 停止与重启
+
+`stop_process_for_update_later` 使用 `os._exit(0)`，跳过 `atexit` 和 `run_server` 的清理块。新实例仍能拿到工作区锁，是因为 **WorkspaceInstanceLock** 用的是 `flock` / `msvcrt.locking` 这类由内核在进程死亡时释放的咨询锁。若把工作区锁改成 PID 或标记文件实现，必须同时把这里改成优雅退出，否则每次自更新重启都会失败。
+
+重启后的实例脱离原控制台，其 stdout/stderr 写入 **.sharp-gui-update/restart.log**（带轮转），这是排查重启异常的唯一记录。用户此时不要再手动运行 `portable-run.bat`，否则会因工作区锁得到 `WorkspaceInUseError`。
+
 ## 6. API 与 CLI
 
 | API | 权限 | 说明 |
@@ -114,6 +138,10 @@
 | GET /api/updates/status | Unlocked | 脱敏版本、能力、候选和操作状态 |
 | POST /api/updates/check | Owner | 请求体仅允许 channel |
 | POST /api/updates/apply | Owner | 请求体仅允许 channel，使用最近检查的 exact SHA |
+
+`capabilities` 返回 **reason_codes**（按可操作性排序的完整阻断列表）和 **reason_code**（列表首项，供只处理单个码的调用方）。新增阻断原因时同时补 `CODE_KEYS` 与中英文文案，并保持 `PHASE_KEYS` 只包含后端真实产生的阶段。候选的 **advisory_code** 是非阻断提示，目前只有源码安装遇到 runtime revision 变化时使用。
+
+前端把阻断项分成三组展示：当前安装（`reason_codes`）、所选通道（目标兼容/检查错误）、上次更新操作（operation error 与本地视图错误）。
 
 CLI 与 UI 共用管理器和事务：
 
@@ -132,8 +160,10 @@ Windows 使用相同参数的 **update.bat**。不再维护 **--pre**、**--roll
 - 客户端不能提交 URL、仓库、分支、tag、SHA、命令或文件路径。
 - Git 使用参数列表、非交互环境、规范仓库 URL 和明确 executable；不修改全局 PATH 或 Git 配置。
 - apply 在文件 mutation 前重新检查任务、锁、branch、dirty、当前 HEAD、目标时效和兼容清单。
+- check 与 apply 共用同一个安装级文件锁，跨进程串行；UI 与 CLI 同时检查时后者收到 `update_in_progress`。
 - 响应不得包含绝对路径、Git 命令、凭据、原始异常栈或远端 stderr。
 - config.json、证书、日志、workspace、模型、Python/runtime、.sharp-gui-tools/、.sharp-gui-update/ 和视频重建环境不得被目标提交跟踪。
+  该检查在 check 和 helper mutation 前各执行一次。匹配规则：精确路径与目录前缀命中 `PROTECTED_RUNTIME_PATHS`；任意层级的 `*.pem` / `*.log`；`inputs*` / `outputs*` / `model-assets*` **仅当路径含目录分隔符时**命中，因此根目录下名为 `outputs-format.md` 之类的普通跟踪文件不会阻断更新。放宽成裸前缀匹配会让一个无关的新文件拒绝掉所有便携包更新。
 
 ## 8. 便携包与 MinGit
 
@@ -175,7 +205,9 @@ npm run build
 
 - [ ] Stable/Latest 解析到规范仓库可信 exact SHA，正式标签不混入 prerelease。
 - [ ] 当前和目标均包含有效清单，目标包含最新 frontend/dist。
-- [ ] dirty、开发分支、活动任务、并发操作和过期候选均安全拒绝。
+- [ ] dirty、开发分支、活动任务、并发操作和过期候选均安全拒绝，且多个条件同时不满足时全部出现在 `reason_codes`。
+- [ ] 重启健康探针在“启用访问码 + 关闭本机免登录”的配置下仍判定为健康。
+- [ ] 对账路径没有引入 `compileall` 或子进程。
 - [ ] tracked 增删改名精确收敛，用户/runtime marker 保持不变。
 - [ ] apply、重启健康检查、自动失败恢复和中断对账均有覆盖。
 - [ ] owner-only 权限、响应脱敏和客户端输入边界未放宽。

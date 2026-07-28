@@ -104,6 +104,17 @@ The system SHALL apply an exact trusted Git revision outside the serving process
 - **WHEN** the service or updater starts with an operation recorded in a non-terminal phase
 - **THEN** the system SHALL reconcile the actual installed revision with the recorded previous/target revisions
 - **AND** it MUST reconcile or recover before allowing another apply
+- **AND** reconciliation MUST NOT compile bytecode or spawn an interpreter from a request, because that work belongs to the updater helper
+
+#### Scenario: Restarted instance requires authentication
+- **WHEN** the restarted service refuses the updater's loopback status probe with a structured authentication error instead of a status payload
+- **THEN** the refusal SHALL count as a healthy restart because only the running application can produce it
+- **AND** the system MUST NOT roll back a verified target solely because the probe was not authorized
+
+#### Scenario: Target tracks protected runtime or user paths
+- **WHEN** a checked target tracks configuration, certificates, logs, workspace data, model caches, embedded runtimes, or package-local tools
+- **THEN** the check SHALL report the target as incompatible before any apply is offered
+- **AND** the updater MUST repeat the same refusal before mutating tracked code
 
 ### Requirement: Update preconditions MUST protect active work and local modifications
 
@@ -157,7 +168,13 @@ React Settings SHALL present current version, installed/target channel, check ti
 #### Scenario: Multiple conditions block an update
 - **WHEN** the current installation and the selected target each have an unmet update condition
 - **THEN** the UI SHALL list every blocker separately and identify whether it belongs to the current installation, target, or check operation
+- **AND** the status response SHALL expose every unmet installation condition as an ordered list rather than only the primary one
 - **AND** developer-branch and missing-manifest blockers SHALL name the current/default branch, selected channel, required `update-manifest.json` file, and an actionable recovery path without exposing server filesystem paths
+
+#### Scenario: Target declares different runtime inputs for a source install
+- **WHEN** a source installation checks a target whose declared portable runtime revision differs from the installed one
+- **THEN** the target SHALL remain applicable
+- **AND** the UI SHALL show a non-blocking advisory telling the user to re-run the install script if the application fails to start
 
 ### Requirement: Command-line update entry points SHALL use the same safety model
 

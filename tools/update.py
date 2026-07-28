@@ -54,6 +54,8 @@ def print_candidate(candidate):
     print(f"Target commit:   {candidate['short_sha']}")
     print(f"Relationship:    {candidate['relation']}")
     print(f"Compatibility:   {candidate['compatibility_code']}")
+    if candidate.get("advisory_code"):
+        print(f"Advisory:        {candidate['advisory_code']}")
 
 
 def local_server_is_running():
@@ -107,14 +109,19 @@ def run_cli(args):
         raise UpdateError("update_in_progress")
 
     if not args.check:
-        reason_code = (manager_status.get("capabilities") or {}).get("reason_code")
-        if reason_code in {
+        capabilities = manager_status.get("capabilities") or {}
+        reason_codes = capabilities.get("reason_codes")
+        if not isinstance(reason_codes, list):
+            reason_codes = [capabilities.get("reason_code")]
+        blocking = {
             "update_in_progress",
             "update_tasks_active",
             "update_worktree_dirty",
             "update_developer_branch",
-        }:
-            raise UpdateError(reason_code)
+        }
+        for reason_code in reason_codes:
+            if reason_code in blocking:
+                raise UpdateError(reason_code)
 
     identity = get_installed_identity(BASE_DIR, state)
     print_identity(identity)

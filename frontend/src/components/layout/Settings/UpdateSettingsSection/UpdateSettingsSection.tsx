@@ -43,20 +43,17 @@ const DEFAULT_UPDATE_BRANCH = 'main';
 const UPDATE_MANIFEST_PATH = 'update-manifest.json';
 const FAILURE_PHASES = new Set(['cancelled', 'failed']);
 
+// Mirrors the phases produced by backend/services/self_update.py.
 const PHASE_KEYS: Record<string, string> = {
   queued: 'updatePhaseQueued',
-  fetching: 'updatePhaseFetching',
-  validating: 'updatePhaseValidating',
   waiting_for_server: 'updatePhaseWaitingForServer',
-  stopping: 'updatePhaseStopping',
+  fetching: 'updatePhaseFetching',
   applying: 'updatePhaseApplying',
-  checking_out: 'updatePhaseCheckingOut',
   verifying: 'updatePhaseVerifying',
+  rolling_back: 'updatePhaseRollingBack',
   restarting: 'updatePhaseRestarting',
   completed: 'updatePhaseCompleted',
   failed: 'updatePhaseFailed',
-  rolling_back: 'updatePhaseRollingBack',
-  rollback_verifying: 'updatePhaseRollbackVerifying',
 };
 
 const RELATION_KEYS: Record<string, string> = {
@@ -77,51 +74,61 @@ const INSTALLATION_KEYS: Record<string, string> = {
   unknown: 'updateInstallationUnknown',
 };
 
+// Every stable code the backend can return through /api/updates/*. Keep this in
+// sync with the UpdateError codes in backend/services/self_update.py.
 const CODE_KEYS: Record<string, string> = {
-  update_owner_required: 'updateReasonOwnerRequired',
-  update_git_unavailable: 'updateReasonGitUnavailable',
-  update_git_too_old: 'updateCompatibilityGitTooOld',
-  update_manifest_missing: 'updateCompatibilityManifestMissing',
-  update_manifest_invalid: 'updateCompatibilityManifestInvalid',
-  update_bootstrap_required: 'updateErrorInstallationUnsupported',
-  update_installation_unsupported: 'updateErrorInstallationUnsupported',
-  update_developer_branch: 'updateReasonNonDefaultBranch',
-  update_worktree_dirty: 'updateReasonDirtyWorktree',
-  update_tasks_active: 'updateReasonActiveTasks',
-  update_in_progress: 'updateReasonOperationInProgress',
-  update_runtime_incompatible: 'updateCompatibilityRuntimeMismatch',
-  update_protocol_incompatible: 'updateCompatibilityProtocolMismatch',
-  update_package_target_unsupported: 'updateCompatibilityPackageTarget',
-  update_frontend_missing: 'updateCompatibilityFrontendMissing',
-  update_target_untrusted: 'updateCompatibilityTargetUntrusted',
-  update_target_expired: 'updateErrorTargetExpired',
-  update_full_package_required: 'updateCompatibilityFullPackageRequired',
-  update_incompatible: 'updateCompatibilityFullPackageRequired',
-  update_channel_invalid: 'updateErrorRequestInvalid',
   update_already_current: 'updateErrorAlreadyCurrent',
+  update_apply_failed: 'updateErrorApplyFailed',
+  update_bootstrap_required: 'updateErrorInstallationUnsupported',
+  update_channel_invalid: 'updateErrorRequestInvalid',
+  update_check_failed: 'updateErrorCheckFailed',
+  update_developer_branch: 'updateReasonNonDefaultBranch',
+  update_frontend_missing: 'updateCompatibilityFrontendMissing',
+  update_full_package_required: 'updateCompatibilityFullPackageRequired',
+  update_git_failed: 'updateErrorGitFailed',
+  update_git_too_old: 'updateCompatibilityGitTooOld',
+  update_git_unavailable: 'updateReasonGitUnavailable',
+  update_helper_missing: 'updateErrorHelperMissing',
+  update_helper_start_failed: 'updateErrorHelperFailed',
+  update_in_progress: 'updateReasonOperationInProgress',
+  update_incompatible: 'updateCompatibilityFullPackageRequired',
+  update_installation_unsupported: 'updateErrorInstallationUnsupported',
   update_installed_revision_changed: 'updateErrorRevisionChanged',
   update_interrupted_rolled_back: 'updateErrorRolledBack',
-  update_operation_invalid: 'updateErrorOperationInvalid',
+  update_manifest_invalid: 'updateCompatibilityManifestInvalid',
+  update_manifest_missing: 'updateCompatibilityManifestMissing',
   update_not_supported: 'updateErrorInstallationUnsupported',
+  update_operation_invalid: 'updateErrorOperationInvalid',
+  update_owner_required: 'updateReasonOwnerRequired',
+  update_protocol_incompatible: 'updateCompatibilityProtocolMismatch',
   update_recovery_required: 'updateErrorRecoveryRequired',
   update_release_invalid: 'updateErrorTargetInvalid',
+  update_request_invalid: 'updateErrorRequestInvalid',
+  update_restart_failed: 'updateErrorRestartFailed',
   update_rollback_failed: 'updateErrorRollbackFailed',
   update_server_stop_timeout: 'updateErrorServerStopTimeout',
   update_target_changed: 'updateErrorTargetChanged',
-  update_target_tracks_runtime: 'updateErrorTargetTracksRuntime',
+  update_target_expired: 'updateErrorTargetExpired',
   update_target_invalid: 'updateErrorTargetInvalid',
+  update_target_tracks_runtime: 'updateErrorTargetTracksRuntime',
   update_target_unsupported: 'updateCompatibilityPackageTarget',
-  update_worktree_invalid: 'updateErrorWorktreeInvalid',
-  update_helper_missing: 'updateErrorHelperMissing',
-  update_helper_start_failed: 'updateErrorHelperFailed',
-  update_check_failed: 'updateErrorCheckFailed',
-  update_apply_failed: 'updateErrorApplyFailed',
+  update_target_untrusted: 'updateCompatibilityTargetUntrusted',
+  update_tasks_active: 'updateReasonActiveTasks',
   update_verification_failed: 'updateErrorVerificationFailed',
-  update_restart_failed: 'updateErrorRestartFailed',
-  update_state_corrupt: 'updateErrorStateCorrupt',
-  update_helper_failed: 'updateErrorHelperFailed',
-  update_git_failed: 'updateErrorGitFailed',
+  update_worktree_dirty: 'updateReasonDirtyWorktree',
 };
+
+const ADVISORY_KEYS: Record<string, string> = {
+  update_runtime_revision_changed: 'updateAdvisoryRuntimeChanged',
+};
+
+type BlockerScope = 'current' | 'target' | 'operation';
+
+interface UpdateBlocker {
+  scope: BlockerScope;
+  code: string | null;
+  messageKey: string;
+}
 
 function normalizeCode(value?: string | null): string {
   return value?.trim().toLowerCase() ?? '';
@@ -136,11 +143,10 @@ function apiErrorKey(error: ApiError, fallbackKey: string): string {
 }
 
 function formatTimestamp(value: UpdateTimestamp, locale: string): string | null {
-  if (value === null || value === undefined || value === '') {
+  if (!value) {
     return null;
   }
-  const raw = typeof value === 'number' && value < 10_000_000_000 ? value * 1000 : value;
-  const date = new Date(raw);
+  const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return null;
   }
@@ -184,23 +190,45 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
     candidate?.checked_at ?? status?.checked_at ?? null,
     i18n.resolvedLanguage ?? i18n.language,
   );
-  const capabilityCode = !operationActive ? status?.capabilities.reason_code : null;
+  const capabilities = status?.capabilities;
+  // Blockers of the current installation. An active operation already explains
+  // itself through the progress panel, so its reasons are not repeated here.
+  const currentCodes = !effectiveOwner
+    ? ['update_owner_required']
+    : operationActive
+      ? []
+      : capabilities?.reason_codes
+        ?? (capabilities?.reason_code ? [capabilities.reason_code] : []);
   const targetCode = candidate && !candidate.compatible
     ? candidate.compatibility_code
-    : !candidate && !capabilityCode
-      ? status?.last_check_error_code
+    : !candidate && currentCodes.length === 0
+      ? status?.last_check_error_code ?? null
       : null;
-  const operationCode = operation?.error_code ?? null;
+  const advisoryKey = candidate?.compatible && candidate.advisory_code
+    ? ADVISORY_KEYS[normalizeCode(candidate.advisory_code)] ?? null
+    : null;
 
-  const blockerCodes = [
-    !effectiveOwner ? 'update_owner_required' : capabilityCode,
-    targetCode,
-    operationCode,
-    viewErrorKey,
-  ].filter((value, index, values): value is string => Boolean(value) && values.indexOf(value) === index);
-  const normalizedBlockers = blockerCodes.map(normalizeCode);
-  const showBranchDetail = normalizedBlockers.includes('update_developer_branch');
-  const showManifestDetail = normalizedBlockers.includes('update_manifest_missing');
+  const blockers: UpdateBlocker[] = [];
+  const seenMessageKeys = new Set<string>();
+  const addBlocker = (scope: BlockerScope, code: string | null, messageKey: string) => {
+    if (!messageKey || seenMessageKeys.has(messageKey)) {
+      return;
+    }
+    seenMessageKeys.add(messageKey);
+    blockers.push({ scope, code: code ? normalizeCode(code) : null, messageKey });
+  };
+  currentCodes.forEach((code) => addBlocker('current', code, codeKey(code)));
+  if (targetCode) {
+    addBlocker('target', targetCode, codeKey(targetCode));
+  }
+  if (operation?.error_code) {
+    addBlocker('operation', operation.error_code, codeKey(operation.error_code));
+  }
+  if (viewErrorKey) {
+    // viewErrorKey is already a translation key, not a backend code.
+    addBlocker('operation', null, viewErrorKey);
+  }
+
   const phaseKey = PHASE_KEYS[normalizeCode(operation?.phase)] ?? 'updatePhaseWorking';
   const relationKey = RELATION_KEYS[normalizeCode(candidate?.relation)] ?? 'updateRelationUnknown';
   const installationKey = INSTALLATION_KEYS[normalizeCode(status?.current.installation_kind)]
@@ -405,13 +433,13 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
             <span className={`${styles.stateBadge} ${
               operationActive
                 ? styles.stateBusy
-                : blockerCodes.length > 0
+                : blockers.length > 0
                   ? styles.stateWarning
                   : styles.stateReady
             }`}>
               {operationActive
                 ? t(phaseKey)
-                : blockerCodes.length > 0
+                : blockers.length > 0
                   ? t('updateNeedsAttention')
                   : t('updateReady')}
             </span>
@@ -523,25 +551,37 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
               </div>
             )}
 
-            {blockerCodes.length > 0 && (
+            {advisoryKey && (
+              <div className={`${styles.notice} ${styles.warningNotice}`} role="note">
+                <InfoIcon aria-hidden="true" />
+                <div>
+                  <strong>{t('updateAdvisoryTitle')}</strong>
+                  <p>{t(advisoryKey)}</p>
+                </div>
+              </div>
+            )}
+
+            {blockers.length > 0 && (
               <div className={`${styles.notice} ${styles.errorNotice}`} role="alert">
                 <InfoIcon aria-hidden="true" />
                 <div className={styles.blockerContent}>
                   <strong>{t('updateErrorTitle')}</strong>
                   <ul className={styles.blockerList}>
-                    {blockerCodes.map((code) => (
-                      <li className={styles.blockerItem} key={code}>
+                    {blockers.map((blocker) => (
+                      <li className={styles.blockerItem} key={blocker.messageKey}>
                         <span>
-                          {code === capabilityCode
+                          {blocker.scope === 'current'
                             ? t('updateBlockerCurrentInstallation')
-                            : t('updateBlockerTarget', {
-                              channel: selectedChannel === 'stable'
-                                ? t('updateChannelStable')
-                                : t('updateChannelLatest'),
-                            })}
+                            : blocker.scope === 'operation'
+                              ? t('updateBlockerOperation')
+                              : t('updateBlockerTarget', {
+                                channel: selectedChannel === 'stable'
+                                  ? t('updateChannelStable')
+                                  : t('updateChannelLatest'),
+                              })}
                         </span>
-                        <small>{t(code.includes('_') ? codeKey(code) : code)}</small>
-                        {showBranchDetail && normalizeCode(code) === 'update_developer_branch' && (
+                        <small>{t(blocker.messageKey)}</small>
+                        {blocker.code === 'update_developer_branch' && (
                           <small>
                             {t('updateBlockerBranchDetail', {
                               branch: status.current.branch || t('updateUnknown'),
@@ -549,7 +589,7 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
                             })}
                           </small>
                         )}
-                        {showManifestDetail && normalizeCode(code) === 'update_manifest_missing' && (
+                        {blocker.code === 'update_manifest_missing' && (
                           <small>
                             {t('updateBlockerManifestDetail', { file: UPDATE_MANIFEST_PATH })}
                           </small>
@@ -567,7 +607,16 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
                   <strong>{t(phaseKey)}</strong>
                   <span>{Math.max(0, Math.min(100, operation?.progress ?? 0))}%</span>
                 </div>
-                <div className={styles.progressTrack}>
+                <div
+                  aria-label={t(phaseKey)}
+                  aria-valuemax={100}
+                  aria-valuemin={0}
+                  aria-valuenow={typeof operation?.progress === 'number'
+                    ? Math.max(0, Math.min(100, operation.progress))
+                    : undefined}
+                  className={styles.progressTrack}
+                  role="progressbar"
+                >
                   <span
                     className={`${styles.progressFill} ${
                       operation?.progress === null ? styles.progressIndeterminate : ''

@@ -1,3 +1,6 @@
+import io
+from urllib.error import HTTPError
+
 import pytest
 
 from backend.services import self_update
@@ -134,3 +137,59 @@ def test_update_routes_reject_invalid_or_client_controlled_targets(
 
     assert response.status_code == 400
     assert response.get_json()["code"] == expected_code
+
+
+def test_restart_probe_treats_locked_status_route_as_a_healthy_service(client, app, monkeypatch):
+    """A locked installation still proves the updated service came back up.
+
+    ``GET /api/updates/status`` is Unlocked, so an installation that enables the
+    access code and disables the localhost bypass answers the updater's loopback
+    probe with an auth error.  Treating that as unhealthy would roll back a
+    perfectly good update, so the probe must recognize the structured refusal.
+    """
+
+    app.config["UPDATE_MANAGER"] = RecordingUpdateManager()
+    monkeypatch.setattr(
+        "backend.security.hooks.get_access_control_config",
+        lambda *_args, **_kwargs: {
+            "enabled": True,
+            "allow_localhost_bypass": False,
+            "access_code_hash": "x" * 64,
+            "session_secret": "y" * 64,
+            "session_version": 1,
+        },
+    )
+
+    response = client.get("/api/updates/status")
+
+    assert response.status_code == 401
+    assert response.get_json()["code"] in {"ACCESS_SETUP_REQUIRED", "AUTH_REQUIRED"}
+
+    locked_error = HTTPError(
+        "https://127.0.0.1:5050/api/updates/status",
+        response.status_code,
+        "Unauthorized",
+        {},
+        io.BytesIO(response.data),
+    )
+    assert self_update._is_locked_service_response(locked_error) is True
+
+
+@pytest.mark.parametrize(
+    ("status_code", "body"),
+    [
+        (404, b'{"code": "NOT_FOUND"}'),
+        (401, b"<html>some other listener</html>"),
+        (500, b'{"code": "AUTH_REQUIRED"}'),
+    ],
+)
+def test_restart_probe_rejects_responses_from_foreign_listeners(status_code, body):
+    error = HTTPError(
+        "https://127.0.0.1:5050/api/updates/status",
+        status_code,
+        "Error",
+        {},
+        io.BytesIO(body),
+    )
+
+    assert self_update._is_locked_service_response(error) is False

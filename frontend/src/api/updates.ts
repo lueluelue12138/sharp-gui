@@ -7,22 +7,25 @@ import type {
   UpdateStatusResponse,
 } from '@/types';
 
-const TERMINAL_UPDATE_PHASES = new Set([
-  'cancelled',
-  'checked',
-  'completed',
-  'done',
-  'failed',
-  'idle',
-  'ready',
-  'success',
-  'up_to_date',
+// Mirrors ACTIVE_PHASES in backend/services/self_update.py. The backend only
+// ever reports these plus the terminal `completed` / `failed` phases.
+const ACTIVE_UPDATE_PHASES = new Set([
+  'queued',
+  'waiting_for_server',
+  'fetching',
+  'applying',
+  'verifying',
+  'rolling_back',
+  'restarting',
 ]);
 
 const DEFAULT_STATUS_TIMEOUT_MS = 2500;
 
 export const UPDATE_POLL_INTERVAL_MS = 1000;
-export const UPDATE_POLL_TIMEOUT_MS = 180000;
+// The server-side worst case is a 180s fetch plus verification (bytecode
+// compilation and an import subprocess) plus a 60s restart health wait, so the
+// client budget has to stay comfortably above the sum.
+export const UPDATE_POLL_TIMEOUT_MS = 600000;
 
 interface FetchUpdateStatusOptions {
   cacheBust?: boolean;
@@ -67,7 +70,7 @@ export function isActiveUpdateOperation(operation?: UpdateOperation | null): boo
   if (!operation?.id || !operation.phase) {
     return false;
   }
-  return !TERMINAL_UPDATE_PHASES.has(operation.phase.trim().toLowerCase());
+  return ACTIVE_UPDATE_PHASES.has(operation.phase.trim().toLowerCase());
 }
 
 export function getExpectedUpdateCommit(operation?: UpdateOperation | null): string | null {

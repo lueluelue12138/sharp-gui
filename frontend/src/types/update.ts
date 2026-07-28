@@ -15,7 +15,8 @@ export type UpdateInstallationKind =
   | 'portable'
   | 'unknown';
 
-export type UpdateTimestamp = number | string | null;
+/** The update API always emits ISO-8601 UTC strings. */
+export type UpdateTimestamp = string | null;
 
 export interface UpdateInstalledIdentity {
   base_version: string | null;
@@ -33,7 +34,10 @@ export interface UpdateInstalledIdentity {
 export interface UpdateCapabilities {
   can_check: boolean;
   can_apply: boolean;
+  /** Primary blocker; equals the first entry of `reason_codes`. */
   reason_code: string | null;
+  /** Every unmet condition of the current installation, most actionable first. */
+  reason_codes?: string[] | null;
   owner_required?: boolean;
 }
 
@@ -48,6 +52,8 @@ export interface UpdateCandidate {
   update_available: boolean;
   compatible: boolean;
   compatibility_code: string | null;
+  /** Non-blocking warning about the target, e.g. changed runtime inputs. */
+  advisory_code?: string | null;
   checked_at: UpdateTimestamp;
 }
 
