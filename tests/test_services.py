@@ -577,7 +577,7 @@ def test_media_scan_lists_images_and_videos_with_type_filter(config_file, worksp
     album_dir = workspace / "album"
     album_dir.mkdir()
     image_path = album_dir / "image.jpg"
-    video_path = album_dir / "clip.MP4"
+    video_path = album_dir / "clip.MKV"
     note_path = album_dir / "note.txt"
     image_path.write_bytes(b"fake-image")
     video_path.write_bytes(b"fake-video")
@@ -617,7 +617,8 @@ def test_media_scan_lists_images_and_videos_with_type_filter(config_file, worksp
     assert payload_videos["total"] == 1
     assert payload_videos["items"][0]["media_type"] == MEDIA_TYPE_VIDEO
     assert payload_videos["items"][0]["playback_url"].startswith("/api/video-play/")
-    assert payload_videos["items"][0]["playback_url"].endswith("/clip.MP4")
+    assert payload_videos["items"][0]["playback_url"].endswith("/clip.MKV")
+    assert payload_videos["items"][0]["mime_type"] == "video/x-matroska"
     assert "note.txt" not in {item["name"] for item in media_items}
 
 

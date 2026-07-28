@@ -1,6 +1,18 @@
+import math
 import os
+import subprocess
 
-from flask import Blueprint, current_app, g, jsonify, request, send_file, send_from_directory
+from flask import (
+    Blueprint,
+    Response,
+    current_app,
+    g,
+    jsonify,
+    request,
+    send_file,
+    send_from_directory,
+    stream_with_context,
+)
 
 from backend.services import photo_gallery
 
@@ -141,8 +153,9 @@ def get_video_poster(video_id):
 
 
 def send_video_file(video_id):
+    paths = get_paths()
     resolved = photo_gallery.resolve_media_path(
-        get_paths(),
+        paths,
         video_id,
         expected_type=photo_gallery.MEDIA_TYPE_VIDEO,
     )
@@ -151,6 +164,65 @@ def send_video_file(video_id):
 
     _, full_path, meta = resolved
     download = request.args.get("download", "0").lower() in ("1", "true", "yes")
+    audio_stream = request.args.get("audio", "0").lower() in ("1", "true", "yes")
+    if audio_stream and not download:
+        try:
+            start_seconds = max(0.0, float(request.args.get("start", "0")))
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid audio stream start time"}), 400
+        if not math.isfinite(start_seconds):
+            return jsonify({"error": "Invalid audio stream start time"}), 400
+
+        command = photo_gallery.build_browser_audio_stream_command(full_path, start_seconds)
+        if not command:
+            return jsonify({"error": "FFmpeg is required for compatible audio streaming"}), 503
+
+        if not photo_gallery.browser_audio_stream_semaphore.acquire(blocking=False):
+            return jsonify({"error": "Too many compatible audio streams"}), 429
+
+        try:
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                bufsize=0,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except OSError:
+            photo_gallery.browser_audio_stream_semaphore.release()
+            return jsonify({"error": "Compatible audio stream could not be started"}), 503
+
+        def generate_audio():
+            try:
+                while process.stdout:
+                    chunk = process.stdout.read(64 * 1024)
+                    if not chunk:
+                        break
+                    yield chunk
+            finally:
+                try:
+                    if process.stdout:
+                        process.stdout.close()
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
+                            process.wait(timeout=1)
+                finally:
+                    photo_gallery.browser_audio_stream_semaphore.release()
+
+        response = Response(
+            stream_with_context(generate_audio()),
+            mimetype="audio/aac",
+            direct_passthrough=True,
+        )
+        response.cache_control.no_store = True
+        response.cache_control.no_cache = True
+        response.headers["X-Accel-Buffering"] = "no"
+        return response
+
     response = send_from_directory(
         os.path.dirname(full_path),
         os.path.basename(full_path),

@@ -267,7 +267,7 @@
   "pageWillRefresh": "Page will refresh automatically",
 
   "dropModelHint": "Drop .ply / .splat / .spz / .rad file to preview",
-  "unsupportedFormat": "Unsupported format. Drop model files (.ply / .splat / .spz / .rad), images, or one video (.mp4 / .mov / .m4v / .webm).",
+  "unsupportedFormat": "Unsupported format. Drop model files (.ply / .splat / .spz / .rad), images, or one video (.mp4 / .mov / .m4v / .webm / .mkv).",
   "modelLoaded": "Model loaded",
   "modelLoadFailed": "Failed to load model",
 
@@ -397,7 +397,7 @@
   "photoMediaGridEmptyTitle": "No media here",
   "photoMediaGridEmptyHint": "This folder has no supported photos or videos yet.",
   "photoVideoGridEmptyTitle": "No videos here",
-  "photoVideoGridEmptyHint": "This folder has no supported MP4, MOV, M4V, or WebM videos yet.",
+  "photoVideoGridEmptyHint": "This folder has no supported MP4, MOV, M4V, WebM, or MKV videos yet.",
   "photoOpen": "Open {{name}}",
   "photoToggleSelection": "Toggle selection for {{name}}",
   "photoConvertOne": "Convert this photo to 3D",
@@ -418,7 +418,7 @@
   "photoDownloadFailed": "Failed to download photos",
   "photoCacheTitle": "Gallery Cache",
   "photoCacheGenerated": "Generated cache",
-  "photoCacheDescription": "Indexes, thumbnails, video posters, and temporary download packages. Originals are not included.",
+  "photoCacheDescription": "Indexes, thumbnails, video posters and temporary download packages. Originals are not included; compatible audio is streamed without persistent cache.",
   "photoCacheRefresh": "Refresh",
   "photoCacheIndexes": "Indexes",
   "photoCacheThumbnails": "Thumbnails",
@@ -710,7 +710,7 @@
     "video_reconstruction_oom": "GPU memory ran out. Try a lower quality preset or fewer frames.",
     "video_reconstruction_output_missing": "The reconstruction finished without a usable PLY output.",
     "video_reconstruction_spz_failed": "SPZ compression failed, but the PLY output was kept.",
-    "video_reconstruction_unsupported_video": "Unsupported video format. Please use MP4, MOV, M4V, or WebM."
+    "video_reconstruction_unsupported_video": "Unsupported video format. Please use MP4, MOV, M4V, WebM, or MKV."
   },
   "open": "Open",
   "select": "Select",

@@ -67,7 +67,7 @@ python -m pytest -q
 - 相册列表应只读 catalog 摘要；旧 `index.json` 迁移归档后，多次请求列表或扫描新相册不得回退读取所有 `albums/*.json` 来重建全局索引。
 - 已建立索引的相册，翻页、排序和 `type=all|photo|video` 筛选必须走每相册索引，测试可用 monkeypatch 断言不调用 `os.walk`。
 - 列表返回 `thumb_url`，预览/下载使用 `full_url` 或 `preview_url` 原图地址，不能把缩略图放大当原图。
-- 视频列表返回 `poster_url`、`playback_url`、`download_url` 和可选元数据；列表滚动不能加载完整视频文件。
+- 视频列表返回 `poster_url`、`playback_url`、`download_url` 和可选元数据；音轨不兼容时返回按播放进度实时转码、禁止缓存的 `audio_stream_url`，并验证启动预缓冲和有界速率补给参数；列表滚动不能加载完整视频文件。
 - 中文、空格、大小写混合文件名可以生成缩略图、打开原图、下载和加入 3D 队列。
 - 中文、空格、大小写混合视频文件名可以生成 poster、预览、Range seek 和下载；后端日志不能出现 latin-1 header 编码错误。
 - 构造非法 media id、相对路径逃逸和 root 外路径访问会被拒绝。

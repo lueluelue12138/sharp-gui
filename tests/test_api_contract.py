@@ -1,9 +1,11 @@
 import os
 import zipfile
 from io import BytesIO
+from types import SimpleNamespace
 from urllib.parse import quote
 
-from backend.services import model_gallery
+from backend.routes import photo_gallery as photo_gallery_routes
+from backend.services import model_gallery, photo_gallery
 from backend.services.photo_gallery import photo_meta_from_path, save_photo_index
 
 from tests.conftest import make_png_bytes, write_config
@@ -314,7 +316,7 @@ def test_export_missing_model_returns_json_error(client):
 def test_photo_album_media_api_lists_videos_and_supports_range(client, app, config_file, workspace):
     album_dir = workspace / "album"
     album_dir.mkdir()
-    video_path = album_dir / "小米办公Pro20260212-180739.mp4"
+    video_path = album_dir / "小米办公Pro20260212-180739.mkv"
     video_path.write_bytes(b"0123456789")
     write_config(
         config_file,
@@ -365,11 +367,12 @@ def test_photo_album_media_api_lists_videos_and_supports_range(client, app, conf
     assert payload["media_counts"] == {"all": 1, "image": 0, "photo": 0, "video": 1}
     item = payload["items"][0]
     assert item["media_type"] == "video"
-    assert item["name"] == "小米办公Pro20260212-180739.mp4"
+    assert item["name"] == "小米办公Pro20260212-180739.mkv"
     assert item["poster_url"].startswith("/api/video-poster/")
     assert item["playback_url"].startswith("/api/video-play/")
-    assert item["playback_url"].endswith("%E5%B0%8F%E7%B1%B3%E5%8A%9E%E5%85%ACPro20260212-180739.mp4")
+    assert item["playback_url"].endswith("%E5%B0%8F%E7%B1%B3%E5%8A%9E%E5%85%ACPro20260212-180739.mkv")
     assert item["download_url"].endswith("?download=1")
+    assert item["mime_type"] == "video/x-matroska"
 
     poster = client.get(item["poster_url"])
     assert poster.status_code == 404
@@ -378,11 +381,105 @@ def test_photo_album_media_api_lists_videos_and_supports_range(client, app, conf
     range_response = client.get(item["playback_url"], headers={"Range": "bytes=0-3"})
     assert range_response.status_code == 206
     assert range_response.data == b"0123"
-    assert range_response.headers["Content-Type"].startswith("video/mp4")
+    assert range_response.headers["Content-Type"].startswith("video/x-matroska")
 
     download = client.get(item["download_url"])
     assert download.status_code == 200
     assert "attachment" in download.headers["Content-Disposition"]
+
+
+def test_mkv_eac3_preview_streams_aac_audio_without_cache(
+    client,
+    app,
+    config_file,
+    workspace,
+    monkeypatch,
+):
+    album_dir = workspace / "album"
+    album_dir.mkdir()
+    video_path = album_dir / "movie.mkv"
+    video_path.write_bytes(b"original-mkv")
+    write_config(
+        config_file,
+        {
+            "workspace_folder": str(workspace),
+            "access_control": {
+                "enabled": False,
+                "password_hash": "",
+                "session_secret": "test-secret",
+                "session_days": 30,
+                "allow_localhost_bypass": True,
+                "allow_remote_generation": False,
+                "session_version": 1,
+                "lan_bind_enabled": True,
+            },
+            "photo_gallery_roots": [
+                {
+                    "id": "album1",
+                    "name": "Album",
+                    "path": str(album_dir),
+                    "enabled": True,
+                },
+            ],
+        },
+    )
+    paths = app.config["PATH_CONTEXT"]
+    meta = photo_meta_from_path({"id": "album1", "path": str(album_dir)}, str(video_path))
+    meta.update({
+        "duration": 60.0,
+        "width": 1920,
+        "height": 1080,
+        "video_codec": "hevc",
+        "audio_codec": "eac3",
+    })
+    save_photo_index(paths, {"photos": {meta["id"]: meta}})
+
+    commands = []
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = BytesIO(b"aac-stream")
+
+        def poll(self):
+            return 0
+
+    def fake_popen(command, **_kwargs):
+        commands.append(command)
+        return FakeProcess()
+
+    monkeypatch.setattr(photo_gallery, "get_optional_command", lambda _name: "ffmpeg")
+    monkeypatch.setattr(
+        photo_gallery_routes,
+        "subprocess",
+        SimpleNamespace(
+            Popen=fake_popen,
+            PIPE=object(),
+            DEVNULL=object(),
+            CREATE_NO_WINDOW=0,
+        ),
+    )
+
+    item = photo_gallery.build_photo_item(paths, meta)
+    assert item["playback_url"].endswith("/movie.mkv")
+    assert item["audio_stream_url"].endswith("/movie.aac?audio=1")
+    assert item["mime_type"] == "video/x-matroska"
+
+    response = client.get(f"{item['audio_stream_url']}&start=12.5")
+    assert response.status_code == 200
+    assert response.data == b"aac-stream"
+    assert response.headers["Content-Type"].startswith("audio/aac")
+    assert "no-store" in response.headers["Cache-Control"]
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("-c:a") + 1] == "aac"
+    assert commands[0][commands[0].index("-ss") + 1] == "12.500"
+    assert "-re" not in commands[0]
+    assert commands[0][commands[0].index("-readrate") + 1] == "1.1"
+    assert commands[0][commands[0].index("-readrate_initial_burst") + 1] == "12"
+    assert commands[0][commands[0].index("-readrate_catchup") + 1] == "1.5"
+    assert commands[0][commands[0].index("-flush_packets") + 1] == "1"
+    assert commands[0][commands[0].index("-f") + 1] == "adts"
+    assert commands[0][-1] == "pipe:1"
+    assert video_path.read_bytes() == b"original-mkv"
 
 
 def test_video_reconstruction_api_rejects_invalid_and_missing_dependencies(client, app, config_file, workspace, monkeypatch):
@@ -525,7 +622,7 @@ def test_video_reconstruction_upload_queues_same_name_without_exposing_paths(cli
     response = client.post(
         "/api/video-reconstructions/upload",
         data={
-            "file": (BytesIO(b"video"), "clip.mp4"),
+            "file": (BytesIO(b"video"), "clip.mkv"),
             "mode": "auto",
             "quality": "high",
             "engine": "auto",
@@ -538,6 +635,8 @@ def test_video_reconstruction_upload_queues_same_name_without_exposing_paths(cli
     assert task["kind"] == "video_3dgs"
     assert task["filename"] == "clip.ply"
     assert task["output_name"] == "clip"
-    assert task["source_name"] == "clip.mp4"
+    assert task["source_name"] == "clip.mkv"
     assert "source_media_id" not in task
     assert "source_video_path" not in task
+    stored_task = app.config["TASK_MANAGER"].task_status[task["id"]]
+    assert stored_task["source_mime_type"] == "video/x-matroska"

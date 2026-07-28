@@ -31,6 +31,7 @@ const VIDEO_FALLBACK_ASPECT_RATIO = 16 / 9;
 const VIDEO_KEYBOARD_SEEK_SECONDS = 5;
 const VIDEO_KEYBOARD_FAST_SEEK_SECONDS = 15;
 const VIDEO_KEYBOARD_VOLUME_STEP = 0.05;
+const VIDEO_AUDIO_SYNC_THRESHOLD_SECONDS = 0.75;
 const VIDEO_INLINE_PLAYBACK_ATTRIBUTES = {
   playsInline: true,
   'webkit-playsinline': 'true',
@@ -102,6 +103,7 @@ export function ImageViewer() {
   const [videoVolume, setVideoVolume] = useState(1);
   const [videoMuted, setVideoMuted] = useState(false);
   const [videoError, setVideoError] = useState(false);
+  const [videoAudioError, setVideoAudioError] = useState(false);
   const [isVideoScrubbing, setIsVideoScrubbing] = useState(false);
   const [videoScrubLabel, setVideoScrubLabel] = useState<string | null>(null);
   const [videoControlsVisible, setVideoControlsVisible] = useState(true);
@@ -111,10 +113,14 @@ export function ImageViewer() {
   
   const overlayRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const videoStageRef = useRef<HTMLDivElement | null>(null);
   const videoLongPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoControlsHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const videoOrientationLocked = useRef(false);
+  const videoAudioOffsetRef = useRef(0);
+  const videoAudioPlaybackRequestedRef = useRef(false);
+  const videoSeekResumeRef = useRef(false);
   const videoScrubRef = useRef<{
     startX: number;
     startY: number;
@@ -140,6 +146,10 @@ export function ImageViewer() {
   const isSourceVideoPreview = !previewPhoto
     && Boolean(sourceVideoUrl);
   const isVideoPreview = previewPhoto?.media_type === 'video' || isSourceVideoPreview;
+  const compatibilityAudioUrl = previewPhoto?.media_type === 'video'
+    ? previewPhoto.audio_stream_url ?? null
+    : null;
+  const hasCompatibilityAudio = Boolean(compatibilityAudioUrl) && !videoAudioError;
   const activeName = previewPhoto?.name ?? previewImage?.source_name ?? previewImage?.name ?? '';
   const rawImageUrl = activePreview && !isVideoPreview
     ? previewPhoto
@@ -199,6 +209,7 @@ export function ImageViewer() {
       setVideoVolume(1);
       setVideoMuted(false);
       setVideoError(false);
+      setVideoAudioError(false);
       setIsVideoScrubbing(false);
       setVideoScrubLabel(null);
       setVideoControlsVisible(true);
@@ -230,13 +241,31 @@ export function ImageViewer() {
 
   useEffect(() => {
     const video = videoRef.current;
+    const audio = audioRef.current;
     if (!video || !isVideoPreview) {
       return;
     }
 
     video.volume = videoVolume;
-    video.muted = videoMuted;
-  }, [isVideoPreview, videoMuted, videoVolume]);
+    video.muted = hasCompatibilityAudio || videoMuted;
+    if (audio) {
+      audio.volume = videoVolume;
+      audio.muted = videoMuted;
+    }
+  }, [hasCompatibilityAudio, isVideoPreview, videoMuted, videoVolume]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    videoAudioPlaybackRequestedRef.current = false;
+    return () => {
+      videoAudioPlaybackRequestedRef.current = false;
+      if (audio) {
+        audio.pause();
+        audio.removeAttribute('src');
+        audio.load();
+      }
+    };
+  }, [compatibilityAudioUrl]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -508,18 +537,98 @@ export function ImageViewer() {
     }
   };
 
+  const stopCompatibilityAudio = useCallback(() => {
+    videoAudioPlaybackRequestedRef.current = false;
+    const audio = audioRef.current;
+    if (!audio) {
+      return;
+    }
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  }, []);
+
+  const fallbackToNativeVideoAudio = useCallback(() => {
+    if (!videoAudioPlaybackRequestedRef.current) {
+      return;
+    }
+
+    videoAudioPlaybackRequestedRef.current = false;
+    setVideoAudioError(true);
+    const video = videoRef.current;
+    if (!video) {
+      setIsVideoPlaying(false);
+      return;
+    }
+
+    video.muted = videoMuted;
+    void video.play()
+      .then(() => setIsVideoPlaying(true))
+      .catch(() => {
+        setIsVideoPlaying(false);
+        setVideoError(true);
+      });
+  }, [videoMuted]);
+
+  const playVideoAt = useCallback((targetTime: number) => {
+    const video = videoRef.current;
+    if (!video || videoError) {
+      return;
+    }
+
+    const duration = Number.isFinite(video.duration) ? video.duration : videoDuration;
+    const nextTime = clampTime(targetTime, duration);
+    video.currentTime = nextTime;
+    setVideoCurrentTime(nextTime);
+
+    const audio = audioRef.current;
+    if (hasCompatibilityAudio && compatibilityAudioUrl && audio) {
+      video.pause();
+      videoAudioOffsetRef.current = nextTime;
+      videoAudioPlaybackRequestedRef.current = true;
+      const separator = compatibilityAudioUrl.includes('?') ? '&' : '?';
+      audio.pause();
+      audio.src = `${compatibilityAudioUrl}${separator}start=${nextTime.toFixed(3)}&_=${Date.now()}`;
+      audio.currentTime = 0;
+      audio.volume = videoVolume;
+      audio.muted = videoMuted;
+      audio.load();
+      setIsVideoPlaying(true);
+      void audio.play().catch(() => fallbackToNativeVideoAudio());
+      return;
+    }
+
+    void video.play()
+      .then(() => setIsVideoPlaying(true))
+      .catch(() => setVideoError(true));
+  }, [
+    compatibilityAudioUrl,
+    fallbackToNativeVideoAudio,
+    hasCompatibilityAudio,
+    videoDuration,
+    videoError,
+    videoMuted,
+    videoVolume,
+  ]);
+
+  const pauseVideoPlayback = useCallback(() => {
+    videoRef.current?.pause();
+    stopCompatibilityAudio();
+    setIsVideoPlaying(false);
+  }, [stopCompatibilityAudio]);
+
   const handleVideoTogglePlay = useCallback(() => {
     const video = videoRef.current;
     if (!video || videoError) {
       return;
     }
 
-    if (video.paused) {
-      void video.play().catch(() => setVideoError(true));
+    if (isVideoPlaying || videoAudioPlaybackRequestedRef.current) {
+      pauseVideoPlayback();
     } else {
-      video.pause();
+      playVideoAt(video.currentTime);
     }
-  }, [videoError]);
+  }, [isVideoPlaying, pauseVideoPlayback, playVideoAt, videoError]);
 
   const handleVideoSkip = useCallback((seconds: number) => {
     const video = videoRef.current;
@@ -529,21 +638,36 @@ export function ImageViewer() {
 
     const duration = Number.isFinite(video.duration) ? video.duration : videoDuration;
     const nextTime = clampTime(video.currentTime + seconds, duration);
+    const shouldResume = isVideoPlaying || videoAudioPlaybackRequestedRef.current;
+    if (hasCompatibilityAudio) {
+      stopCompatibilityAudio();
+    }
     video.currentTime = nextTime;
     setVideoCurrentTime(nextTime);
+    if (shouldResume) {
+      playVideoAt(nextTime);
+    }
     revealVideoControls();
-  }, [revealVideoControls, videoDuration, videoError]);
+  }, [
+    hasCompatibilityAudio,
+    isVideoPlaying,
+    playVideoAt,
+    revealVideoControls,
+    stopCompatibilityAudio,
+    videoDuration,
+    videoError,
+  ]);
 
   const handleVideoVolumeStep = useCallback((delta: number) => {
     const video = videoRef.current;
-    const currentVolume = video
+    const currentVolume = video && !hasCompatibilityAudio
       ? (video.muted ? 0 : video.volume)
       : (videoMuted ? 0 : videoVolume);
     const nextVolume = clampVolume(currentVolume + delta);
     setVideoVolume(nextVolume);
     setVideoMuted(nextVolume === 0);
     revealVideoControls();
-  }, [revealVideoControls, videoMuted, videoVolume]);
+  }, [hasCompatibilityAudio, revealVideoControls, videoMuted, videoVolume]);
 
   const isCurrentVideoLandscape = useCallback(() => {
     const video = videoRef.current;
@@ -751,7 +875,7 @@ export function ImageViewer() {
       return;
     }
     const targetVideo = previewPhoto;
-    videoRef.current?.pause();
+    pauseVideoPlayback();
     releaseVideoOrientationLock();
     if (document.fullscreenElement === videoStageRef.current) {
       void document.exitFullscreen().catch(() => undefined);
@@ -786,6 +910,25 @@ export function ImageViewer() {
     video.currentTime = nextTime;
     setVideoCurrentTime(nextTime);
     revealVideoControls();
+  };
+
+  const handleVideoSeekStart = () => {
+    if (videoSeekResumeRef.current) {
+      return;
+    }
+    videoSeekResumeRef.current = isVideoPlaying || videoAudioPlaybackRequestedRef.current;
+    if (videoSeekResumeRef.current) {
+      pauseVideoPlayback();
+    }
+  };
+
+  const handleVideoSeekCommit = () => {
+    const shouldResume = videoSeekResumeRef.current;
+    videoSeekResumeRef.current = false;
+    const video = videoRef.current;
+    if (shouldResume && video) {
+      playVideoAt(video.currentTime);
+    }
   };
 
   const handleVideoVolumeChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -829,7 +972,7 @@ export function ImageViewer() {
       startY: event.clientY,
       baseTime: video.currentTime,
       targetTime: video.currentTime,
-      wasPlaying: !video.paused,
+      wasPlaying: isVideoPlaying || videoAudioPlaybackRequestedRef.current,
       isTouchLike: true,
       activated: false,
       cancelled: false,
@@ -840,8 +983,7 @@ export function ImageViewer() {
         return;
       }
       current.activated = true;
-      current.wasPlaying = !video.paused;
-      video.pause();
+      pauseVideoPlayback();
       setIsVideoScrubbing(true);
       setVideoScrubLabel(formatVideoScrubLabel(0, current.baseTime));
     }, VIDEO_LONG_PRESS_MS);
@@ -901,7 +1043,7 @@ export function ImageViewer() {
       video.currentTime = current.targetTime;
       setVideoCurrentTime(current.targetTime);
       if (current.wasPlaying) {
-        void video.play().catch(() => setVideoError(true));
+        playVideoAt(current.targetTime);
       }
       revealVideoControls();
     } else {
@@ -1072,12 +1214,26 @@ export function ImageViewer() {
                   ? { width: video.videoWidth, height: video.videoHeight }
                   : null);
               }}
-              onTimeUpdate={(event) => setVideoCurrentTime(event.currentTarget.currentTime)}
-              onPlay={() => setIsVideoPlaying(true)}
-              onPause={() => setIsVideoPlaying(false)}
+              onTimeUpdate={(event) => {
+                if (!hasCompatibilityAudio) {
+                  setVideoCurrentTime(event.currentTarget.currentTime);
+                }
+              }}
+              onPlay={() => {
+                if (!hasCompatibilityAudio) {
+                  setIsVideoPlaying(true);
+                }
+              }}
+              onPause={() => {
+                if (!hasCompatibilityAudio) {
+                  setIsVideoPlaying(false);
+                }
+              }}
               onVolumeChange={(event) => {
                 setVideoVolume(event.currentTarget.volume);
-                setVideoMuted(event.currentTarget.muted);
+                if (!hasCompatibilityAudio) {
+                  setVideoMuted(event.currentTarget.muted);
+                }
               }}
               onError={() => {
                 setIsLoaded(true);
@@ -1087,6 +1243,50 @@ export function ImageViewer() {
             >
               <source src={videoUrl} type={previewPhoto?.mime_type ?? undefined} />
             </video>
+            {compatibilityAudioUrl && !videoAudioError ? (
+              <audio
+                ref={audioRef}
+                preload="none"
+                onPlaying={(event) => {
+                  if (!videoAudioPlaybackRequestedRef.current) {
+                    return;
+                  }
+                  const video = videoRef.current;
+                  if (!video) {
+                    return;
+                  }
+                  const expectedTime = videoAudioOffsetRef.current + event.currentTarget.currentTime;
+                  video.currentTime = clampTime(expectedTime, videoDuration);
+                  video.muted = true;
+                  void video.play().catch(() => setVideoError(true));
+                  setIsVideoPlaying(true);
+                }}
+                onTimeUpdate={(event) => {
+                  if (!videoAudioPlaybackRequestedRef.current) {
+                    return;
+                  }
+                  const expectedTime = clampTime(
+                    videoAudioOffsetRef.current + event.currentTarget.currentTime,
+                    videoDuration,
+                  );
+                  const video = videoRef.current;
+                  setVideoCurrentTime(expectedTime);
+                  if (
+                    video
+                    && !video.seeking
+                    && Math.abs(video.currentTime - expectedTime) > VIDEO_AUDIO_SYNC_THRESHOLD_SECONDS
+                  ) {
+                    video.currentTime = expectedTime;
+                  }
+                }}
+                onEnded={() => {
+                  videoAudioPlaybackRequestedRef.current = false;
+                  videoRef.current?.pause();
+                  setIsVideoPlaying(false);
+                }}
+                onError={fallbackToNativeVideoAudio}
+              />
+            ) : null}
 
             {videoError ? (
               <div className={styles.videoError}>
@@ -1155,6 +1355,16 @@ export function ImageViewer() {
                   disabled={!videoDuration || videoError}
                   aria-label={t('photoVideoSeek')}
                   onChange={handleVideoTimeChange}
+                  onPointerDown={handleVideoSeekStart}
+                  onPointerUp={handleVideoSeekCommit}
+                  onPointerCancel={handleVideoSeekCommit}
+                  onKeyDown={(event) => {
+                    if (!event.repeat) {
+                      handleVideoSeekStart();
+                    }
+                  }}
+                  onKeyUp={handleVideoSeekCommit}
+                  onBlur={handleVideoSeekCommit}
                 />
                 <div className={styles.videoTime}>
                   <span>{formatVideoTime(videoCurrentTime)}</span>

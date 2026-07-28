@@ -39,6 +39,7 @@ export interface PhotoItem {
   poster_url?: string | null;
   preview_url: string;
   playback_url?: string;
+  audio_stream_url?: string | null;
   download_url: string;
   duration?: number | null;
   mime_type?: string | null;

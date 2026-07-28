@@ -80,7 +80,7 @@ function isImageUpload(file: File): boolean {
 }
 
 function isVideoUpload(file: File): boolean {
-  return file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm)$/i.test(file.name);
+  return file.type.startsWith('video/') || /\.(mp4|m4v|mov|webm|mkv)$/i.test(file.name);
 }
 
 function getImportErrorMessage(error: unknown, t: TFunction): string {

@@ -1014,7 +1014,7 @@ def build_uploaded_video_task(paths, request_data, uploaded_file):
         "source_media_id": None,
         "source_name": source_name,
         "source_video_path": source_video_path,
-        "source_mime_type": uploaded_file.mimetype,
+        "source_mime_type": photo_gallery.get_video_mime_type(source_name),
         "mode": request_data["mode"],
         "quality": request_data["quality"],
         "custom_options": request_data.get("custom_options"),
