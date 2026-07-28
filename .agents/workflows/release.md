@@ -39,6 +39,8 @@ git log --oneline -5
 
 ### 4. 创建 Git tag 并推送
 
+先确认 `version.txt` 已通过独立的 `chore(release): 发布 vX.Y.Z` 提交同步到目标版本号：tag 与 `version.txt` 不一致时，`release.yml`、`release.sh`、`release.bat` 都会直接失败。自更新按 exact commit 安装，Release 包的版本标识不能再由 CI 事后写入。
+
 ```bash
 # 正式版
 git tag v1.2.0
@@ -59,7 +61,8 @@ git push origin v1.3.0-beta.1
 4. **创建发布包**：
    - 复制 `app.py`、脚本文件、`tools/`、`templates/`、`static/`、`frontend/`
    - 删除 `node_modules/`、`.vite/`、`src/`（仅保留 `dist/`）
-   - 写入 `version.txt`
+   - 校验 `version.txt` 与 tag 一致（不一致直接失败），并随包复制 `version.txt`、`update-manifest.json`、`THIRD_PARTY_NOTICES.md`
+   - 还原构建过程改动的 `package-lock.json` 与 `dist`，保证归档字节与 tag 提交一致
    - 打包为 `sharp-gui-vX.Y.Z.zip`
 5. **创建 GitHub Release**：
    - tag 含 `-` → 自动标记为 Pre-release
@@ -128,13 +131,12 @@ Settings 与脚本统一使用 Stable（最新正式 GitHub Release）或 Latest
 ./update.sh --channel stable --check
 ./update.sh --channel latest --check
 
-# 应用已验证目标 / 回滚上一成功提交
+# 应用已验证目标（可加 --yes 跳过交互确认）
 ./update.sh --channel stable
 ./update.sh --channel latest
-./update.sh --rollback
 ```
 
-Windows 使用等价的 `update.bat` 参数。更新调用同一事务 updater：owner-only、active task/dirty/non-main 阻断、manifest compatibility gate、exact commit checkout、健康检查和失败自动 rollback；不再使用未验证 Release ZIP 覆盖安装。
+Windows 使用等价的 `update.bat` 参数。CLI 只支持 `--channel`、`--check`、`--yes`；**`--pre` 与 `--rollback` 已废除**，不要在文档或 release note 中出现。更新调用同一事务 updater：owner-only、active task/dirty/non-main 阻断、manifest compatibility gate、exact commit checkout、健康检查和失败自动 rollback；不再使用未验证 Release ZIP 覆盖安装。成功后没有手动回滚入口，只有目标验证失败时的自动恢复。
 
 ---
 
@@ -148,7 +150,10 @@ Windows 使用等价的 `update.bat` 参数。更新调用同一事务 updater�
 - [ ] i18n 文件完整（en.json 和 zh.json key 一致）
 - [ ] 无 TypeScript 编译错误
 - [ ] 无 ESLint 错误
-- [ ] Git 工作区干净
+- [ ] Git 工作区干净（含未跟踪文件，`release.sh` / `release.bat` 会强制检查）
+- [ ] `version.txt` 与将要打的 tag 完全一致，且由独立的 `chore(release)` 提交同步
+- [ ] 本次是否改动运行时敏感文件（requirements / 安装器 / 便携构建脚本）？若是，`portableRuntimeRevision` 已递增且已计划发布新完整包
+- [ ] 没有任何用户数据或运行时路径被误纳入版本管理（`git status --porcelain --untracked-files=all` 复核）
 - [ ] 正式 Release 可被 Stable 解析；prerelease 不会成为 Stable
 - [ ] 便携计划输出的 MinGit version/asset/SHA256 正确，完整 license trees 与 `THIRD_PARTY_NOTICES.md` 已进入 staging
 - [ ] 三 target 的 managed worktree、runtime revision、无系统工具 self-update/rollback smoke 结果已记录

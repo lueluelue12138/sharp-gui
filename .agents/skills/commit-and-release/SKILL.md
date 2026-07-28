@@ -61,12 +61,52 @@ type(scope): 简要描述
 
 - **只要改动涉及 `frontend/`**，提交前必须先执行 `npm run build` 重新生成 `dist/`，并将更新后的 `dist/` 一并纳入提交，确保发布版本无需用户自行构建即可使用最新前端
 - 纯后端 / 文档 / 脚本改动**无需**重建 `dist/`，避免产生无意义的大 diff
-- 若仅同步构建产物，可单独用 `chore(build): 同步前端构建产物` 提交，避免淹没功能 diff
+- ⚠️ **自更新使这条从"体验问题"变成"正确性问题"**：进入 `main` 的每个提交都可能被便携用户当作 Latest 目标安装，而更新会校验目标提交里的 `frontend/dist/index.html`。带前端源码改动却漏提交 `dist/` 的提交，会让便携用户检查到一个**不兼容目标**（而不是"自己构建一下"），也会让 dist 与源码不一致的版本被装到用户机器上
+- 因此 `chore(build): 同步前端构建产物` 只用于**补救已漏提交产物**的场景，不能作为常规拆分方式把 dist 推到后续提交
 
 #### 版本号变更
 
 - 版本号以 `version.txt` 为准；发布时使用**独立提交** `chore(release): 发布 vX.Y.Z`（同步 `version.txt`），便于检索版本节点
 - **不要**把版本号 bump 混进功能提交里
+- `version.txt` 必须与即将打的 tag **完全一致**：`release.yml`、`release.sh`、`release.bat` 都会比对，不一致直接失败。原因是自更新按 exact commit 安装，Release 包的版本标识不能再由 CI 事后写入
+- `release.sh` / `release.bat` 还要求 Git 工作区**完全干净（含未跟踪文件）**，因为发布包必须是某个提交的精确快照。先提交，再打包，不要在 dirty 树上出包
+
+#### 自更新带来的提交约束（容易漏，必须逐条检查）
+
+自更新让 `main` 上的**每个提交**都可能被便携用户直接安装。以下四条不是风格建议，漏掉会直接影响已发布的用户。
+
+**1. 运行时敏感改动必须在同一个提交递增 `portableRuntimeRevision`**
+
+触发路径（`tools/check_update_compatibility.py` 的判定口径）：
+
+- `requirements*.txt`（`requirements-dev.txt` 除外）、`pyproject.toml`、各类依赖锁文件
+- `install.bat` / `install.sh` / `build_portable_release.bat`
+- `tools/install_torch.py` / `tools/install_video_reconstruction.py`
+- `tools/build_portable_package.ps1` / `tools/build_portable_release.ps1` / `tools/portable_update_common.ps1`
+
+改了这些就说明"新代码需要新的运行环境"，必须同提交把 `update-manifest.json` 的 `portableRuntimeRevision` 加一，**并配套发布新的完整便携包**。CI 的 `update-compatibility.yml` 会拦住只改脚本不提版本的 PR。反过来也不许为了过 CI 随便递增而不发对应运行时。
+
+普通前后端源码、路由、组件、目录重构和 `frontend/dist` 变化**不需要**递增。
+
+**2. 绝不能把用户数据或运行时路径纳入版本管理**
+
+一旦某个提交跟踪了这些路径，**所有便携包用户的更新都会被拒绝**（提示"会覆盖受保护的便携运行时文件"），且提示信息与真实原因看不出关联，非常难查：
+
+`config.json`、`*.pem`、`*.log`、`workspace/`、`models/`、`inputs*/`、`outputs*/`、`model-assets*/`、`python/`、`venv/`、`ml-sharp/`、`.video-reconstruction-env/`、`.sharp-gui-tools/`、`.sharp-gui-update/`、`portable-package.json`、`portable-run*.bat` 等。
+
+完整判定口径以 `backend/services/self_update.py` 的 `PROTECTED_RUNTIME_PATHS` 与 `target_tracks_protected_runtime()` 为准，不要凭这里的摘要下结论。提交前不要用 `git add --force` 绕过 `.gitignore`；不确定时执行 `git status --porcelain --untracked-files=all` 复核暂存内容。
+
+**3. 新增或修改更新错误码时，前后端与双语文案必须同批提交**
+
+后端新增一个 `update_*` 错误码，就要同步 `UpdateSettingsSection.tsx` 的 `CODE_KEYS` 映射和 `en.json` / `zh.json` 文案，否则用户看到的是"更新服务返回了无法识别的状态"。同理，删除后端不再产生的码时，映射和文案一并清掉，别留孤儿。
+
+**4. scope 选择**
+
+- 自更新后端 / 前端 / CLI / manifest / CI 守卫 → `update`
+- 便携包构建与 MinGit 打包 → `build`
+- 发布流程、版本号、Release 工作流 → `release`
+
+> 改动自更新相关代码时，提交前按 [.agents/rules/self-update.md](../../rules/self-update.md) 第 10 节「验证清单」执行测试与检查；Windows 便携包相关改动另见 [.agents/rules/testing.md](../../rules/testing.md) 的「便携包自更新 smoke matrix」。
 
 #### 正文 (大改动才需要)
 
@@ -162,8 +202,10 @@ Bug 修复 (install.bat):
 
 ### 🔄 从旧版本更新 / Update from Previous Version
 
-- **Release 包用户**: 运行 `update.bat` 或 `./update.sh` / Run update script
-- **Git 用户**: `git pull origin main` 后重跑 `install.bat` 或 `./install.sh` / Pull and re-run install
+- **便携包用户（bootstrap 版及更新）**: 打开 设置 → 更新中心，选择稳定版后安装；工作区、模型和运行环境都会保留 / Settings → Update Center, choose Stable and install; workspace, models and runtime are preserved
+- **便携包用户（bootstrap 之前的旧包）**: 需要最后一次手动下载完整包，之后即可在界面内更新 / One final manual full-package download, then in-app updates work
+- **Git 源码用户**: `git pull origin main` 后重跑 `install.bat` / `./install.sh`，或用 `update.bat --channel stable` / Pull and re-run install, or use the update CLI
+- **通用 Release zip 用户**: 该快照没有受管更新基线，只能查看版本状态；请改用 Git 克隆或完整便携包 / Generic zip snapshots are status-only; switch to a Git clone or a full portable package
 
 📖 **中文详细教程**: [查看 README](https://github.com/lueluelue12138/sharp-gui)
 
@@ -226,6 +268,15 @@ build_portable_release.bat -CleanOldArtifacts
 - 不要把完整大 ZIP 上传到 GitHub Release 资产；GitHub Release 只贴网盘链接和 SHA256。
 - 生成 commit message 或 release note 时，必须提到 Windows 完整便携包的适用显卡和校验方式。
 
+### Release Note 中的自更新表述纪律
+
+- **bootstrap 版**（首个内置 MinGit 与受管 worktree 的完整便携包）必须在 release note 里明确写出："这是最后一次需要手动下载完整包，之后可在界面内更新。"
+- **不得承诺旧便携包能原地获得新更新能力**。bootstrap 之前的包没有内置 Git 和受管基线，只能再下载一次完整包。
+- 若本次 `portableRuntimeRevision` 有变化，release note 必须写明**必须下载新完整包、不能用代码更新**，并说明原因（Python / CUDA / 视频重建环境等大型运行环境变了）。
+- 描述 Latest 通道时要点明它包含正式发布之后的提交、测试较少；描述 Stable 时点明它只取正式 `vX.Y.Z` 版本。
+- 可以写"更新失败会自动恢复到更新前的版本"，**不要**写成用户可以手动回滚。
+- 提到保留范围时按用户语言写：工作区、模型、配置、证书和运行环境都会保留，只替换应用代码。
+
 ### 规则
 
 0. 提交代码之前，确保执行前端构建脚本 `npm run build`，生成最新的 `dist/` 目录内容，并将其包含在 commit 中。这样可以确保发布版本包含最新的前端代码，让用户无需自行构建即可使用最新功能。
@@ -237,6 +288,9 @@ build_portable_release.bat -CleanOldArtifacts
 6. 底部固定 Quick Start + README 链接
 7. 不要写代码实现细节（如函数名、变量名），只写用户能感知的变化
 8. 输出必须用 markdown 代码块包裹 (`markdown ... `)，方便用户复制
-9. Pre-release 版本的更新指引中，`update.bat`/`update.sh` 必须加 `--pre` 参数（如 `update.bat --pre` 或 `./update.sh --pre`），正式版不需要
+9. 更新命令只有 `--channel stable|latest`、`--check`、`--yes` 三个参数。**`--pre` 和 `--rollback` 已废除**，不要在 release note 里出现
+   - Stable 通道只解析正式 `vX.Y.Z` tag，**预发布版本无法通过 Stable 获得**
+   - 预发布测试者若该提交已进入 `main`，用 `--channel latest`；否则手动下载对应 Release / 完整便携包
+   - 不要把"回滚"写成用户可操作功能：只有目标验证失败时的**自动**恢复，没有成功后的手动回滚入口
 10. 生成release note 前，先完整获取并整理上一个tag到目前main分支的所有commit message，确保release note的准确性和完整性
 11. 生成正式版 release note前，完整获取并整理github上，上一个正式版本到目前最新的pre-release版本的release note，确保正式release note的准确性和完整性
