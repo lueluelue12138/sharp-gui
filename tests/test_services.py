@@ -1525,6 +1525,61 @@ def test_task_manager_enqueue_and_cancel_without_worker(workspace):
     assert has_active is False
 
 
+def test_task_manager_distinguishes_model_cache_download_and_loading(workspace):
+    paths = build_path_context({"workspace_folder": str(workspace)})
+    task_manager = TaskManager(paths=paths)
+    task_id = "image-task"
+    task_manager.task_status[task_id] = {
+        "id": task_id,
+        "kind": "image_sharp",
+        "filename": "photo.jpg",
+        "status": "processing",
+        "created_at": 1,
+        "progress": 0,
+        "stage": "starting",
+    }
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "No checkpoint provided. Downloading default model from https://example.com/model.pt",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "modelCache"
+    assert "progress" not in task_manager._public_task(task_manager.task_status[task_id])
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        'Downloading: "https://example.com/model.pt" to cache/model.pt',
+    )
+    assert task_manager.task_status[task_id]["stage"] == "downloading"
+    assert "progress" not in task_manager._public_task(task_manager.task_status[task_id])
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "Using preset ViT dinov2l16_384.",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "modelLoading"
+    assert "progress" not in task_manager._public_task(task_manager.task_status[task_id])
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "Processing C:\\inputs\\photo.jpg",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "processing"
+    assert task_manager.task_status[task_id]["progress"] == 15
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "Asset metadata saved with download URL.",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "processing"
+    assert task_manager.task_status[task_id]["progress"] == 15
+
+
 def test_task_manager_cancel_processing_terminates_process(workspace):
     class FakeProcess:
         def __init__(self):

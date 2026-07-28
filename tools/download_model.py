@@ -115,7 +115,7 @@ def main():
             os.remove(model_path)
 
     print(f"目标路径: {model_path}")
-    print(f"文件大小约 500MB, 请耐心等待...")
+    print("文件大小约 2.62 GiB，请耐心等待...")
     print()
 
     tmp_path = model_path + ".downloading"

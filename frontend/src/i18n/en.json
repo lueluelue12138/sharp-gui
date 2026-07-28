@@ -854,7 +854,9 @@
   },
   "taskStage": {
     "starting": "Starting",
-    "downloading": "Downloading",
+    "modelCache": "Checking model cache",
+    "downloading": "Downloading model (~2.62 GiB)",
+    "modelLoading": "Loading SHARP model",
     "loading": "Loading",
     "processing": "Processing",
     "preprocessing": "Preprocessing",

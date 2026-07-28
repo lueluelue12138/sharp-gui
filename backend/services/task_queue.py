@@ -221,7 +221,7 @@ class TaskManager:
             with self.task_lock:
                 now = time.time()
                 self.task_status[task_id]["status"] = "processing"
-                self.task_status[task_id]["progress"] = 0
+                self.task_status[task_id]["progress"] = None
                 self.task_status[task_id]["stage"] = "starting"
                 self.task_status[task_id]["started_at"] = now
                 self.task_status[task_id]["stage_started_at"] = now
@@ -399,12 +399,17 @@ class TaskManager:
     def _update_progress_from_line(self, task_id, filename, line):
         line_lower = line.lower()
         with self.task_lock:
-            if "downloading" in line_lower or "download" in line_lower:
-                self.task_status[task_id]["progress"] = 5
+            if "no checkpoint provided. downloading default model" in line_lower:
+                # torch.hub prints this before it checks the local cache, even
+                # when no network download is needed.
+                self.task_status[task_id]["progress"] = None
+                self.task_status[task_id]["stage"] = "modelCache"
+            elif line_lower.strip().startswith("downloading:"):
+                self.task_status[task_id]["progress"] = None
                 self.task_status[task_id]["stage"] = "downloading"
-            elif "loading checkpoint" in line_lower:
-                self.task_status[task_id]["progress"] = 10
-                self.task_status[task_id]["stage"] = "loading"
+            elif "loading checkpoint" in line_lower or "using preset" in line_lower:
+                self.task_status[task_id]["progress"] = None
+                self.task_status[task_id]["stage"] = "modelLoading"
             elif "processing" in line_lower and filename.split(".")[0].lower() in line_lower:
                 self.task_status[task_id]["progress"] = 15
                 self.task_status[task_id]["stage"] = "processing"

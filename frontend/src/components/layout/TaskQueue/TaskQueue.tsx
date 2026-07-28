@@ -191,6 +191,11 @@ export const TaskQueue: React.FC = () => {
                                     </div>
                                 </>
                             )}
+                            {!showProgress && elapsedText ? (
+                                <div className={styles.elapsedMeta}>
+                                    <span className={styles.elapsedText}>{elapsedText}</span>
+                                </div>
+                            ) : null}
                             {errorText ? <div className={styles.errorText} data-tooltip={errorText}>{errorText}</div> : null}
                             {viewerUrl ? (
                                 <a

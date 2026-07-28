@@ -854,7 +854,9 @@
   },
   "taskStage": {
     "starting": "启动中",
-    "downloading": "下载中",
+    "modelCache": "检查模型缓存",
+    "downloading": "下载模型（约 2.62 GiB）",
+    "modelLoading": "加载 SHARP 模型",
     "loading": "加载中",
     "processing": "处理中",
     "preprocessing": "预处理",

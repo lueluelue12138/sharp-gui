@@ -188,6 +188,12 @@
     font-variant-numeric: tabular-nums;
 }
 
+.elapsedMeta {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 6px;
+}
+
 .viewerLink {
     display: inline-flex;
     align-items: center;
