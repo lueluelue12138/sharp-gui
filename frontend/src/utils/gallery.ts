@@ -1,5 +1,5 @@
 import type { ViewerModelFormat } from '@/constants/spark';
-import type { GalleryItem, ModelFormat } from '@/types';
+import type { GalleryItem, ModelFormat, ViewerOrientationHint } from '@/types';
 
 export type GalleryRendererMode = 'virtualized' | 'legacy';
 
@@ -25,6 +25,7 @@ function areGalleryItemsEquivalent(current: GalleryItem, next: GalleryItem): boo
     current.size === next.size &&
     current.spz_size === next.spz_size &&
     current.source_media_type === next.source_media_type &&
+    current.viewer_orientation === next.viewer_orientation &&
     current.source_media_id === next.source_media_id &&
     current.source_name === next.source_name &&
     current.source_video_url === next.source_video_url &&
@@ -110,12 +111,24 @@ export function getGallerySourceVideoUrl(item: GalleryItem): string | null {
 export function getGalleryModelSource(
   item: GalleryItem,
   preferredFormat: ModelFormat,
-): { url: string; format: ViewerModelFormat; size: number | null } {
+): {
+  url: string;
+  format: ViewerModelFormat;
+  size: number | null;
+  sourceMediaType: string | null;
+  viewerOrientation: ViewerOrientationHint | null;
+} {
+  const previewContext = {
+    sourceMediaType: item.source_media_type ?? null,
+    viewerOrientation: item.viewer_orientation ?? null,
+  };
+
   if (preferredFormat === 'spz' && item.spz_url) {
     return {
       url: item.spz_url,
       format: 'spz',
       size: item.spz_size ?? null,
+      ...previewContext,
     };
   }
 
@@ -124,23 +137,40 @@ export function getGalleryModelSource(
       url: item.model_url,
       format: item.model_format,
       size: item.size ?? null,
+      ...previewContext,
     };
   }
 
   const normalizedUrl = item.model_url.toLowerCase().split(/[?#]/, 1)[0];
   if (normalizedUrl.endsWith('.spz')) {
-    return { url: item.model_url, format: 'spz', size: item.size ?? null };
+    return {
+      url: item.model_url,
+      format: 'spz',
+      size: item.size ?? null,
+      ...previewContext,
+    };
   }
   if (normalizedUrl.endsWith('.splat')) {
-    return { url: item.model_url, format: 'splat', size: item.size ?? null };
+    return {
+      url: item.model_url,
+      format: 'splat',
+      size: item.size ?? null,
+      ...previewContext,
+    };
   }
   if (normalizedUrl.endsWith('.rad')) {
-    return { url: item.model_url, format: 'rad', size: item.size ?? null };
+    return {
+      url: item.model_url,
+      format: 'rad',
+      size: item.size ?? null,
+      ...previewContext,
+    };
   }
 
   return {
     url: item.model_url,
     format: 'ply',
     size: item.size ?? null,
+    ...previewContext,
   };
 }

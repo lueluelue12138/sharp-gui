@@ -625,7 +625,7 @@ def test_media_scan_lists_images_and_videos_with_type_filter(config_file, worksp
     album_dir = workspace / "album"
     album_dir.mkdir()
     image_path = album_dir / "image.jpg"
-    video_path = album_dir / "clip.MP4"
+    video_path = album_dir / "clip.MKV"
     note_path = album_dir / "note.txt"
     image_path.write_bytes(b"fake-image")
     video_path.write_bytes(b"fake-video")
@@ -665,7 +665,8 @@ def test_media_scan_lists_images_and_videos_with_type_filter(config_file, worksp
     assert payload_videos["total"] == 1
     assert payload_videos["items"][0]["media_type"] == MEDIA_TYPE_VIDEO
     assert payload_videos["items"][0]["playback_url"].startswith("/api/video-play/")
-    assert payload_videos["items"][0]["playback_url"].endswith("/clip.MP4")
+    assert payload_videos["items"][0]["playback_url"].endswith("/clip.MKV")
+    assert payload_videos["items"][0]["mime_type"] == "video/x-matroska"
     assert "note.txt" not in {item["name"] for item in media_items}
 
 
@@ -1572,6 +1573,61 @@ def test_task_manager_enqueue_and_cancel_without_worker(workspace):
     assert has_active is False
 
 
+def test_task_manager_distinguishes_model_cache_download_and_loading(workspace):
+    paths = build_path_context({"workspace_folder": str(workspace)})
+    task_manager = TaskManager(paths=paths)
+    task_id = "image-task"
+    task_manager.task_status[task_id] = {
+        "id": task_id,
+        "kind": "image_sharp",
+        "filename": "photo.jpg",
+        "status": "processing",
+        "created_at": 1,
+        "progress": 0,
+        "stage": "starting",
+    }
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "No checkpoint provided. Downloading default model from https://example.com/model.pt",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "modelCache"
+    assert "progress" not in task_manager._public_task(task_manager.task_status[task_id])
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        'Downloading: "https://example.com/model.pt" to cache/model.pt',
+    )
+    assert task_manager.task_status[task_id]["stage"] == "downloading"
+    assert "progress" not in task_manager._public_task(task_manager.task_status[task_id])
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "Using preset ViT dinov2l16_384.",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "modelLoading"
+    assert "progress" not in task_manager._public_task(task_manager.task_status[task_id])
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "Processing C:\\inputs\\photo.jpg",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "processing"
+    assert task_manager.task_status[task_id]["progress"] == 15
+
+    task_manager._update_progress_from_line(
+        task_id,
+        "photo.jpg",
+        "Asset metadata saved with download URL.",
+    )
+    assert task_manager.task_status[task_id]["stage"] == "processing"
+    assert task_manager.task_status[task_id]["progress"] == 15
+
+
 def test_task_manager_cancel_processing_terminates_process(workspace):
     class FakeProcess:
         def __init__(self):
@@ -1671,7 +1727,11 @@ def test_video_task_creation_writes_source_metadata(config_file, workspace, monk
     assert metadata["source_name"] == "clip.mp4"
 
 
-def test_gallery_backfills_legacy_video_metadata_from_unique_source(config_file, workspace, monkeypatch):
+def test_catalog_refresh_backfills_legacy_video_metadata_from_unique_source(
+    config_file,
+    workspace,
+    monkeypatch,
+):
     album_dir = workspace / "album"
     album_dir.mkdir()
     video_path = album_dir / "clip.mp4"
@@ -1702,6 +1762,7 @@ def test_gallery_backfills_legacy_video_metadata_from_unique_source(config_file,
         fake_generate_video_thumbnail,
     )
 
+    model_assets.refresh_model_asset_catalog(paths)
     item = model_gallery.build_gallery_item(paths, "clip-2.ply", repair_missing_thumbnail=True)
 
     assert item["thumb_url"] == "/api/thumbnail/clip-2"

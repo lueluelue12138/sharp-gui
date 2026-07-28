@@ -46,7 +46,6 @@ export function ModelAssetSidebarPanel({
   const {
     modelAssetTotal,
     currentModelId,
-    selectedModelAssetId,
     preferredModelFormat,
     setSelectedModelAsset,
     setCurrentModel,
@@ -57,7 +56,6 @@ export function ModelAssetSidebarPanel({
     useShallow((state) => ({
       modelAssetTotal: state.modelAssetTotal,
       currentModelId: state.currentModelId,
-      selectedModelAssetId: state.selectedModelAssetId,
       preferredModelFormat: state.localModelFormat ?? state.serverModelFormat,
       setSelectedModelAsset: state.setSelectedModelAsset,
       setCurrentModel: state.setCurrentModel,
@@ -141,13 +139,17 @@ export function ModelAssetSidebarPanel({
       setModelAssetError(t('modelAssetOpenUnavailable'));
       return;
     }
-    setCurrentModel(
-      asset.id,
-      modelSource.url,
-      modelSource.format,
-      modelSource.size,
-      asset.is_imported ? 'model-asset-imported' : 'model-asset-generated',
-    );
+    setCurrentModel({
+      id: asset.id,
+      url: modelSource.url,
+      format: modelSource.format,
+      size: modelSource.size,
+      source: asset.source_type === 'imported' || asset.is_imported
+        ? 'model-asset-imported'
+        : 'model-asset-generated',
+      sourceMediaType: modelSource.sourceMediaType,
+      viewerOrientation: modelSource.viewerOrientation,
+    });
   }, [onOpenModel, preferredModelFormat, setCurrentModel, setModelAssetError, setSelectedModelAsset, t]);
 
   const handlePreview = useCallback((asset: ModelAsset) => {
@@ -178,7 +180,7 @@ export function ModelAssetSidebarPanel({
       setRecentAssets((items) => items.filter((asset) => asset.id !== deleteTarget.id));
       setRecentTotalSize((size) => Math.max(0, size - (deleteTarget.size || deleteTarget.primary_size || 0)));
       if (currentModelId === deleteTarget.id) {
-        setCurrentModel(null, null);
+        setCurrentModel(null);
       }
       setDeleteTarget(null);
       void loadRecentAssets(null, false);
@@ -224,7 +226,7 @@ export function ModelAssetSidebarPanel({
                 key={asset.id}
                 className={[
                   styles.recentItem,
-                  (selectedModelAssetId === asset.id || currentModelId === asset.id)
+                  currentModelId === asset.id
                     ? styles.recentItemActive
                     : '',
                 ].filter(Boolean).join(' ')}

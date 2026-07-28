@@ -13,13 +13,18 @@ from urllib.parse import quote
 from PIL import Image
 
 from backend.services import model_gallery
+from backend.services.model_orientation import (
+    VIEWER_ORIENTATION_UNKNOWN,
+    normalize_source_media_type,
+    resolve_viewer_orientation,
+)
 from backend.services.static_files import get_relative_files_path, is_real_path_inside, to_url_path
 
 # 资产索引是单一 JSON 文件的 read-modify-write，局域网多设备可能并发导入/编辑，
 # 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
 _INDEX_LOCK = threading.RLock()
 _DOWNLOAD_LOCK = threading.Lock()
-INDEX_VERSION = 2
+INDEX_VERSION = 3
 
 # 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
 IMPORTED_IDENTITY_KEYS = ("model_path", "format", "original_name", "imported_at", "created_at")
@@ -149,6 +154,11 @@ def validate_asset_index(data):
             )
 
     normalized = dict(data)
+    if data.get("version") != INDEX_VERSION:
+        # Catalog v3 adds normalized preview-orientation context. Preserve user
+        # records, but rebuild stale summaries once instead of serving entries
+        # that silently drop the new contract on ordinary warm reads.
+        normalized.pop("catalog", None)
     normalized["version"] = INDEX_VERSION
     normalized["assets"] = assets
     return normalized
@@ -490,7 +500,13 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
 
     metadata = model_gallery.read_model_metadata(paths, asset_id)
     metadata_path = model_gallery.get_model_metadata_path(paths, asset_id)
-    source_type = SOURCE_VIDEO if metadata.get("source_media_type") == "video" else SOURCE_GENERATED
+    source_media_type = normalize_source_media_type(metadata.get("source_media_type"))
+    source_type = SOURCE_VIDEO if source_media_type == "video" else SOURCE_GENERATED
+    viewer_orientation = resolve_viewer_orientation(
+        metadata.get("viewer_orientation"),
+        source_media_type=source_media_type,
+        source_type=source_type,
+    )
     file_timestamps = [os.path.getmtime(path) for path in files.values()]
     if os.path.isfile(metadata_path):
         file_timestamps.append(os.path.getmtime(metadata_path))
@@ -516,6 +532,8 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         descriptor = build_file_descriptor(paths, path, fmt, primary=fmt == primary_format)
         if descriptor:
             descriptor["download_url"] = f"/api/model-assets/{quote(asset_id, safe='')}/download?format={fmt}"
+            descriptor["source_media_type"] = source_media_type
+            descriptor["viewer_orientation"] = viewer_orientation
             descriptors.append(descriptor)
 
     total_size = sum(descriptor["size"] for descriptor in descriptors)
@@ -525,10 +543,14 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         source_video_url = f"/api/gallery/{quote(asset_id, safe='')}/source-video"
     derived = derive_model_metadata(files) if include_details else {}
     derived_metadata = derived.get("metadata") if isinstance(derived.get("metadata"), dict) else {}
-    detail_metadata = {
-        **derived_metadata,
-        **(metadata if include_details else {}),
-    } if include_details else {}
+    detail_metadata = {}
+    if include_details:
+        detail_metadata = {
+            **derived_metadata,
+            **metadata,
+            "source_media_type": source_media_type,
+            "viewer_orientation": viewer_orientation,
+        }
 
     file_updated_at = datetime.datetime.fromtimestamp(max(file_timestamps), tz=datetime.timezone.utc).isoformat()
     asset = {
@@ -551,7 +573,8 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         "note": record.get("note") or "",
         "is_generated": True,
         "is_imported": False,
-        "source_media_type": metadata.get("source_media_type"),
+        "source_media_type": source_media_type,
+        "viewer_orientation": viewer_orientation,
         "source_media_id": metadata.get("source_media_id"),
         "source_name": metadata.get("source_name") or original_filename,
         "source_video_url": source_video_url,
@@ -579,10 +602,19 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
         and os.path.isfile(model_path)
     )
 
+    source_media_type = normalize_source_media_type(record.get("source_media_type"))
+    viewer_orientation = resolve_viewer_orientation(
+        record.get("viewer_orientation"),
+        source_media_type=source_media_type,
+        source_type=SOURCE_IMPORTED,
+    )
+
     descriptors = []
     if available:
         descriptor = build_file_descriptor(paths, model_path, fmt, primary=True)
         descriptor["download_url"] = f"/api/model-assets/{quote(asset_id, safe='')}/download?format={fmt}"
+        descriptor["source_media_type"] = source_media_type
+        descriptor["viewer_orientation"] = viewer_orientation
         descriptors.append(descriptor)
 
     cover = cover_from_record(paths, asset_id, record)
@@ -593,10 +625,14 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
     derived = derive_model_metadata(files) if include_details else {}
     derived_metadata = derived.get("metadata") if isinstance(derived.get("metadata"), dict) else {}
     record_metadata = record.get("metadata", {}) if isinstance(record.get("metadata"), dict) else {}
-    detail_metadata = {
-        **derived_metadata,
-        **record_metadata,
-    } if include_details else {}
+    detail_metadata = {}
+    if include_details:
+        detail_metadata = {
+            **derived_metadata,
+            **record_metadata,
+            "source_media_type": source_media_type,
+            "viewer_orientation": viewer_orientation,
+        }
 
     return {
         "id": asset_id,
@@ -618,7 +654,8 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
         "note": record.get("note") or "",
         "is_generated": False,
         "is_imported": True,
-        "source_media_type": None,
+        "source_media_type": source_media_type,
+        "viewer_orientation": viewer_orientation,
         "source_media_id": None,
         "source_name": record.get("original_name"),
         "source_video_url": None,
@@ -658,6 +695,12 @@ def build_unavailable_generated_asset(paths, asset_id, record=None, previous=Non
         "is_imported": False,
         "updated_at": record.get("updated_at") or asset.get("updated_at") or utc_now_iso(),
     })
+    asset["source_media_type"] = normalize_source_media_type(asset.get("source_media_type"))
+    asset["viewer_orientation"] = resolve_viewer_orientation(
+        asset.get("viewer_orientation"),
+        source_media_type=asset.get("source_media_type"),
+        source_type=asset.get("source_type"),
+    )
     asset.update(cover_from_record(paths, asset_id, record))
     return asset
 
@@ -669,6 +712,8 @@ def build_asset_catalog(paths, index):
     generated_groups = collect_generated_file_groups(paths)
 
     for asset_id, files in generated_groups.items():
+        if not model_gallery.read_model_metadata(paths, asset_id):
+            model_gallery.backfill_legacy_video_metadata(paths, asset_id)
         record = get_user_record(index, asset_id)
         try:
             asset = build_generated_asset(paths, asset_id, files, record, include_details=False)
@@ -1099,6 +1144,7 @@ def import_model_assets(paths, files):
         record = {
             "asset_id": asset_id,
             "source_type": SOURCE_IMPORTED,
+            "viewer_orientation": VIEWER_ORIENTATION_UNKNOWN,
             "model_path": workspace_relative_path(paths, target_path),
             "format": fmt,
             "original_name": original_name,

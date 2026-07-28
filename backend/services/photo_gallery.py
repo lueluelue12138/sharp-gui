@@ -42,13 +42,26 @@ PHOTO_SCAN_STATUS_ERROR = "error"
 
 PHOTO_UPLOAD_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
 ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp"}
-ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm"}
+ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".m4v", ".mov", ".webm", ".mkv"}
 VIDEO_MIME_TYPES = {
     ".mp4": "video/mp4",
     ".m4v": "video/mp4",
     ".mov": "video/quicktime",
     ".webm": "video/webm",
+    ".mkv": "video/x-matroska",
 }
+BROWSER_INCOMPATIBLE_AUDIO_CODECS = {
+    "ac3",
+    "eac3",
+    "dts",
+    "truehd",
+    "mlp",
+}
+BROWSER_AUDIO_BITRATE = "192k"
+BROWSER_AUDIO_READRATE = "1.1"
+BROWSER_AUDIO_INITIAL_BURST_SECONDS = "12"
+BROWSER_AUDIO_CATCHUP_READRATE = "1.5"
+BROWSER_AUDIO_MAX_CONCURRENT_STREAMS = 4
 
 catalog_lock = threading.Lock()
 album_locks_lock = threading.Lock()
@@ -57,6 +70,9 @@ album_index_cache_lock = threading.Lock()
 album_index_cache = {}
 album_snapshot_cache = {}
 thumbnail_generation_semaphore = threading.BoundedSemaphore(2)
+browser_audio_stream_semaphore = threading.BoundedSemaphore(
+    BROWSER_AUDIO_MAX_CONCURRENT_STREAMS
+)
 bootstrap_lock = threading.Lock()
 bootstrap_album_ids = set()
 
@@ -71,6 +87,15 @@ def get_album_lock(album_id):
 def build_video_playback_url(video_id, filename):
     safe_filename = quote(filename or f"{video_id}.mp4", safe="")
     return f"/api/video-play/{video_id}/{create_video_play_token(video_id)}/{safe_filename}"
+
+
+def build_browser_audio_stream_url(video_id, filename):
+    stem = os.path.splitext(filename or video_id)[0]
+    safe_filename = quote(f"{stem}.aac", safe="")
+    return (
+        f"/api/video-play/{video_id}/{create_video_play_token(video_id)}/"
+        f"{safe_filename}?audio=1"
+    )
 
 
 def make_photo_album_id(path):
@@ -620,6 +645,15 @@ def get_video_mime_type(filename):
     return VIDEO_MIME_TYPES.get(get_file_extension(filename), "video/mp4")
 
 
+def requires_browser_audio_stream(filename, audio_codec):
+    """判断视频是否需要按需转出浏览器兼容音频流。"""
+    codec = str(audio_codec or "").strip().lower()
+    return (
+        get_file_extension(filename) == ".mkv"
+        and codec in BROWSER_INCOMPATIBLE_AUDIO_CODECS
+    )
+
+
 def get_optional_command(name):
     return which(name)
 
@@ -1004,6 +1038,52 @@ def get_video_poster_filename(video_id, meta):
     return f"{video_id}-{version}-{VIDEO_POSTER_WIDTH}.jpg"
 
 
+def build_browser_audio_stream_command(full_path, start_seconds=0):
+    """按播放进度实时把不兼容音轨转为 AAC，不生成持久缓存。"""
+    ffmpeg = get_optional_command("ffmpeg")
+    if not ffmpeg:
+        return None
+
+    try:
+        start_seconds = max(0.0, float(start_seconds))
+    except (TypeError, ValueError):
+        start_seconds = 0.0
+
+    return [
+        ffmpeg,
+        "-nostdin",
+        "-hide_banner",
+        "-loglevel",
+        "error",
+        "-ss",
+        f"{start_seconds:.3f}",
+        "-readrate",
+        BROWSER_AUDIO_READRATE,
+        "-readrate_initial_burst",
+        BROWSER_AUDIO_INITIAL_BURST_SECONDS,
+        "-readrate_catchup",
+        BROWSER_AUDIO_CATCHUP_READRATE,
+        "-i",
+        full_path,
+        "-map",
+        "0:a:0",
+        "-vn",
+        "-sn",
+        "-dn",
+        "-c:a",
+        "aac",
+        "-ac",
+        "2",
+        "-b:a",
+        BROWSER_AUDIO_BITRATE,
+        "-flush_packets",
+        "1",
+        "-f",
+        "adts",
+        "pipe:1",
+    ]
+
+
 def ensure_video_poster(paths, video_id):
     """确保视频封面存在；ffmpeg 不可用或抽帧失败时安全返回 None。"""
     resolved = resolve_media_path(
@@ -1163,11 +1243,20 @@ def build_photo_item(paths, meta):
     }
 
     if media_type == MEDIA_TYPE_VIDEO:
+        requires_audio_stream = requires_browser_audio_stream(
+            meta.get("name", ""),
+            meta.get("audio_codec"),
+        )
         item.update({
             "thumb_url": f"/api/video-poster/{meta['id']}",
             "poster_url": f"/api/video-poster/{meta['id']}",
             "preview_url": f"/api/video-original/{meta['id']}",
             "playback_url": build_video_playback_url(meta["id"], meta.get("name")),
+            "audio_stream_url": (
+                build_browser_audio_stream_url(meta["id"], meta.get("name"))
+                if requires_audio_stream
+                else None
+            ),
             "download_url": f"/api/video-original/{meta['id']}?download=1",
             "duration": meta.get("duration"),
             "mime_type": meta.get("mime_type") or get_video_mime_type(meta.get("name", "")),

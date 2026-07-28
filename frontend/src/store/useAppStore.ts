@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { getLodPresetConfig } from '@/constants/spark';
 import {
   getGalleryModelSource,
+  getNextModelReloadToken,
   hasActiveTask,
   mergeTaskUpdates,
   reconcileGalleryItems,
@@ -15,6 +16,8 @@ import {
 import type {
   AppView,
   AuthStatusResponse,
+  CurrentModelDescriptor,
+  CurrentModelSource,
   GalleryItem,
   ModelAsset,
   ModelAssetDensity,
@@ -402,12 +405,6 @@ const initialViewerQualityState = getViewerQualityFromPreset(
 );
 const initialModelViewerOverrides = getLocalQuickOverrides(initialViewerQualityState);
 
-type CurrentModelSource =
-  | 'gallery'
-  | 'model-asset-generated'
-  | 'model-asset-imported'
-  | 'temporary';
-
 interface AppState {
   // UI State
   sidebarOpen: boolean;
@@ -428,6 +425,8 @@ interface AppState {
 
   // Gallery
   galleryItems: GalleryItem[];
+  currentModelDescriptor: CurrentModelDescriptor | null;
+  currentModelReloadToken: number;
   currentModelId: string | null;
   currentModelUrl: string | null;
   currentModelFormat: ViewerModelFormat; // Format hint for blob URLs
@@ -540,13 +539,8 @@ interface AppState {
 
   setGalleryItems: (items: GalleryItem[]) => void;
   removeGalleryItem: (id: string) => void;
-  setCurrentModel: (
-    id: string | null,
-    url: string | null,
-    format?: ViewerModelFormat,
-    size?: number | null,
-    source?: CurrentModelSource | null,
-  ) => void;
+  setCurrentModel: (descriptor: CurrentModelDescriptor | null) => void;
+  requestCurrentModelReload: () => void;
   setPreviewImage: (item: GalleryItem | null) => void;
   setModelAssets: (response: ModelAssetListResponse, append?: boolean) => void;
   mergeModelAssetRefresh: (response: ModelAssetListResponse) => void;
@@ -656,6 +650,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   bootError: null,
 
   galleryItems: [],
+  currentModelDescriptor: null,
+  currentModelReloadToken: 0,
   currentModelId: null,
   currentModelUrl: null,
   currentModelFormat: null,
@@ -787,8 +783,10 @@ export const useAppStore = create<AppState>((set, get) => ({
     let currentModelFormat = state.currentModelFormat;
     let currentModelSize = state.currentModelSize;
     let currentModelSource = state.currentModelSource;
+    let currentModelDescriptor = state.currentModelDescriptor;
 
     if (tracksGallerySelection && state.currentModelId && !selectedItem) {
+      currentModelDescriptor = null;
       currentModelId = null;
       currentModelUrl = null;
       currentModelFormat = null;
@@ -812,8 +810,32 @@ export const useAppStore = create<AppState>((set, get) => ({
       currentModelSize = nextModel.size;
     }
 
+    if (tracksGallerySelection && selectedItem && currentModelUrl) {
+      const nextDescriptor: CurrentModelDescriptor = {
+        id: selectedItem.id,
+        url: currentModelUrl,
+        format: currentModelFormat,
+        size: currentModelSize,
+        source: 'gallery',
+        sourceMediaType: selectedItem.source_media_type ?? null,
+        viewerOrientation: selectedItem.viewer_orientation ?? null,
+      };
+      const descriptorUnchanged = state.currentModelDescriptor
+        && state.currentModelDescriptor.id === nextDescriptor.id
+        && state.currentModelDescriptor.url === nextDescriptor.url
+        && state.currentModelDescriptor.format === nextDescriptor.format
+        && state.currentModelDescriptor.size === nextDescriptor.size
+        && state.currentModelDescriptor.source === nextDescriptor.source
+        && state.currentModelDescriptor.sourceMediaType === nextDescriptor.sourceMediaType
+        && state.currentModelDescriptor.viewerOrientation === nextDescriptor.viewerOrientation;
+      currentModelDescriptor = descriptorUnchanged
+        ? state.currentModelDescriptor
+        : nextDescriptor;
+    }
+
     const galleryUnchanged = nextGalleryItems === state.galleryItems;
     const selectionUnchanged =
+      currentModelDescriptor === state.currentModelDescriptor &&
       currentModelId === state.currentModelId &&
       currentModelUrl === state.currentModelUrl &&
       currentModelFormat === state.currentModelFormat &&
@@ -827,6 +849,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     return {
       galleryItems: nextGalleryItems,
+      currentModelDescriptor,
       currentModelId,
       currentModelUrl,
       currentModelFormat,
@@ -846,6 +869,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (state.currentModelSource === 'gallery' && state.currentModelId === id) {
       return {
         galleryItems: nextGalleryItems,
+        currentModelDescriptor: null,
         currentModelId: null,
         currentModelUrl: null,
         currentModelFormat: null,
@@ -860,7 +884,18 @@ export const useAppStore = create<AppState>((set, get) => ({
       previewImage,
     };
   }),
-  setCurrentModel: (id, url, format = null, size = null, source = null) => set((state) => {
+  setCurrentModel: (descriptor) => set((state) => {
+    const normalizedDescriptor = descriptor
+      ? {
+          ...descriptor,
+          size: typeof descriptor.size === 'number'
+            && Number.isFinite(descriptor.size)
+            && descriptor.size > 0
+            ? descriptor.size
+            : null,
+        }
+      : null;
+    const id = normalizedDescriptor?.id ?? null;
     const fallbackQuality = getViewerQualityFromPreset(state.lodPreset, state.isLodEnabled);
     const fallbackOverride = getDefaultViewerOverride(fallbackQuality);
     const override = id ? state.modelViewerOverrides[id] : undefined;
@@ -869,13 +904,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       : fallbackOverride;
 
     return {
+      currentModelDescriptor: normalizedDescriptor,
       currentModelId: id,
-      currentModelUrl: url,
-      currentModelFormat: format,
-      currentModelSize: typeof size === 'number' && Number.isFinite(size) && size > 0
-        ? size
-        : null,
-      currentModelSource: id && url ? source ?? 'gallery' : null,
+      currentModelUrl: normalizedDescriptor?.url ?? null,
+      currentModelFormat: normalizedDescriptor?.format ?? null,
+      currentModelSize: normalizedDescriptor?.size ?? null,
+      currentModelSource: normalizedDescriptor?.source ?? null,
       viewerTransformDraft: resolved.transform,
       viewerTransformApplied: resolved.transform,
       viewerInteractionDraft: resolved.interaction,
@@ -885,6 +919,16 @@ export const useAppStore = create<AppState>((set, get) => ({
       isLodEnabled: resolved.quality.lodEnabled,
     };
   }),
+  requestCurrentModelReload: () => set((state) => (
+    state.currentModelDescriptor
+      ? {
+          currentModelReloadToken: getNextModelReloadToken(
+            state.currentModelReloadToken,
+            true,
+          ),
+        }
+      : state
+  )),
   setPreviewImage: (item) => set({ previewImage: item }),
   setModelAssets: (response, append = false) => set((state) => {
     const nextItems = append
@@ -1010,6 +1054,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   }),
   removeModelAsset: (id) => set((state) => {
     const nextItems = state.modelAssets.filter((item) => item.id !== id);
+    const removesCurrentModel = state.currentModelDescriptor?.id === id
+      && state.currentModelDescriptor.source !== 'gallery';
     return {
       modelAssets: nextItems,
       modelAssetTotal: Math.max(0, state.modelAssetTotal - 1),
@@ -1017,6 +1063,16 @@ export const useAppStore = create<AppState>((set, get) => ({
         ? nextItems[0]?.id ?? null
         : state.selectedModelAssetId,
       selectedModelAssetIds: state.selectedModelAssetIds.filter((selectedId) => selectedId !== id),
+      ...(removesCurrentModel
+        ? {
+            currentModelDescriptor: null,
+            currentModelId: null,
+            currentModelUrl: null,
+            currentModelFormat: null,
+            currentModelSize: null,
+            currentModelSource: null,
+          }
+        : {}),
     };
   }),
   setModelAssetSelectionMode: (enabled) => set({

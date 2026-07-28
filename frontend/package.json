@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test:tasks": "tsc -p tsconfig.tasks-test.json && node node_modules/.tmp/tasks-test/utils/tasks.test.js",
+    "test:viewer-orientation": "tsc -p tsconfig.viewer-orientation-test.json && node node_modules/.tmp/viewer-orientation-test/utils/viewerOrientation.test.js",
     "preview": "vite preview"
   },
   "dependencies": {

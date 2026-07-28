@@ -80,12 +80,8 @@ export const Settings: React.FC = () => {
         setXrUpdateMode,
         isHighFidelity,
         toggleHighFidelity,
-        currentModelId,
-        currentModelUrl,
-        currentModelFormat: storeModelFormat,
-        currentModelSize,
-        currentModelSource,
-        setCurrentModel,
+        currentModelDescriptor,
+        requestCurrentModelReload,
         authStatus,
         setAuthStatus,
         setVideoReconstructionStatus,
@@ -124,16 +120,8 @@ export const Settings: React.FC = () => {
     const [originalWorkspace, setOriginalWorkspace] = useState('');
 
     const reloadCurrentModel = () => {
-        if (currentModelId && currentModelUrl) {
-            const fmt = storeModelFormat;
-            setCurrentModel(null, null);
-            setTimeout(() => setCurrentModel(
-                currentModelId,
-                currentModelUrl,
-                fmt,
-                currentModelSize,
-                currentModelSource,
-            ), 50);
+        if (currentModelDescriptor) {
+            requestCurrentModelReload();
         }
     };
 

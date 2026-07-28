@@ -32,17 +32,34 @@ function formatDebugVector(value: [number, number, number] | null, fractionDigit
   return value.map((item) => formatDebugNumber(item, fractionDigits)).join(', ');
 }
 
-function getResetModeLabelKey(mode: ViewerDebugInfo['resetMode']): string {
-  if (mode === 'bounds-centered') return 'quickControlsDebugResetModeBoundsCentered';
-  if (mode === 'bounds-y-front') return 'quickControlsDebugResetModeBoundsYFront';
-  if (mode === 'bounds-default') return 'quickControlsDebugResetModeBoundsDefault';
-  if (mode === 'bounds-unavailable') return 'quickControlsDebugResetModeBoundsUnavailable';
-  return 'quickControlsDebugResetModeDefault';
+function getOrientationModeLabelKey(mode: ViewerDebugInfo['orientation']['mode']): string {
+  return mode === 'y-front'
+    ? 'quickControlsDebugOrientationModeYFront'
+    : 'quickControlsDebugOrientationModeDefault';
+}
+
+function getOrientationReasonLabelKey(
+  reason: ViewerDebugInfo['orientation']['reason'],
+): string {
+  if (reason === 'explicit-default') return 'quickControlsDebugOrientationReasonExplicitDefault';
+  if (reason === 'explicit-y-front') return 'quickControlsDebugOrientationReasonExplicitYFront';
+  if (reason === 'source-image') return 'quickControlsDebugOrientationReasonSourceImage';
+  if (reason === 'source-video') return 'quickControlsDebugOrientationReasonSourceVideo';
+  if (reason === 'legacy-video') return 'quickControlsDebugOrientationReasonLegacyVideo';
+  return 'quickControlsDebugOrientationReasonUnknownFallback';
+}
+
+function getFramingModeLabelKey(mode: ViewerDebugInfo['framingMode']): string {
+  if (mode === 'bounds-centered') return 'quickControlsDebugFramingModeBoundsCentered';
+  if (mode === 'bounds-default') return 'quickControlsDebugFramingModeBoundsDefault';
+  if (mode === 'bounds-unavailable') return 'quickControlsDebugFramingModeBoundsUnavailable';
+  return 'quickControlsDebugFramingModeDefault';
 }
 
 function createDebugText(debugInfo: ViewerDebugInfo): string {
   return [
-    `[reset] mode=${debugInfo.resetMode}`,
+    `[orientation] mode=${debugInfo.orientation.mode} reason=${debugInfo.orientation.reason}`,
+    `[framing] mode=${debugInfo.framingMode}`,
     `[camera] pos=${formatDebugVector(debugInfo.camera.position)} rotDeg=${formatDebugVector(debugInfo.camera.rotationDeg)} up=${formatDebugVector(debugInfo.camera.up)} forward=${formatDebugVector(debugInfo.camera.forward)}`,
     `[orbit] target=${formatDebugVector(debugInfo.controls.target)} distance=${formatDebugNumber(debugInfo.controls.distance)} azimuth=${formatDebugNumber(debugInfo.controls.orbitAzimuthDeg)} polar=${formatDebugNumber(debugInfo.controls.orbitPolarDeg)}`,
     `[model] pos=${formatDebugVector(debugInfo.model.position)} rotDeg=${formatDebugVector(debugInfo.model.rotationDeg)} scale=${formatDebugVector(debugInfo.model.scale)} right=${formatDebugVector(debugInfo.model.right)} up=${formatDebugVector(debugInfo.model.up)} forward=${formatDebugVector(debugInfo.model.forward)}`,
@@ -329,8 +346,16 @@ export function QuickControls({ isInXr, debugInfo }: QuickControlsProps) {
           {debugInfo ? (
             <div className={styles.debugGrid}>
               <DebugRow
-                label={t('quickControlsDebugResetMode')}
-                value={t(getResetModeLabelKey(debugInfo.resetMode))}
+                label={t('quickControlsDebugOrientationMode')}
+                value={t(getOrientationModeLabelKey(debugInfo.orientation.mode))}
+              />
+              <DebugRow
+                label={t('quickControlsDebugOrientationReason')}
+                value={t(getOrientationReasonLabelKey(debugInfo.orientation.reason))}
+              />
+              <DebugRow
+                label={t('quickControlsDebugFramingMode')}
+                value={t(getFramingModeLabelKey(debugInfo.framingMode))}
               />
               <DebugRow
                 label={t('quickControlsDebugCameraPosition')}

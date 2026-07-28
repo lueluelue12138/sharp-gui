@@ -9,6 +9,12 @@ from urllib.parse import quote
 
 from PIL import Image
 
+from backend.services.model_orientation import (
+    VIEWER_ORIENTATION_Y_FRONT,
+    normalize_source_media_type,
+    normalize_viewer_orientation,
+    resolve_viewer_orientation,
+)
 from backend.services.static_files import get_relative_files_path, is_real_path_inside
 
 ALLOWED_IMAGE_EXTENSIONS = (
@@ -141,8 +147,13 @@ def write_model_metadata(paths, item_id, metadata):
     """写入模型图库条目的 sidecar 元数据。"""
     os.makedirs(paths.output_folder, exist_ok=True)
     metadata_path = get_model_metadata_path(paths, item_id)
+    normalized_metadata = dict(metadata) if isinstance(metadata, dict) else {}
+    if "viewer_orientation" in normalized_metadata:
+        normalized_metadata["viewer_orientation"] = normalize_viewer_orientation(
+            normalized_metadata.get("viewer_orientation")
+        )
     payload = {
-        **(metadata if isinstance(metadata, dict) else {}),
+        **normalized_metadata,
         "id": item_id,
         "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
@@ -334,6 +345,7 @@ def backfill_legacy_video_metadata(paths, item_id):
     full_path, meta = match
     metadata = {
         "source_media_type": "video",
+        "viewer_orientation": VIEWER_ORIENTATION_Y_FRONT,
         "source_media_id": meta.get("id"),
         "source_name": meta.get("name") or os.path.basename(full_path),
         "source_video_path": full_path,
@@ -467,8 +479,11 @@ def build_gallery_item(
         for filename in variants.values()
     ]
     metadata = read_model_metadata(paths, name_without_ext)
-    if not metadata and repair_missing_thumbnail:
-        metadata = backfill_legacy_video_metadata(paths, name_without_ext)
+    source_media_type = normalize_source_media_type(metadata.get("source_media_type"))
+    viewer_orientation = resolve_viewer_orientation(
+        metadata.get("viewer_orientation"),
+        source_media_type=source_media_type,
+    )
     metadata_path = get_model_metadata_path(paths, name_without_ext)
     if os.path.exists(metadata_path):
         file_timestamps.append(os.path.getmtime(metadata_path))
@@ -526,18 +541,18 @@ def build_gallery_item(
             latest_timestamp,
             tz=datetime.timezone.utc,
         ).isoformat(),
+        "source_media_type": source_media_type,
+        "viewer_orientation": viewer_orientation,
     }
 
-    if metadata.get("source_media_type") == "video":
+    if source_media_type == "video":
         item.update({
-            "source_media_type": "video",
             "source_media_id": metadata.get("source_media_id"),
             "source_name": metadata.get("source_name"),
             "source_video_url": f"/api/gallery/{quote(name_without_ext, safe='')}/source-video",
         })
-    elif metadata.get("source_media_type") == "image":
+    elif source_media_type == "image":
         item.update({
-            "source_media_type": "image",
             "source_name": metadata.get("source_name"),
         })
 

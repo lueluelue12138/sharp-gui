@@ -1,5 +1,6 @@
 export * from './gallery';
 export * from './modelAsset';
+export * from './modelPreview';
 export * from './task';
 export * from './viewer';
 export * from './viewerQuickControls';

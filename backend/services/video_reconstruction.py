@@ -18,6 +18,7 @@ from werkzeug.utils import secure_filename
 from backend import runtime
 from backend.config import get_video_reconstruction_config
 from backend.services import model_gallery, photo_gallery
+from backend.services.model_orientation import VIEWER_ORIENTATION_Y_FRONT
 from backend.services.static_files import is_real_path_inside
 
 TASK_KIND_VIDEO_3DGS = "video_3dgs"
@@ -1023,7 +1024,7 @@ def build_uploaded_video_task(paths, request_data, uploaded_file):
         "source_media_id": None,
         "source_name": source_name,
         "source_video_path": source_video_path,
-        "source_mime_type": uploaded_file.mimetype,
+        "source_mime_type": photo_gallery.get_video_mime_type(source_name),
         "mode": request_data["mode"],
         "quality": request_data["quality"],
         "custom_options": request_data.get("custom_options"),
@@ -1127,6 +1128,7 @@ def build_video_model_metadata(task):
     """Build safe sidecar metadata for a video reconstruction output."""
     return {
         "source_media_type": "video",
+        "viewer_orientation": VIEWER_ORIENTATION_Y_FRONT,
         "source_media_id": task.get("source_media_id"),
         "source_name": task.get("source_name"),
         "source_video_path": task.get("source_video_path"),

@@ -1,5 +1,11 @@
 import type { ViewerModelFormat } from '@/constants/spark';
-import type { ModelAsset, ModelAssetFile, ModelAssetFormat, ModelFormat } from '@/types';
+import type {
+  ModelAsset,
+  ModelAssetFile,
+  ModelAssetFormat,
+  ModelFormat,
+  ViewerOrientationHint,
+} from '@/types';
 
 const MODEL_ASSET_FORMAT_FALLBACKS: ModelAssetFormat[] = ['spz', 'ply', 'splat', 'rad'];
 
@@ -8,6 +14,8 @@ export interface ResolvedModelAssetSource {
   format: ViewerModelFormat;
   url: string | null;
   size: number;
+  sourceMediaType: string | null;
+  viewerOrientation: ViewerOrientationHint | null;
 }
 
 function getFormatPriority(preferredFormat: ModelFormat): ModelAssetFormat[] {
@@ -34,6 +42,8 @@ export function resolveModelAssetSource(
         format,
         url: file.url,
         size: file.size,
+        sourceMediaType: file.source_media_type ?? asset.source_media_type ?? null,
+        viewerOrientation: file.viewer_orientation ?? asset.viewer_orientation ?? null,
       };
     }
   }
@@ -48,5 +58,7 @@ export function resolveModelAssetSource(
     format: fallbackFormat,
     url: defaultFile?.url ?? defaultUrl,
     size: defaultFile?.size ?? asset.primary_size ?? asset.size ?? 0,
+    sourceMediaType: defaultFile?.source_media_type ?? asset.source_media_type ?? null,
+    viewerOrientation: defaultFile?.viewer_orientation ?? asset.viewer_orientation ?? null,
   };
 }

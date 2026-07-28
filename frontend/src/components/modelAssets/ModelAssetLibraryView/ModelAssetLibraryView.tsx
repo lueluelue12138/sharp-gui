@@ -578,13 +578,17 @@ export function ModelAssetLibraryView({
       setModelAssetError(t('modelAssetOpenUnavailable'));
       return;
     }
-    setCurrentModel(
-      asset.id,
-      modelSource.url,
-      modelSource.format,
-      modelSource.size,
-      asset.is_imported ? 'model-asset-imported' : 'model-asset-generated',
-    );
+    setCurrentModel({
+      id: asset.id,
+      url: modelSource.url,
+      format: modelSource.format,
+      size: modelSource.size,
+      source: asset.source_type === 'imported' || asset.is_imported
+        ? 'model-asset-imported'
+        : 'model-asset-generated',
+      sourceMediaType: modelSource.sourceMediaType,
+      viewerOrientation: modelSource.viewerOrientation,
+    });
   }, [preferredModelFormat, setCurrentModel, setModelAssetError, t]);
 
   const handlePreview = useCallback((asset: ModelAsset) => {

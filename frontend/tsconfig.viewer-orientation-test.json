@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": false,
+    "noEmit": false,
+    "outDir": "./node_modules/.tmp/viewer-orientation-test",
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.viewer-orientation-test.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": [
+    "src/utils/viewerOrientation.ts",
+    "src/utils/viewerOrientation.test.ts",
+    "src/utils/viewerRuntime.ts",
+    "src/utils/modelAssets.ts",
+    "src/utils/modelPreviewState.ts",
+    "src/types/modelPreview.ts",
+    "src/types/modelAsset.ts"
+  ],
+  "exclude": []
+}

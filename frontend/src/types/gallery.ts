@@ -1,3 +1,5 @@
+import type { ViewerOrientationHint } from '@/types/modelPreview';
+
 export type GalleryModelFormat = 'ply' | 'spz' | 'splat' | 'rad';
 
 // Gallery item from API
@@ -14,6 +16,7 @@ export interface GalleryItem {
   size?: number;
   spz_size?: number | null;
   source_media_type?: 'video' | 'image' | string | null;
+  viewer_orientation?: ViewerOrientationHint | null;
   source_media_id?: string | null;
   source_name?: string | null;
   source_video_url?: string | null;

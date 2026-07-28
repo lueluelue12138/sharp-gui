@@ -161,7 +161,7 @@ export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, chil
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,video/mp4,video/quicktime,video/webm,.mp4,.m4v,.mov,.webm,.ply,.spz,.splat,.rad"
+            accept="image/*,video/mp4,video/quicktime,video/webm,video/x-matroska,.mp4,.m4v,.mov,.webm,.mkv,.ply,.spz,.splat,.rad"
             multiple
             hidden
             onChange={handleFileChange}
