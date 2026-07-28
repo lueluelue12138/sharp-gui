@@ -421,7 +421,7 @@ if not is_real_path_inside(resolved, workspace):
 - **Owner 判断**只能信任真实连接地址和允许的 Host，不得使用 `X-Forwarded-For`、`Forwarded`、`X-Real-IP` 等客户端可控头
 - **静态文件服务**只能从 `ALLOWED_FILE_SERVE_ROOTS` 白名单根提供，敏感文件（`config.json`、证书私钥、`app.py` 等）必须拒绝；该限制不随门禁开关放宽
 - **调试模式**默认关闭，不向客户端返回堆栈、不暴露交互式调试器；仅 `SHARP_DEBUG=1` 本机排障时开启
-- **反向代理**：若本机前置反向代理，所有请求 `remote_addr` 会变成 `127.0.0.1` 导致全员被判 owner；文档需提示用户在反代场景关闭 `allow_localhost_bypass`（需先设访问码）
+- **反向代理**：若本机前置反向代理，所有请求 `remote_addr` 会变成 `127.0.0.1` 导致全员被判 owner；`allow_localhost_bypass` 目前只能改 `config.json`（无设置界面开关，需先设访问码），关闭后会同时取消本机 owner 身份从而禁用自更新，文档须一并说明该限制
 - **subprocess 调用**使用列表参数（非字符串拼接），避免命令注入
 - **不要**在 JSON 响应中暴露服务器绝对路径或堆栈信息
 

@@ -156,8 +156,8 @@ def run_server(app):
             print("   / HTTP mode: access code and session travel unencrypted; enable HTTPS for LAN sharing")
         if bind_host == "0.0.0.0":
             print(" * ⚠️ 若在本机前置反向代理（nginx/frp 等），所有请求会被判为 owner；")
-            print("   如需强制访问码，请在设置中关闭“本机免登录”(allow_localhost_bypass)")
-            print("   / Behind a local reverse proxy every client is treated as owner; disable localhost bypass to force the access code")
+            print("   如需强制访问码，请先设访问码，再手动将 config.json 的 allow_localhost_bypass 改为 false（会同时禁用自更新）")
+            print("   / Behind a local reverse proxy every client is treated as owner; set an access code then set allow_localhost_bypass=false in config.json to force it (this also disables self-update)")
         print("Press CTRL+C to quit")
         runtime.print_runtime_diagnostics(protocol, local_ip)
 
