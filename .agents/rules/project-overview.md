@@ -57,14 +57,17 @@ sharp-gui/
 │   ├── config.py             #   config.json 读写与 access_control normalize
 │   ├── paths.py              #   PathContext：workspace/inputs/outputs/cache 派生
 │   ├── security/             #   LAN 门禁、权限矩阵、request hooks
-│   ├── services/             #   模型资产/本地媒体图库、视频重建、任务队列、导出、静态文件、文件夹选择
-│   └── routes/               #   auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
+│   ├── services/             #   模型资产/本地媒体图库、视频重建、任务队列、自更新、导出、静态文件、文件夹选择
+│   └── routes/               #   auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/updates/files/export/frontend
 ├── config.json               # 运行时配置（workspace_folder, photo_gallery_roots_by_workspace, access_control）
 ├── install.sh / install.bat  # 一键安装脚本（Python/Git/CUDA/依赖/模型/证书）
 ├── run.sh / run.bat          # 启动脚本（支持 --legacy）
 ├── build.sh / build.bat      # 前端构建脚本
 ├── release.sh / release.bat  # 发布打包脚本
 ├── update.sh / update.bat    # 自动更新脚本
+├── update-manifest.json      # 受版本控制的更新协议/运行时兼容契约
+├── .sharp-gui-update/        # 安装级更新状态、缓存、锁与有界诊断（忽略提交）
+├── .sharp-gui-tools/         # 便携包内置工具，含校验过的 MinGit（忽略提交）
 │
 ├── frontend/                 # React 前端
 │   ├── src/
@@ -150,6 +153,9 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `venv/` | 主程序 Python 虚拟环境 | 依赖目录，不是用户 workspace 状态 |
 | `.video-reconstruction-env/` | 视频重建独立 Python 环境 | 可复用或重建，不跟 workspace 切换 |
 | `ml-sharp/` | Apple ML-Sharp 引擎目录 | 上游依赖目录，不要修改内部文件 |
+| `update-manifest.json` | 更新协议、portable runtime revision、默认分支、最低 Git 与受支持包目标 | **受 Git 跟踪**；每个可更新目标必须包含，不得加入 `.gitignore` |
+| `.sharp-gui-update/` | 原子 `state.json`、最近检查目标、操作锁和有界诊断 | 安装级状态；不随 workspace 切换，代码更新/失败恢复期间保留，空闲时删除会丢失检查与操作记录 |
+| `.sharp-gui-tools/` | 完整便携包内置的 MinGit 等更新工具 | 由便携包构建器拥有；代码更新/失败恢复不得替换或删除，不修改系统 PATH |
 | `.portable-build/`、`.portable-smoke/`、`.portable-venvs/`、`portable-dist/` | 本地便携包构建缓存和产物 | 构建输出，不属于源码 |
 
 维护要求：
@@ -161,6 +167,19 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - Settings 切换到不同 workspace 前必须先尝试取得并释放目标工作区锁；目标已被其他实例占用时返回 409，且不得先修改 `config.json`。
 - 目标工作区锁预检只用于保存前尽早反馈，不代表锁所有权已转移；重启后的新进程仍必须正式获取目标锁，获取失败时安全退出且不得开始清理或写入运行时数据。
 - 图片与视频残留清理只能在 `TaskManager` 成功取得当前 workspace 的独占锁后执行；`create_app()`、模块导入及锁获取失败路径不得提前清理运行时文件。
+- `.sharp-gui-update/` 与 `.sharp-gui-tools/` 不是 workspace 数据，不得由 `PathContext` 派生，也不得加入 `/files/*` 静态服务根；只有更新管理器、外部 updater 或便携包构建器可以写入。诊断状态不得保存凭据、任意命令或面向 API 暴露绝对路径。
+- 便携包 staging 不得复制构建机残留的 `.sharp-gui-update/`；应创建干净基线并保留 `.sharp-gui-tools/` 的完整 MinGit 发行物和许可树。卸载/完整换包可以移除这些目录，普通代码更新和自动回滚不可以。
+
+## 自更新兼容清单纪律
+
+完整架构、开发、排障、测试和发布规则见 [self-update.md](self-update.md)。本节只保留项目级强制边界。
+
+- `version.txt` 只表示正式 Release 基线；安装身份还必须包含精确 Git SHA，Latest 可显示为 `vX.Y.Z + N commits (abcdefg)`。
+- `update-manifest.json` 是代码更新许可的显式契约。任何进入 `main` 且可能成为 Latest 的提交，都必须包含可识别清单与已构建的 `frontend/dist/`，并保持 `defaultBranch`、`minimumGitVersion` 和 `supportedPortableTargets` 与实际发行物一致。
+- 改动更新状态格式、目标解析或事务协议且旧 updater 无法安全处理时，必须递增 `updateProtocolRevision`，并提供相应迁移或完整包边界。
+- 只要代码需要不同的嵌入式 Python、PyTorch/CUDA、视频重建环境、COLMAP/ffmpeg 或其它不可由代码 checkout 安全替换的便携运行时，就必须在**同一个提交**递增 `portableRuntimeRevision`。不得仅凭 changed-files 推断兼容。
+- installed/target `portableRuntimeRevision` 不一致、清单缺失/非法或目标缺少已构建前端时，代码更新必须在 checkout 前拒绝并要求完整便携包；严禁静默修改大型运行时来绕过 revision gate。
+- Stable 只指受信任仓库中版本号最高的正式 `vX.Y.Z` 标签；Latest 只指该仓库 `main` 的精确提交。两者都只能应用后端最近解析并验证过的目标 SHA。
 
 ## 关键依赖版本
 

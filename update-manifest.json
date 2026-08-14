@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "application": "sharp-gui",
+  "repository": {
+    "slug": "lueluelue12138/sharp-gui",
+    "url": "https://github.com/lueluelue12138/sharp-gui.git"
+  },
+  "defaultBranch": "main",
+  "updateProtocolRevision": 1,
+  "portableRuntimeRevision": 1,
+  "minimumGitVersion": "2.30.0",
+  "frontend": {
+    "builtAssetsRequired": true,
+    "entrypoint": "frontend/dist/index.html"
+  },
+  "supportedPortableTargets": [
+    "cu128-rtx50",
+    "cu128-rtx50-video-recon",
+    "cu126-mainstream"
+  ]
+}

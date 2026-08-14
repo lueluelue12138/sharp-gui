@@ -61,7 +61,8 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 [近期重点更新](#-近期重点更新)<br>
 [快速开始](#-快速开始)<br>
-[使用指南](#-使用指南)
+[使用指南](#-使用指南)<br>
+[版本与更新](#版本与更新)
 
 </td>
 <td width="190" align="center" valign="top">
@@ -164,7 +165,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | **🥽 VR/AR 预览**   | WebXR VR 模式 + AR 透视模式 (Passthrough)，Quest 3/Pro 等头显沉浸式体验，手柄摇杆 + AR 触摸手势                                                   |
 | **📤 零门槛分享**   | 一键导出为 Spark 2.0 版独立 HTML 文件，默认嵌入 SPZ 紧凑模型，双击即可在任何浏览器打开                                                            |
 | **🎮 GPU 加速**     | 自动检测 NVIDIA GPU，智能匹配 CUDA 版本的 PyTorch（cu118 / cu126 / cu128），显著加速推理                                                          |
-| **🔄 自动更新**     | 一键检测最新版本并更新，支持 pre-release 通道，保留 `inputs/` `outputs/` `config.json` 等用户数据                                                |
+| **🔄 安全自更新**   | Settings 显示正式版本与精确提交，支持 Stable / Latest 检查和兼容代码一键更新；失败时自动恢复，便携包无需系统 Git                                  |
 | **🔐 安全与隐私**   | 数据完全本地化、自签名 SSL 一键生成、可选局域网门禁（HttpOnly Cookie + 访问码 + 抗暴力猜测）                                                      |
 | **🚀 一键部署运行** | 自动配置 Python/Git 环境、下载依赖、预下载模型、生成 HTTPS 证书、骨架屏加载进度，开箱即用                                                        |
 
@@ -314,6 +315,8 @@ Windows RTX 50 / 主流 NVIDIA 用户可直接下载完整便携包，无需手�
 下载 ZIP 和同名 `.sha256.txt` 后先校验 SHA256，解压后双击 `portable-run.bat` 启动。
 
 > 💡 完整便携包目前面向 NVIDIA GPU，不提供纯 CPU 包；视频重建完整包当前只按 RTX 50 / CUDA 12.8 路线发布，不代表所有 NVIDIA GPU 都已完成验证。
+>
+> 🔄 **自更新 bootstrap 边界**：包含新更新系统的下一版完整便携包是首个 bootstrap 包。`v1.3.0` 及更早便携包没有受管 Git 工作树和内置 MinGit，必须最后下载一次新的完整包；从 bootstrap 包开始，兼容的代码 hotfix 才能直接增量更新。
 
 ### 方式二：从源码安装 (推荐 macOS / Linux / 开发者)
 
@@ -392,18 +395,32 @@ run.bat           # Windows
 
 > 🩺 反馈问题时可使用 verbose 模式：`./run_verbose.sh` / `run_verbose.bat`，会同步记录运行环境、命令路径、PATH 与完整异常栈到 `sharp-gui-verbose.log`。
 
-### 更新版本
+### 版本与更新
+
+在 **Settings** 底部打开“应用更新”，即可查看当前版本、选择通道、检查并安装更新。更新时应用会自动重启；如果新版本验证失败，会自动恢复上一版本。
+
+- **Stable（推荐）**：仓库中版本号最高的正式 `vX.Y.Z` 标签。
+- **Latest**：`main` 分支的最新提交，可更早获得 hotfix，但测试程度低于 Stable。
+
+便携包会使用包内 Python 和 Git；干净且位于 `main` 的源码安装也可使用。代码更新会保留 workspace、模型、配置和 Python/CUDA 等大型运行环境；如目标版本需要更换运行环境，应用会提示下载新的完整便携包。`v1.3.0` 及更早便携包需要先升级到包含新更新系统的完整包。
+
+不熟悉命令行时直接使用 Settings 即可；脚本提供等价操作：
 
 ```bash
-# 更新到最新正式版
-./update.sh       # Linux/macOS
-update.bat        # Windows
-
-# 更新到最新版本 (含预发布)
-./update.sh --pre
+# Linux / macOS
+./update.sh --channel stable --check
+./update.sh --channel stable
 ```
 
-> 💡 更新脚本会自动检测最新 Release 并下载覆盖，保留你的模型和输出文件。
+```bat
+:: Windows
+update.bat --channel stable --check
+update.bat --channel stable
+```
+
+将 `stable` 换成 `latest` 即可检查或安装 Latest。开发分支或存在本地代码修改时，请继续使用正常 Git 工作流。
+
+开发与维护细节见中文文档：[自更新系统开发规范](.agents/rules/self-update.md)。
 
 ### 卸载
 
@@ -733,7 +750,7 @@ Sharp GUI 提供**可选**的局域网门禁。首次启动或本机尚未完整
 - **敏感文件不外泄**：`/files/*` 仅服务 `outputs/` 模型、历史缩略图、`model-assets/imports/` 导入模型和 `model-assets/thumbnails/` 封面缓存；`config.json`（含会话密钥与访问码哈希）、`.model-asset-library/index.json`、`cert.pem`/`key.pem`（TLS 证书私钥）、`app.py` 源码等敏感文件**在门禁开启或关闭时都无法**通过该路由下载。
 - **局域网绑定开关真实生效**：Settings 的「局域网门禁」中可切换监听绑定。开启时服务监听 `0.0.0.0`（局域网共享）；关闭后仅监听 `127.0.0.1`（仅本机，其它设备无法连接）。修改后需重启服务生效，可用环境变量 `SHARP_BIND_HOST` 覆盖。
 - **调试模式默认关闭**：服务默认以非调试模式运行，异常不会向客户端返回堆栈，也不暴露交互式调试器。仅本机排障时可设 `SHARP_DEBUG=1` 临时开启，切勿在局域网/公网共享时开启。
-- **反向代理注意**：若在本机前置反向代理（nginx / frp 等），所有请求的来源地址会变成 `127.0.0.1`，导致**每个访问者都被判为 owner**。如需在反代后强制访问码，请在设置中关闭「本机免登录」(`allow_localhost_bypass`，需先设置访问码)。本项目不信任 `X-Forwarded-For` 等可被伪造的转发头。
+- **反向代理注意**：本服务面向本机直接运行设计，通常不需要反向代理。若确实在本机前置反向代理（nginx / frp 等），所有请求的来源地址会变成 `127.0.0.1`，导致**每个访问者都被判为 owner**。如需在反代后强制访问码，可先设置访问码，再手动将 `config.json` 中的 `access_control.allow_localhost_bypass` 改为 `false`（该项目前没有设置界面开关）。**注意：关闭本机免登录会同时取消本机 owner 身份，导致自更新（检查 / 安装更新）不可用**，届时更新只能通过命令行 `update.bat` / `update.sh` 或安装新的完整包进行。本项目不信任 `X-Forwarded-For` 等可被伪造的转发头。
 - **公网暴露提醒**：本服务面向局域网设计。如需端口转发到公网，请务必先开启门禁、设置强访问码并启用 HTTPS，自行评估风险。
 
 ---
@@ -754,14 +771,17 @@ sharp-gui/
 │   ├── 📄 config.py          # config.json 与 access-control normalize
 │   ├── 📄 paths.py           # workspace/inputs/outputs/cache 路径上下文
 │   ├── 📁 security/          # LAN 门禁、权限矩阵、request hooks
-│   ├── 📁 services/          # 模型资产/照片图库、视频重建、任务队列、导出、静态文件等服务
-│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
+│   ├── 📁 services/          # 模型资产/照片图库、视频重建、任务队列、自更新、导出、静态文件等服务
+│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/updates/files/export/frontend
 ├── 📄 install.sh/bat         # 一键安装脚本
 ├── 📄 run.sh/bat             # 启动脚本 (支持 --legacy 参数)
 ├── 📄 run_verbose.sh/bat     # Verbose 启动入口（生成 sharp-gui-verbose.log）
 ├── 📄 build.sh/bat           # 前端构建脚本
 ├── 📄 update.sh/bat          # 自动更新脚本
+├── 📄 update-manifest.json   # 更新协议、便携运行时 revision 与目标兼容性契约
 ├── 📄 release.sh/bat         # 发布打包脚本
+├── 📁 .sharp-gui-update/     # 本机更新状态、操作锁与诊断（运行时生成）
+├── 📁 .sharp-gui-tools/      # 便携包自带工具（含校验过的 MinGit）
 ├── 📁 tools/                 # 工具脚本
 │   ├── 📄 generate_cert.py   # SSL 证书生成工具
 │   ├── 📄 download_model.py  # 模型下载工具
@@ -927,7 +947,9 @@ npm run build
 
 本项目基于 MIT 许可证开源。
 
-请注意：ML-Sharp 模型有单独的 [模型许可证](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL)，仅限非商业用途。
+便携包内置 MinGit 等第三方组件时，其来源、版本和许可位置见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+
+请注意：Sharp GUI 代码的 MIT 许可证不覆盖 ML-Sharp 模型；该模型适用 Apple 单独的 [模型许可证](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL)，仅限非商业用途。
 
 ---
 

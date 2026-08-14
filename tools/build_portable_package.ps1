@@ -4,6 +4,8 @@
     [string]$Target = "auto",
     [string]$OutputDir = "",
     [string]$VenvDir = "",
+    [string]$MinGitCacheDir = "",
+    [string]$ExpectedSourceRevision = "",
     [int]$CompressionLevel = 1,
     [switch]$SkipFrontendBuild,
     [switch]$SkipModel,
@@ -13,6 +15,16 @@
 )
 
 $ErrorActionPreference = "Stop"
+
+$script:CanonicalRepository = "https://github.com/lueluelue12138/sharp-gui.git"
+$script:MinGitVersion = "2.55.0.windows.3"
+$script:MinGitReleaseTag = "v2.55.0.windows.3"
+$script:MinGitAssetName = "MinGit-2.55.0.3-64-bit.zip"
+$script:MinGitSha256 = "f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05"
+$script:MinGitUrl = "https://github.com/git-for-windows/git/releases/download/$($script:MinGitReleaseTag)/$($script:MinGitAssetName)"
+$script:MinGitExecutableRelativePath = ".sharp-gui-tools\git\cmd\git.exe"
+$script:SupportedManifestSchemaVersion = 1
+$script:SupportedUpdateProtocolRevision = 1
 
 function Write-Step {
     param([string]$Message)
@@ -30,6 +42,8 @@ function Fail {
     Write-Host "[错误] $Message" -ForegroundColor Red
     exit 1
 }
+
+. (Join-Path $PSScriptRoot "portable_update_common.ps1")
 
 function Remove-DirectoryTree {
     param([string]$Path)
@@ -66,16 +80,401 @@ function Invoke-Robocopy {
     }
 }
 
-function Copy-FileIfExists {
+
+function Get-VerifiedMinGitArchive {
+    param([string]$CacheDirectory)
+
+    New-Item -ItemType Directory -Force -Path $CacheDirectory | Out-Null
+    $archivePath = Join-Path $CacheDirectory $script:MinGitAssetName
+
+    if (Test-Path -LiteralPath $archivePath) {
+        $cachedHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($cachedHash -eq $script:MinGitSha256) {
+            Write-Info "复用已校验 MinGit 缓存: $archivePath"
+            return $archivePath
+        }
+
+        Write-Info "MinGit 缓存校验失败，将删除并重新下载"
+        Remove-Item -LiteralPath $archivePath -Force
+    }
+
+    $partialPath = "$archivePath.partial-$([guid]::NewGuid().ToString('N'))"
+    Write-Step "下载固定版本 MinGit"
+    Write-Info "URL: $($script:MinGitUrl)"
+    Write-Info "SHA256: $($script:MinGitSha256)"
+
+    $oldProgressPreference = $ProgressPreference
+    $oldSecurityProtocol = [Net.ServicePointManager]::SecurityProtocol
+    try {
+        $ProgressPreference = "SilentlyContinue"
+        [Net.ServicePointManager]::SecurityProtocol = $oldSecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+        Invoke-WebRequest -Uri $script:MinGitUrl -OutFile $partialPath -UseBasicParsing -TimeoutSec 180
+
+        $downloadedHash = (Get-FileHash -LiteralPath $partialPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($downloadedHash -ne $script:MinGitSha256) {
+            throw "SHA256 不匹配，期望 $($script:MinGitSha256)，实际 $downloadedHash"
+        }
+
+        Move-Item -LiteralPath $partialPath -Destination $archivePath -Force
+    } catch {
+        Remove-Item -LiteralPath $partialPath -Force -ErrorAction SilentlyContinue
+        Fail "MinGit 下载或校验失败: $($_.Exception.Message)"
+    } finally {
+        $ProgressPreference = $oldProgressPreference
+        [Net.ServicePointManager]::SecurityProtocol = $oldSecurityProtocol
+    }
+
+    return $archivePath
+}
+
+function Install-VerifiedMinGit {
     param(
-        [string]$Source,
-        [string]$DestinationDirectory
+        [string]$ArchivePath,
+        [string]$PackageRoot
     )
 
-    if (Test-Path -LiteralPath $Source) {
-        New-Item -ItemType Directory -Force -Path $DestinationDirectory | Out-Null
-        Copy-Item -LiteralPath $Source -Destination $DestinationDirectory -Force
+    $destination = Join-Path $PackageRoot ".sharp-gui-tools\git"
+    if (Test-Path -LiteralPath $destination) {
+        Remove-DirectoryTree -Path $destination
     }
+    New-Item -ItemType Directory -Force -Path $destination | Out-Null
+
+    Write-Step "完整解压官方 MinGit 运行时"
+    Expand-Archive -LiteralPath $ArchivePath -DestinationPath $destination -Force
+
+    $gitExe = Join-Path $PackageRoot $script:MinGitExecutableRelativePath
+    $licensePath = Join-Path $destination "LICENSE.txt"
+    $mingwLicenseTree = Join-Path $destination "mingw64\share\licenses"
+    $usrLicenseTree = Join-Path $destination "usr\share\licenses"
+    if (-not (Test-Path -LiteralPath $gitExe)) {
+        Fail "MinGit 包缺少 cmd\git.exe: $gitExe"
+    }
+    if (-not (Test-Path -LiteralPath $licensePath -PathType Leaf)) {
+        Fail "MinGit 包缺少 LICENSE.txt，拒绝裁剪许可证树"
+    }
+    if (-not (Test-Path -LiteralPath $mingwLicenseTree -PathType Container)) {
+        Fail "MinGit 包缺少 mingw64\share\licenses，拒绝不完整的许可证树"
+    }
+    if (-not (Test-Path -LiteralPath $usrLicenseTree -PathType Container)) {
+        Fail "MinGit 包缺少 usr\share\licenses，拒绝不完整的许可证树"
+    }
+
+    $licenseFiles = @(Get-ChildItem -LiteralPath $destination -Recurse -File | Where-Object {
+        $_.Name -match '(?i)(license|copying|notice)'
+    })
+    if ($licenseFiles.Count -eq 0) {
+        Fail "MinGit 解压结果中未找到许可证/notice 文件"
+    }
+
+    return [PSCustomObject]@{
+        Root = $destination
+        GitExe = $gitExe
+        LicenseCount = $licenseFiles.Count
+    }
+}
+
+function Invoke-BundledGit {
+    param(
+        [string]$GitExe,
+        [string]$WorkingTree,
+        [string[]]$Arguments
+    )
+
+    $oldTerminalPrompt = $env:GIT_TERMINAL_PROMPT
+    $oldCredentialInteractive = $env:GCM_INTERACTIVE
+    $oldConfigNoSystem = $env:GIT_CONFIG_NOSYSTEM
+    try {
+        $env:GIT_TERMINAL_PROMPT = "0"
+        $env:GCM_INTERACTIVE = "Never"
+        $env:GIT_CONFIG_NOSYSTEM = "1"
+        $output = @(& $GitExe -C $WorkingTree @Arguments 2>&1)
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $env:GIT_TERMINAL_PROMPT = $oldTerminalPrompt
+        $env:GCM_INTERACTIVE = $oldCredentialInteractive
+        $env:GIT_CONFIG_NOSYSTEM = $oldConfigNoSystem
+    }
+
+    return [PSCustomObject]@{
+        ExitCode = $exitCode
+        Output = @($output | ForEach-Object { [string]$_ })
+    }
+}
+
+function Invoke-BundledGitChecked {
+    param(
+        [string]$GitExe,
+        [string]$WorkingTree,
+        [string[]]$Arguments,
+        [string]$Description
+    )
+
+    $result = Invoke-BundledGit -GitExe $GitExe -WorkingTree $WorkingTree -Arguments $Arguments
+    if ($result.ExitCode -ne 0) {
+        $detail = ($result.Output -join "`n").Trim()
+        Fail "$Description 失败: $detail"
+    }
+    return $result.Output
+}
+
+function Write-PortableGitExclude {
+    param([string]$PackageRoot)
+
+    $excludePath = Join-Path $PackageRoot ".git\info\exclude"
+    $patterns = @(
+        "# Sharp GUI package-local runtime and user state",
+        "/python/",
+        "/ml-sharp/",
+        "/frontend/node_modules/",
+        "/.cache/",
+        "/.video-reconstruction-env/",
+        "/.sharp-gui-tools/",
+        "/.sharp-gui-update/",
+        "/tools/ffmpeg/",
+        "/inputs/",
+        "/inputs*/",
+        "/outputs/",
+        "/outputs*/",
+        "/model-assets/",
+        "/model-assets*/",
+        "/.model-asset-library/",
+        "/.photo-gallery-cache/",
+        "/.video-reconstruction/",
+        "/.thumbnails/",
+        "/tmp/",
+        "/my-video/",
+        "/config.json",
+        "/*.pem",
+        "/*.log",
+        "/.sharp-gui.lock",
+        "/portable-package.json",
+        "/portable-run.bat",
+        "/portable-run-verbose.bat",
+        "/sharp.cmd",
+        "/便携包说明.md"
+    )
+    [System.IO.File]::WriteAllText(
+        $excludePath,
+        (($patterns -join "`n") + "`n"),
+        (New-Object System.Text.UTF8Encoding($false))
+    )
+}
+
+function Assert-NoBuildSourcePathInGitMetadata {
+    param(
+        [string]$PackageRoot,
+        [string]$SourceRoot
+    )
+
+    $gitDirectory = Join-Path $PackageRoot ".git"
+    if (-not (Test-Path -LiteralPath $gitDirectory -PathType Container)) {
+        Fail "包内缺少受管 Git 元数据目录: $gitDirectory"
+    }
+
+    $nativeSourceRoot = [System.IO.Path]::GetFullPath($SourceRoot).TrimEnd('\', '/')
+    $forwardSourceRoot = $nativeSourceRoot -replace '\\', '/'
+    $escapedSourceRoot = $nativeSourceRoot -replace '\\', '\\'
+    $sourceUri = ([System.Uri]$nativeSourceRoot).AbsoluteUri.TrimEnd('/')
+    $needles = @($nativeSourceRoot, $forwardSourceRoot, $escapedSourceRoot, $sourceUri) |
+        Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
+        Select-Object -Unique
+
+    $metadataFiles = @(
+        Get-ChildItem -LiteralPath $gitDirectory -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.Name -notin @("index", "index.lock") }
+        foreach ($relativeDirectory in @("hooks", "info", "logs", "refs", "objects\info")) {
+            $directory = Join-Path $gitDirectory $relativeDirectory
+            if (Test-Path -LiteralPath $directory -PathType Container) {
+                Get-ChildItem -LiteralPath $directory -Recurse -File -ErrorAction SilentlyContinue
+            }
+        }
+    ) | Sort-Object FullName -Unique
+
+    foreach ($metadataFile in $metadataFiles) {
+        try {
+            $text = [System.IO.File]::ReadAllText($metadataFile.FullName)
+        } catch {
+            Fail "无法扫描包内 Git 文本元数据: $($metadataFile.FullName)"
+        }
+        foreach ($needle in $needles) {
+            if ($text.IndexOf($needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                $relativePath = $metadataFile.FullName.Substring($gitDirectory.Length).TrimStart('\', '/')
+                Fail "包内 Git 元数据泄露构建源绝对路径: .git\$relativePath"
+            }
+        }
+    }
+}
+
+function Initialize-ManagedWorktree {
+    param(
+        [string]$PackageRoot,
+        [string]$GitExe,
+        [string]$SourceRoot,
+        [string]$SourceRevision
+    )
+
+    Write-Step "初始化 exact source SHA 的受管浅层工作树"
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("init", "--quiet", ".") -Description "初始化包内 Git 仓库" | Out-Null
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("config", "core.autocrlf", "false") -Description "配置包内 Git 换行策略" | Out-Null
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("config", "core.longpaths", "true") -Description "配置包内 Git 长路径" | Out-Null
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("config", "gc.auto", "0") -Description "配置包内 Git 自动维护" | Out-Null
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("remote", "add", "origin", $script:CanonicalRepository) -Description "配置官方 origin" | Out-Null
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("config", "remote.origin.fetch", "+refs/heads/main:refs/remotes/origin/main") -Description "配置 origin main refspec" | Out-Null
+    Write-PortableGitExclude -PackageRoot $PackageRoot
+
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @(
+        "-c", "protocol.file.allow=always",
+        "fetch", "--quiet", "--no-tags", "--depth=1", $SourceRoot, $SourceRevision
+    ) -Description "从本地源仓库获取 exact source SHA" | Out-Null
+    Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("checkout", "--quiet", "--detach", "--force", $SourceRevision) -Description "检出 exact source SHA" | Out-Null
+    $fetchHeadPath = Join-Path $PackageRoot ".git\FETCH_HEAD"
+    Remove-Item -LiteralPath $fetchHeadPath -Force -ErrorAction SilentlyContinue
+    if (Test-Path -LiteralPath $fetchHeadPath) {
+        Fail "无法删除包含构建源信息的包内 .git\FETCH_HEAD"
+    }
+    Write-PortableGitExclude -PackageRoot $PackageRoot
+    Assert-NoBuildSourcePathInGitMetadata -PackageRoot $PackageRoot -SourceRoot $SourceRoot
+}
+
+function Test-ManagedPortablePackage {
+    param(
+        [string]$PackageRoot,
+        [string]$GitExe,
+        [string]$SourceRoot,
+        [string]$SourceRevision,
+        [string]$ExpectedVersion,
+        [string]$ReleaseBaseline,
+        [object]$ExpectedCommitsAhead,
+        [object]$CompatibilityInfo
+    )
+
+    Write-Step "校验包内 Git、元数据与受管工作树"
+
+    $versionResult = Invoke-BundledGit -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("--version")
+    $versionText = ($versionResult.Output -join " ").Trim()
+    if ($versionResult.ExitCode -ne 0 -or $versionText -notmatch [regex]::Escape($script:MinGitVersion)) {
+        Fail "包内 Git 版本不匹配，期望 $($script:MinGitVersion)，实际: $versionText"
+    }
+    if (-not (Test-VersionAtLeast -Actual $script:MinGitVersion -Minimum $CompatibilityInfo.MinimumGitVersion)) {
+        Fail "包内 MinGit $($script:MinGitVersion) 低于兼容清单最低版本 $($CompatibilityInfo.MinimumGitVersion)"
+    }
+
+    $head = (Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("rev-parse", "HEAD") -Description "读取包内 HEAD" | Select-Object -First 1).Trim().ToLowerInvariant()
+    if ($head -ne $SourceRevision) {
+        Fail "包内 HEAD 与 sourceRevision 不一致: $head != $SourceRevision"
+    }
+
+    $origin = (Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("remote", "get-url", "origin") -Description "读取包内 origin" | Select-Object -First 1).Trim()
+    if ($origin -ne $script:CanonicalRepository) {
+        Fail "包内 origin 不是官方仓库: $origin"
+    }
+
+    $shallow = (Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("rev-parse", "--is-shallow-repository") -Description "检查浅层仓库" | Select-Object -First 1).Trim()
+    if ($shallow -ne "true") {
+        Fail "包内受管仓库不是 shallow repository"
+    }
+
+    $status = @(Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @("status", "--porcelain=v1", "--untracked-files=all") -Description "检查包内受管工作树")
+    if ($status.Count -gt 0) {
+        Write-Host ($status -join "`n")
+        Fail "包内受管工作树不是干净状态"
+    }
+
+    $trackedRuntime = @(Invoke-BundledGitChecked -GitExe $GitExe -WorkingTree $PackageRoot -Arguments @(
+        "ls-files", "--",
+        "python", "ml-sharp", "frontend/node_modules", ".cache", ".video-reconstruction-env",
+        ".sharp-gui-tools", ".sharp-gui-update", "tools/ffmpeg",
+        "inputs", "outputs", "model-assets", ".model-asset-library", ".photo-gallery-cache",
+        ".video-reconstruction", "config.json", "portable-package.json",
+        "portable-run.bat", "portable-run-verbose.bat", "sharp.cmd", "便携包说明.md"
+    ) -Description "检查 runtime 路径是否被 Git 跟踪")
+    if ($trackedRuntime.Count -gt 0) {
+        Fail "以下 package runtime 路径意外被 Git 跟踪: $($trackedRuntime -join ', ')"
+    }
+
+    $metadataPath = Join-Path $PackageRoot "portable-package.json"
+    try {
+        $metadataText = Get-Content -Raw -LiteralPath $metadataPath -Encoding UTF8
+        $metadata = $metadataText | ConvertFrom-Json
+    } catch {
+        Fail "portable-package.json 无法解析: $($_.Exception.Message)"
+    }
+    if ($metadata.sourceRevision -ne $SourceRevision -or $metadata.repository -ne $script:CanonicalRepository) {
+        Fail "portable-package.json 的 repository/sourceRevision 与受管工作树不一致"
+    }
+    $checkedOutVersion = (Get-Content -LiteralPath (Join-Path $PackageRoot "version.txt") -Encoding UTF8 | Select-Object -First 1).Trim()
+    if ($checkedOutVersion -ne $ExpectedVersion) {
+        Fail "包内 version.txt 与 source revision 不一致: $checkedOutVersion != $ExpectedVersion"
+    }
+    if ([string]$metadata.version -ne $ExpectedVersion) {
+        Fail "portable-package.json 的 version 与 source revision 的 version.txt 不一致"
+    }
+    if ([string]$metadata.releaseBaseline -ne $ReleaseBaseline) {
+        Fail "portable-package.json 的 releaseBaseline 与计算结果不一致"
+    }
+    $commitsAheadProperty = $metadata.PSObject.Properties["commitsAhead"]
+    if (-not $commitsAheadProperty) {
+        Fail "portable-package.json 缺少 commitsAhead"
+    }
+    if ($null -eq $ExpectedCommitsAhead) {
+        if ($null -ne $commitsAheadProperty.Value) {
+            Fail "portable-package.json 的 commitsAhead 应为 null"
+        }
+    } else {
+        if ([string]$commitsAheadProperty.Value -notmatch '^\d+$') {
+            Fail "portable-package.json 的 commitsAhead 不是有效整数"
+        }
+        $metadataCommitsAhead = [int]$commitsAheadProperty.Value
+        if ($metadataCommitsAhead -ne [int]$ExpectedCommitsAhead) {
+            Fail "portable-package.json 的 commitsAhead 与 releaseBaseline..sourceRevision 计算结果不一致"
+        }
+    }
+    if ([int]$metadata.portableRuntimeRevision -ne $CompatibilityInfo.PortableRuntimeRevision -or [int]$metadata.updateProtocolRevision -ne $CompatibilityInfo.UpdateProtocolRevision) {
+        Fail "portable-package.json 的 runtime/update protocol revision 与兼容清单不一致"
+    }
+    if ([System.IO.Path]::IsPathRooted([string]$metadata.minGit.executable)) {
+        Fail "portable-package.json 的 MinGit executable 必须是包内相对路径"
+    }
+    if ([string]$metadata.minGit.executable -ne ".sharp-gui-tools/git/cmd/git.exe") {
+        Fail "portable-package.json 的 MinGit executable 路径不正确"
+    }
+    if ([string]$metadata.minGit.sha256 -ne $script:MinGitSha256) {
+        Fail "portable-package.json 的 MinGit SHA256 不正确"
+    }
+    if ($metadataText -match [regex]::Escape([System.IO.Path]::GetFullPath($SourceRoot))) {
+        Fail "portable-package.json 不得包含构建机绝对路径"
+    }
+
+    $frontendEntrypoint = Join-Path $PackageRoot ($CompatibilityInfo.FrontendEntrypoint -replace '/', '\')
+    if ($CompatibilityInfo.BuiltAssetsRequired -and -not (Test-Path -LiteralPath $frontendEntrypoint)) {
+        Fail "受管工作树缺少兼容清单要求的前端产物: $($CompatibilityInfo.FrontendEntrypoint)"
+    }
+
+    $requiredLicenseFiles = [ordered]@{
+        "THIRD_PARTY_NOTICES.md" = Join-Path $PackageRoot "THIRD_PARTY_NOTICES.md"
+        ".sharp-gui-tools\git\LICENSE.txt" = Join-Path $PackageRoot ".sharp-gui-tools\git\LICENSE.txt"
+    }
+    foreach ($relativePath in $requiredLicenseFiles.Keys) {
+        if (-not (Test-Path -LiteralPath $requiredLicenseFiles[$relativePath] -PathType Leaf)) {
+            Fail "包内第三方许可证/notice 文件丢失: $relativePath"
+        }
+    }
+    $requiredLicenseDirectories = [ordered]@{
+        ".sharp-gui-tools\git\mingw64\share\licenses" = Join-Path $PackageRoot ".sharp-gui-tools\git\mingw64\share\licenses"
+        ".sharp-gui-tools\git\usr\share\licenses" = Join-Path $PackageRoot ".sharp-gui-tools\git\usr\share\licenses"
+    }
+    foreach ($relativePath in $requiredLicenseDirectories.Keys) {
+        if (-not (Test-Path -LiteralPath $requiredLicenseDirectories[$relativePath] -PathType Container)) {
+            Fail "包内第三方许可证目录丢失: $relativePath"
+        }
+    }
+
+    Assert-NoBuildSourcePathInGitMetadata -PackageRoot $PackageRoot -SourceRoot $SourceRoot
+
+    Write-Info "MinGit: $versionText"
+    Write-Info "Managed HEAD: $head"
+    Write-Info "Origin: $origin"
+    Write-Info "工作树: clean (runtime/user paths ignored)"
 }
 
 function Get-ConfigValue {
@@ -468,37 +867,39 @@ print(get_model_path())
 
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
+$compatibilityInfo = Get-UpdateCompatibilityInfo -Root $root
+$sourceRevision = Get-SourceRevision -Root $root
+if (-not [string]::IsNullOrWhiteSpace($ExpectedSourceRevision) -and $sourceRevision -ne $ExpectedSourceRevision.Trim().ToLowerInvariant()) {
+    Fail "源仓库 HEAD 在一键构建期间发生变化: $sourceRevision != $ExpectedSourceRevision"
+}
+$sourceVersion = Get-SourceVersion -Root $root -SourceRevision $sourceRevision
+$sourceFrontendEntrypoint = Join-Path $root ($compatibilityInfo.FrontendEntrypoint -replace '/', '\')
+if ($compatibilityInfo.BuiltAssetsRequired -and -not (Test-Path -LiteralPath $sourceFrontendEntrypoint)) {
+    Fail "源代码缺少兼容清单要求的前端产物: $($compatibilityInfo.FrontendEntrypoint)"
+}
+
+if ([string]::IsNullOrWhiteSpace($MinGitCacheDir)) {
+    $MinGitCacheDir = Join-Path $root ".portable-venvs\downloads\mingit"
+} elseif (-not [System.IO.Path]::IsPathRooted($MinGitCacheDir)) {
+    $MinGitCacheDir = Join-Path $root $MinGitCacheDir
+}
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    if (Test-Path -LiteralPath "$root\version.txt") {
-        $Version = (Get-Content -LiteralPath "$root\version.txt" -Encoding UTF8 | Select-Object -First 1).Trim()
-    }
-    if ([string]::IsNullOrWhiteSpace($Version)) {
-        try {
-            $tag = (& git -C $root describe --tags --exact-match 2>$null).Trim()
-            if (-not [string]::IsNullOrWhiteSpace($tag)) {
-                $Version = $tag
-            }
-        } catch {
-        }
-    }
-    if ([string]::IsNullOrWhiteSpace($Version)) {
-        try {
-            $tag = (& git -C $root describe --tags --abbrev=0 2>$null).Trim()
-            if (-not [string]::IsNullOrWhiteSpace($tag)) {
-                $Version = $tag
-            }
-        } catch {
-        }
-    }
-    if ([string]::IsNullOrWhiteSpace($Version)) {
-        $Version = "local-" + (Get-Date -Format "yyyyMMdd-HHmm")
-    }
+    $Version = $sourceVersion
 }
 $Version = $Version -replace "^refs/tags/", ""
 if (-not $AllowLocalVersion -and $Version -notmatch '^v\d+\.\d+\.\d+([.-](rc|alpha|beta|preview)\.?\d*)?$') {
     Fail "当前版本号 '$Version' 不像正式发布版本。请使用 -Version vX.Y.Z，或测试时加 -AllowLocalVersion。"
 }
+if ($sourceVersion -ne $Version) {
+    if (-not $AllowLocalVersion) {
+        Fail "source revision 的 version.txt ($sourceVersion) 与 -Version ($Version) 不一致"
+    }
+    Write-Info "本地测试版本标签 '$Version' 与 source version '$sourceVersion' 不同；元数据仍以 source version 为准。"
+}
+$releaseBaseline = Get-ReleaseBaseline -Root $root -SourceRevision $sourceRevision -FallbackVersion $sourceVersion
+$commitsAhead = Get-CommitsAhead -Root $root -ReleaseBaseline $releaseBaseline -SourceRevision $sourceRevision
+$commitsAheadText = if ($null -eq $commitsAhead) { "unknown" } else { [string]$commitsAhead }
 
 if ([string]::IsNullOrWhiteSpace($OutputDir)) {
     $OutputDir = Join-Path $root "portable-dist"
@@ -563,6 +964,10 @@ if ($Target -eq "auto") {
 }
 
 $includeVideoReconstruction = $resolvedTarget -eq "cu128-rtx50-video-recon"
+$supportedTargetMatch = @($compatibilityInfo.SupportedPortableTargets | Where-Object { $_ -eq $resolvedTarget })
+if ($supportedTargetMatch.Count -eq 0) {
+    Fail "更新兼容清单不支持便携目标 '$resolvedTarget'"
+}
 $videoReconEnvDir = Join-Path $root ".video-reconstruction-env"
 $ffmpegBinDir = $null
 if ($includeVideoReconstruction) {
@@ -604,6 +1009,18 @@ Write-Info "GPU: $($torchInfo.device_name)"
 Write-Info "Python 源目录: $pythonHome"
 Write-Info "依赖虚拟环境: $VenvDir"
 Write-Info "输出 ZIP: $zipPath"
+Write-Info "Source SHA: $sourceRevision"
+Write-Info "Source version: $sourceVersion"
+Write-Info "Release baseline: $releaseBaseline"
+Write-Info "Commits ahead: $commitsAheadText"
+Write-Info "兼容清单: $($compatibilityInfo.ManifestSource) (schema=$($compatibilityInfo.SchemaVersion))"
+Write-Info "Portable runtime revision: $($compatibilityInfo.PortableRuntimeRevision)"
+Write-Info "Update protocol revision: $($compatibilityInfo.UpdateProtocolRevision)"
+Write-Info "Manifest minimum Git: $($compatibilityInfo.MinimumGitVersion)"
+Write-Info "MinGit: $($script:MinGitReleaseTag) standard x64 / $($script:MinGitAssetName)"
+Write-Info "MinGit URL: $($script:MinGitUrl)"
+Write-Info "MinGit SHA256: $($script:MinGitSha256)"
+Write-Info "MinGit executable: $($script:MinGitExecutableRelativePath)"
 if ($includeVideoReconstruction) {
     Write-Info "视频重建环境: $videoReconEnvDir"
     Write-Info "ffmpeg 工具目录: $ffmpegBinDir"
@@ -620,6 +1037,8 @@ if ($PlanOnly) {
     Write-Host "[OK] 计划检查完成，未执行复制或压缩。" -ForegroundColor Green
     exit 0
 }
+
+Assert-SourceRepositoryClean -Root $root
 
 Write-Step "准备前端构建"
 if (-not $SkipFrontendBuild) {
@@ -681,6 +1100,7 @@ if (-not $SkipFrontendBuild) {
 if (-not (Test-Path -LiteralPath "$frontendDir\dist\index.html")) {
     Fail "未找到 frontend\dist\index.html，请先完成前端构建"
 }
+Assert-SourceRepositoryClean -Root $root
 
 Write-Step "创建打包目录"
 if (Test-Path -LiteralPath $packageRoot) {
@@ -689,29 +1109,15 @@ if (Test-Path -LiteralPath $packageRoot) {
 New-Item -ItemType Directory -Force -Path $packageRoot | Out-Null
 New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
-Write-Step "复制应用文件"
-$coreFiles = @(
-    "app.py",
-    "README.md",
-    "README.en.md",
-    "LICENSE",
-    "run.bat",
-    "build.bat",
-    "update.bat"
-)
-foreach ($file in $coreFiles) {
-    Copy-FileIfExists -Source (Join-Path $root $file) -DestinationDirectory $packageRoot
-}
+$minGitArchive = Get-VerifiedMinGitArchive -CacheDirectory $MinGitCacheDir
+$minGitRuntime = Install-VerifiedMinGit -ArchivePath $minGitArchive -PackageRoot $packageRoot
+Initialize-ManagedWorktree `
+    -PackageRoot $packageRoot `
+    -GitExe $minGitRuntime.GitExe `
+    -SourceRoot $root `
+    -SourceRevision $sourceRevision
 
-Invoke-Robocopy -Source "$root\tools" -Destination "$packageRoot\tools" -ExtraArgs @("/XD", "__pycache__")
-Invoke-Robocopy -Source "$root\backend" -Destination "$packageRoot\backend" -ExtraArgs @("/XD", "__pycache__")
-Invoke-Robocopy -Source "$root\templates" -Destination "$packageRoot\templates"
-Invoke-Robocopy -Source "$root\static" -Destination "$packageRoot\static"
-
-New-Item -ItemType Directory -Force -Path "$packageRoot\frontend" | Out-Null
-Invoke-Robocopy -Source "$frontendDir\dist" -Destination "$packageRoot\frontend\dist"
-Copy-FileIfExists -Source "$frontendDir\package.json" -DestinationDirectory "$packageRoot\frontend"
-Copy-FileIfExists -Source "$frontendDir\package-lock.json" -DestinationDirectory "$packageRoot\frontend"
+Write-Step "复制包外运行时与依赖"
 if (Test-Path -LiteralPath "$frontendDir\node_modules") {
     Invoke-Robocopy -Source "$frontendDir\node_modules" -Destination "$packageRoot\frontend\node_modules"
 }
@@ -881,10 +1287,29 @@ if ($includeVideoReconstruction) {
 
 $packageInfo = [ordered]@{
     name = $packageName
-    version = $Version
+    version = $sourceVersion
+    repository = $script:CanonicalRepository
+    sourceRevision = $sourceRevision
+    releaseBaseline = $releaseBaseline
+    commitsAhead = $commitsAhead
+    portableRuntimeRevision = $compatibilityInfo.PortableRuntimeRevision
+    updateProtocolRevision = $compatibilityInfo.UpdateProtocolRevision
     target = $resolvedTarget
     kind = $packageKind
     createdAt = (Get-Date).ToString("s")
+    minGit = [ordered]@{
+        distribution = "Git for Windows MinGit"
+        variant = "standard"
+        architecture = "x64"
+        version = $script:MinGitVersion
+        releaseTag = $script:MinGitReleaseTag
+        assetName = $script:MinGitAssetName
+        sourceUrl = $script:MinGitUrl
+        sha256 = $script:MinGitSha256
+        executable = ($script:MinGitExecutableRelativePath -replace '\\', '/')
+        license = ".sharp-gui-tools/git/LICENSE.txt"
+        completeLicenseInventoryPreserved = $true
+    }
     torch = @{
         version = $torchInfo.version
         cuda = $torchInfo.cuda
@@ -897,7 +1322,10 @@ $packageInfo = [ordered]@{
         "这是本地打包生成的 Windows GPU 完整 ZIP。",
         "首选入口是 portable-run.bat。",
         "反馈问题时可以运行 portable-run-verbose.bat 获取更多日志。",
+        "当前代码基线为 $releaseBaseline + $commitsAheadText commits ($sourceRevision)。",
         "包内使用本地 TORCH_HOME，模型文件放在 .cache\\torch\\hub\\checkpoints。",
+        "本包包含固定校验的 MinGit，可在运行时兼容 revision 不变时接收 Stable 或 Latest 代码更新。",
+        "Python/CUDA/视频重建运行时 revision 变化时必须下载新的完整便携包。",
         $(if ($includeVideoReconstruction) { "本包包含 RTX 50 / CUDA 12.8 视频重建运行时。" } else { "本包不包含视频重建完整运行时。" })
     )
 }
@@ -921,6 +1349,15 @@ $notes = @"
 
 反馈问题时：双击 `portable-run-verbose.bat`，并把窗口中的完整日志或 `sharp-gui-verbose.log` 发给维护者。
 
+版本与更新基线：
+
+- Release 基线：``$releaseBaseline``
+- 相对 Release 基线新增提交数：``$commitsAheadText``
+- 源代码 revision：``$sourceRevision``
+- Portable runtime revision：``$($compatibilityInfo.PortableRuntimeRevision)``
+- Update protocol revision：``$($compatibilityInfo.UpdateProtocolRevision)``
+- 受管仓库：``$($script:CanonicalRepository)``
+
 本包包含：
 
 - Sharp GUI 后端与已构建 React 前端
@@ -929,7 +1366,21 @@ $notes = @"
 - Sharp 模型缓存（除非打包时使用了 `-SkipModel`）
 - `sharp.cmd` 包内 CLI 入口
 - `portable-run-verbose.bat` 详细日志入口
+- 官方 Git for Windows MinGit ``$($script:MinGitReleaseTag)``（standard x64）
+  - 资产：``$($script:MinGitAssetName)``
+  - 来源：$($script:MinGitUrl)
+  - SHA256：``$($script:MinGitSha256)``
+  - 可执行文件：``$($script:MinGitExecutableRelativePath)``
+  - 完整许可证目录：``.sharp-gui-tools\git``（入口为 ``LICENSE.txt``）
 $videoReconNote
+
+自更新说明：
+
+- 本包是带受管 Git 基线的自更新启动包；旧版、不含此基线的便携包仍需先完整下载一次新包。
+- **Stable** 指仓库中版本号最高的正式 ``vX.Y.Z`` 标签；**Latest** 指 ``main`` 最新提交，测试程度低于 Stable。
+- 自动更新只替换兼容的受管应用代码；验证或重启失败时自动恢复上一个 revision。
+- ``config.json``、工作区输入/输出/模型资产和索引缓存、包内 Python/CUDA、模型缓存、MinGit、更新状态以及可选视频重建环境均保留在受管代码之外。
+- 当 Portable runtime revision、Python、CUDA、PyTorch、COLMAP、ffmpeg 或视频重建环境需要变化时，兼容性检查会拒绝代码更新，必须下载新的完整便携包。
 
 注意：
 
@@ -940,6 +1391,16 @@ $videoReconNote
 - 如果移动包目录，仍应使用包内的 `portable-run.bat` 启动。
 "@
 Set-Content -LiteralPath "$packageRoot\便携包说明.md" -Encoding UTF8 -Value $notes
+
+Test-ManagedPortablePackage `
+    -PackageRoot $packageRoot `
+    -GitExe $minGitRuntime.GitExe `
+    -SourceRoot $root `
+    -SourceRevision $sourceRevision `
+    -ExpectedVersion $sourceVersion `
+    -ReleaseBaseline $releaseBaseline `
+    -ExpectedCommitsAhead $commitsAhead `
+    -CompatibilityInfo $compatibilityInfo
 
 if ($includeVideoReconstruction) {
     Test-VideoReconstructionRuntime -PackageRoot $packageRoot
@@ -966,7 +1427,7 @@ if ($sevenZip) {
     Write-Info "未找到 7-Zip，改用 tar.exe 生成 zip"
     Push-Location $packageRoot
     try {
-        & tar -a -cf $zipPath *
+        & tar -a -cf $zipPath .
         if ($LASTEXITCODE -ne 0) {
             Fail "tar 压缩失败。建议安装 7-Zip 后重试。"
         }

@@ -60,7 +60,8 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 [Recent Highlights](#-recent-highlights)<br>
 [Quick Start](#-quick-start)<br>
-[Usage Guide](#-usage)
+[Usage Guide](#-usage)<br>
+[Version & Updates](#version-and-updates)
 
 </td>
 <td width="190" align="center" valign="top">
@@ -163,7 +164,7 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | **🥽 VR/AR Preview**       | WebXR VR mode + AR Passthrough on Quest 3/Pro and similar headsets, with controller / touch input.                                                                       |
 | **📤 One-Click Share**     | Export a standalone HTML file powered by Spark 2.0; the compact SPZ payload is embedded by default, double-click to open anywhere.                                       |
 | **🎮 GPU Acceleration**    | Auto-detects NVIDIA GPUs and matches a CUDA-enabled PyTorch (cu118 / cu126 / cu128) for noticeably faster inference.                                                     |
-| **🔄 Auto-Update**         | One-click update to the latest release with a pre-release channel; preserves `inputs/` `outputs/` `config.json` and other user data.                                     |
+| **🔄 Safe Self-Update**    | Settings shows the release and exact commit, with Stable / Latest checks and compatible one-click code updates; failures restore automatically and portable bundles need no system Git. |
 | **🔐 Security & Privacy**  | Fully local data, one-click self-signed SSL, optional LAN access gate (HttpOnly cookie + access code + brute-force backoff).                                             |
 | **🚀 One-Click Deploy**    | Auto-configures Python / Git, installs deps, pre-downloads models, generates HTTPS certs, and shows skeleton progress. Ready out of the box.                             |
 
@@ -313,6 +314,8 @@ The same folder is kept up to date with the latest version. Pick the package for
 Download the ZIP and matching `.sha256.txt`, verify SHA256 first, then extract and double-click `portable-run.bat`.
 
 > 💡 Full portable bundles currently target NVIDIA GPUs only; there is no CPU-only portable bundle. The video reconstruction bundle currently targets the RTX 50 / CUDA 12.8 route and does not mean every NVIDIA GPU has been verified.
+>
+> 🔄 **Self-update bootstrap boundary**: the next full portable release containing the new updater is the first bootstrap bundle. Portable bundles at `v1.3.0` or earlier have neither a managed Git worktree nor bundled MinGit, so they require one final full-package download. Compatible code hotfixes can be applied incrementally after moving to the bootstrap bundle.
 
 ### Option 2: Install from Source (Recommended for macOS / Linux / Developers)
 
@@ -391,18 +394,32 @@ Access **https://127.0.0.1:5050 (recommended)** or **http://127.0.0.1:5050** �
 
 > 🩺 When reporting an issue, run in verbose mode: `./run_verbose.sh` / `run_verbose.bat`. It captures runtime info, command paths, PATH, and full exception traces into `sharp-gui-verbose.log`.
 
-### Update
+### Version and Updates
+
+Open **Application Update** at the bottom of **Settings** to see the current version, choose a channel, check, and install. The app restarts automatically and restores the previous version if verification fails.
+
+- **Stable (recommended)**: the highest formal `vX.Y.Z` tag in the repository.
+- **Latest**: the newest commit on `main`. It receives hotfixes sooner but is less tested than Stable.
+
+Portable bundles use their bundled Python and Git; clean source installations on `main` are supported too. Code updates preserve workspaces, models, configuration, and large Python/CUDA runtimes. If a target needs a different runtime, the app asks for a new complete bundle. Portable bundles at `v1.3.0` or earlier must first move to a complete bundle containing the new updater.
+
+Use Settings if you do not need the command line. The scripts provide equivalent operations:
 
 ```bash
-# Update to latest stable release
-./update.sh       # Linux/macOS
-update.bat        # Windows
-
-# Update to latest version (including pre-releases)
-./update.sh --pre
+# Linux / macOS
+./update.sh --channel stable --check
+./update.sh --channel stable
 ```
 
-> 💡 The update script auto-detects the latest Release and downloads it, preserving your models and output files.
+```bat
+:: Windows
+update.bat --channel stable --check
+update.bat --channel stable
+```
+
+Replace `stable` with `latest` to check or install Latest. Developers on another branch or with local code changes should keep using the normal Git workflow.
+
+Developer and maintainer details are available in the Chinese guide: [Self-update development rules](.agents/rules/self-update.md).
 
 ### Uninstall
 
@@ -732,7 +749,7 @@ The table below shows the permission boundaries for each role:
 - **Sensitive files stay private**: `/files/*` serves only `outputs/` models, legacy thumbnails, `model-assets/imports/` imported models, and `model-assets/thumbnails/` cover caches. `config.json` (session secret and access-code hash), `.model-asset-library/index.json`, `cert.pem`/`key.pem` (TLS private key), and `app.py` source **can never** be downloaded through that route, whether the gate is on or off.
 - **LAN bind toggle is real**: Settings > LAN Access Control lets you switch the listening bind. On listens on `0.0.0.0` (LAN sharing); off listens on `127.0.0.1` only (localhost-only, other devices cannot connect). A restart is required after changing it; `SHARP_BIND_HOST` can override.
 - **Debug mode off by default**: the server runs without the framework debugger, so errors never leak stack traces and no interactive debugger is exposed. Set `SHARP_DEBUG=1` only for local troubleshooting, never when sharing on a LAN or the internet.
-- **Reverse proxy caveat**: if you front the server with a local reverse proxy (nginx / frp, etc.), every request appears to come from `127.0.0.1`, so **every visitor is treated as owner**. To force the access code behind a proxy, disable localhost bypass (`allow_localhost_bypass`, requires an access code first) in Settings. The project never trusts spoofable forwarding headers such as `X-Forwarded-For`.
+- **Reverse proxy caveat**: this service is designed to run directly on the local machine and normally needs no reverse proxy. If you do front it with a local proxy (nginx / frp, etc.), every request appears to come from `127.0.0.1`, so **every visitor is treated as owner**. To force the access code behind a proxy, set an access code first, then manually change `access_control.allow_localhost_bypass` to `false` in `config.json` (there is no Settings toggle for it). **Note: disabling the localhost bypass also drops local owner status, so self-update (checking / installing updates) becomes unavailable**; update via the `update.bat` / `update.sh` command line or a fresh complete package instead. The project never trusts spoofable forwarding headers such as `X-Forwarded-For`.
 - **Public exposure warning**: this service is designed for LAN use. Before port-forwarding to the internet, enable the gate, set a strong access code, turn on HTTPS, and assess the risk yourself.
 
 ---
@@ -751,14 +768,17 @@ sharp-gui/
 │   ├── 📄 config.py          # config.json and access-control normalization
 │   ├── 📄 paths.py           # workspace/inputs/outputs/cache path context
 │   ├── 📁 security/          # LAN access gate, permission matrix, request hooks
-│   ├── 📁 services/          # Model asset/photo gallery, video reconstruction, task queue, export, static-file services
-│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/files/export/frontend
+│   ├── 📁 services/          # Model asset/photo gallery, video reconstruction, task queue, self-update, export, static-file services
+│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/updates/files/export/frontend
 ├── 📄 install.sh/bat         # One-click install scripts
 ├── 📄 run.sh/bat             # Startup scripts (supports --legacy flag)
 ├── 📄 run_verbose.sh/bat     # Verbose entry (writes sharp-gui-verbose.log)
 ├── 📄 build.sh/bat           # Frontend build scripts
 ├── 📄 update.sh/bat          # Auto-update scripts
+├── 📄 update-manifest.json   # Update protocol, portable runtime revision, and target compatibility contract
 ├── 📄 release.sh/bat         # Release packaging scripts
+├── 📁 .sharp-gui-update/     # Local update state, operation lock, and diagnostics (created at runtime)
+├── 📁 .sharp-gui-tools/      # Portable package tools, including verified MinGit
 ├── 📁 tools/                 # Utility scripts
 │   ├── 📄 generate_cert.py   # SSL certificate generator
 │   ├── 📄 download_model.py  # Model downloader
@@ -924,7 +944,9 @@ Since local deployment has **no content restrictions**, 3D models generated by t
 
 This project is open source under the MIT License.
 
-Note: ML-Sharp models have a separate [Model License](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL), for non-commercial use only.
+When portable bundles include MinGit or other third-party components, see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for their provenance, versions, and license locations.
+
+Note: the Sharp GUI code's MIT License does not cover the ML-Sharp models. Those models remain under Apple's separate [Model License](https://github.com/apple/ml-sharp/blob/main/LICENSE_MODEL), for non-commercial use only.
 
 ---
 

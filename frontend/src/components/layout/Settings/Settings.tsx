@@ -18,6 +18,7 @@ import {
     updateAuthSettings,
 } from '@/api';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { UpdateSettingsSection } from '@/components/layout/Settings/UpdateSettingsSection';
 import type {
     AuthStatusResponse,
     ModelFormat,
@@ -1256,6 +1257,8 @@ export const Settings: React.FC = () => {
                         ⚠️ {t('settingsRestartWarning') || '修改工作目录后需重启服务器生效'}
                     </p>
                 )}
+
+                <UpdateSettingsSection active={settingsModalOpen} isOwner={isLocalAccess} />
 
                 </div>
 

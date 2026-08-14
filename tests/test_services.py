@@ -43,6 +43,54 @@ from backend.services.task_queue import TaskManager
 from tests.conftest import write_config
 
 
+def test_video_command_version_retries_transient_portable_batch_failure(monkeypatch):
+    calls = []
+
+    class Result:
+        def __init__(self, returncode, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    results = iter((Result(15, stderr="transient"), Result(0, stdout="usage: ns-process-data")))
+    monkeypatch.setattr(video_reconstruction, "which", lambda _name: r"C:\portable\ns-process-data.cmd")
+    monkeypatch.setattr(
+        video_reconstruction.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or next(results),
+    )
+    monkeypatch.setattr(video_reconstruction.time, "sleep", lambda _seconds: None)
+
+    status = video_reconstruction.command_version("ns-process-data", ["--help"], timeout=30)
+
+    assert len(calls) == 2
+    assert status["available"] is True
+    assert status["version"] == "usage: ns-process-data"
+    assert status["message"] is None
+
+
+def test_video_command_version_does_not_retry_native_failure(monkeypatch):
+    calls = []
+
+    class Result:
+        returncode = 2
+        stdout = ""
+        stderr = "native failure"
+
+    monkeypatch.setattr(video_reconstruction, "which", lambda _name: r"C:\portable\colmap.exe")
+    monkeypatch.setattr(
+        video_reconstruction.subprocess,
+        "run",
+        lambda *args, **kwargs: calls.append((args, kwargs)) or Result(),
+    )
+
+    status = video_reconstruction.command_version("colmap", ["-h"], timeout=10)
+
+    assert len(calls) == 1
+    assert status["available"] is False
+    assert status["message"] == "colmap returned 2"
+
+
 def _make_cover_bytes(image_format="PNG", color=(255, 0, 0)):
     buffer = BytesIO()
     Image.new("RGB", (8, 8), color).save(buffer, format=image_format)

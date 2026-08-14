@@ -34,6 +34,7 @@ Sharp GUI 是一个 **3D 高斯溅射 (Gaussian Splatting) 图形化界面**，�
 | [.agents/rules/code-style.md](.agents/rules/code-style.md) | 命名规范、导入排序、格式化约定 |
 | [.agents/rules/frontend-guide.md](.agents/rules/frontend-guide.md) | 前端开发规范：组件、状态管理、API、Hooks、类型系统 |
 | [.agents/rules/backend-guide.md](.agents/rules/backend-guide.md) | 后端开发规范：Flask 路由、任务队列、文件处理 |
+| [.agents/rules/self-update.md](.agents/rules/self-update.md) | 自更新开发规范：兼容清单、事务、CI、便携包与发布边界 |
 | [.agents/rules/i18n-guide.md](.agents/rules/i18n-guide.md) | 国际化规范：双语维护、key 命名、使用方式 |
 | [.agents/rules/styling-guide.md](.agents/rules/styling-guide.md) | 样式规范：CSS Modules、设计系统 Token、Apple 设计语言 |
 | [.agents/rules/testing.md](.agents/rules/testing.md) | 测试规范：框架选型、文件命名、覆盖目标 |

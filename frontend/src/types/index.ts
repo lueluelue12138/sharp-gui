@@ -7,3 +7,4 @@ export * from './viewerQuickControls';
 export * from './photoGallery';
 export * from './auth';
 export * from './videoReconstruction';
+export * from './update';

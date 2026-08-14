@@ -93,6 +93,28 @@ def restart_process_later():
     threading.Thread(target=do_restart, daemon=True).start()
 
 
+def stop_process_for_update_later():
+    """Stop the serving process after the detached updater has been spawned.
+
+    A supervised Windows child exits normally so the old supervisor also
+    finishes; the updater starts a fresh ``app.py`` only after the checkout is
+    verified.  This avoids a supervisor restart racing the Git transaction.
+
+    ``os._exit`` skips ``atexit`` and the ``run_server`` cleanup block, so the
+    updated instance can only acquire the workspace lock because
+    ``WorkspaceInstanceLock`` uses an OS advisory lock (``flock`` /
+    ``msvcrt.locking``) that the kernel releases when the process dies.  A
+    future switch to a PID or marker file lock would silently break every
+    self-update restart and must stop the process gracefully instead.
+    """
+    def do_stop():
+        time.sleep(1)
+        print("Stopping server for application update...", flush=True)
+        os._exit(0)
+
+    threading.Thread(target=do_stop, daemon=True).start()
+
+
 def run_server(app):
     """Run the Flask service and explicitly start background workers."""
     runtime.configure_werkzeug_logging()
@@ -134,8 +156,8 @@ def run_server(app):
             print("   / HTTP mode: access code and session travel unencrypted; enable HTTPS for LAN sharing")
         if bind_host == "0.0.0.0":
             print(" * ⚠️ 若在本机前置反向代理（nginx/frp 等），所有请求会被判为 owner；")
-            print("   如需强制访问码，请在设置中关闭“本机免登录”(allow_localhost_bypass)")
-            print("   / Behind a local reverse proxy every client is treated as owner; disable localhost bypass to force the access code")
+            print("   如需强制访问码，请先设访问码，再手动将 config.json 的 allow_localhost_bypass 改为 false（会同时禁用自更新）")
+            print("   / Behind a local reverse proxy every client is treated as owner; set an access code then set allow_localhost_bypass=false in config.json to force it (this also disables self-update)")
         print("Press CTRL+C to quit")
         runtime.print_runtime_diagnostics(protocol, local_ip)
 
