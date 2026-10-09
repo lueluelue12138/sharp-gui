@@ -22,6 +22,7 @@ import {
 } from '@/utils/viewerRevealEffects';
 import {
   composeViewerModelQuaternion,
+  getReconstructionCameraView,
   getViewerModelLoadKey,
   isViewerLoadCurrent,
 } from '@/utils/viewerRuntime';
@@ -45,6 +46,7 @@ const DEBUG_UPDATE_INTERVAL_MS = 250;
 
 type ViewerFramingMode =
   | 'default'
+  | 'reconstruction-camera'
   | 'bounds-centered'
   | 'bounds-default'
   | 'bounds-unavailable';
@@ -469,6 +471,15 @@ export const useViewer = (
     let targetPos = new THREE.Vector3(...DEFAULT_CAMERA_CONFIG.initialPosition);
     const targetLookAt = new THREE.Vector3(0, 0, 0);
     const targetUp = new THREE.Vector3(...DEFAULT_CAMERA_CONFIG.cameraUp);
+    activeCtx.splatMesh?.updateMatrixWorld(true);
+    const reconstructionView = activeCtx.splatMesh && !activeCtx.renderer.xr.isPresenting
+      ? getReconstructionCameraView(
+        useAppStore.getState().currentModelDescriptor?.viewerCamera,
+        activeCtx.splatMesh.matrixWorld,
+        activeCtx.camera.aspect,
+      ) : null;
+    activeCtx.camera.fov = reconstructionView?.fov ?? DEFAULT_CAMERA_CONFIG.fov;
+    activeCtx.camera.updateProjectionMatrix();
 
     // Dynamic intersection point algorithm: Calculate where the front face of the bounding box starts
     // and push the focus point inward proportionally (a quadratic curve modeled from sample data)
@@ -477,7 +488,7 @@ export const useViewer = (
     activeCtx.lastFramingMode = 'default';
 
     if (
-      activeCtx.splatMesh &&
+      !reconstructionView && activeCtx.splatMesh &&
       !activeCtx.renderer.xr.isPresenting
     ) {
       activeCtx.lastFramingMode = 'bounds-unavailable';
@@ -518,10 +529,32 @@ export const useViewer = (
       activeCtx.lastFramingMode = 'bounds-centered';
     }
 
+    if (reconstructionView) {
+      targetPos = reconstructionView.position;
+      targetLookAt.copy(reconstructionView.target);
+      targetUp.copy(reconstructionView.up);
+      activeCtx.lastFramingMode = 'reconstruction-camera';
+    }
+
     const startPos = c.object.position.clone();
     const startLookAt = c.target.clone();
     const startUp = c.object.up.clone();
     applyControlLimits(c, useAppStore.getState().isLimitsOn);
+    const distance = targetPos.distanceTo(targetLookAt);
+    c.minDistance = reconstructionView ? Math.min(DEFAULT_CAMERA_CONFIG.minDistance, distance * 0.05)
+      : DEFAULT_CAMERA_CONFIG.minDistance;
+    c.maxDistance = reconstructionView ? Math.max(DEFAULT_CAMERA_CONFIG.maxDistance, distance * 10)
+      : DEFAULT_CAMERA_CONFIG.maxDistance;
+    if (reconstructionView) {
+      // Keep front-view limits from clamping away the registered starting viewpoint.
+      const offset = targetPos.clone().sub(targetLookAt);
+      const azimuth = Math.atan2(offset.x, offset.z);
+      const polar = Math.acos(clamp(offset.y / distance, -1, 1));
+      c.minAzimuthAngle = Math.min(c.minAzimuthAngle, azimuth - 0.01);
+      c.maxAzimuthAngle = Math.max(c.maxAzimuthAngle, azimuth + 0.01);
+      c.minPolarAngle = Math.min(c.minPolarAngle, polar - 0.01);
+      c.maxPolarAngle = Math.max(c.maxPolarAngle, polar + 0.01);
+    }
 
     const startTime = performance.now();
     const duration = DEFAULT_CAMERA_CONFIG.resetAnimationDuration;
@@ -778,6 +811,14 @@ export const useViewer = (
         const h = container.clientHeight;
         if (w === 0 || h === 0) return;
         ctx.camera.aspect = w / h;
+        if (ctx.lastFramingMode === 'reconstruction-camera' && ctx.splatMesh) {
+          const view = getReconstructionCameraView(
+            useAppStore.getState().currentModelDescriptor?.viewerCamera,
+            ctx.splatMesh.matrixWorld,
+            ctx.camera.aspect,
+          );
+          if (view) ctx.camera.fov = view.fov;
+        }
         ctx.camera.updateProjectionMatrix();
         ctx.renderer.setSize(w, h);
       });

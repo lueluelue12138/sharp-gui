@@ -680,6 +680,53 @@ exit /b %ERRORLEVEL%
     Write-AsciiFile -Path (Join-Path $VideoEnvDir "Scripts\colmap.cmd") -Content $wrapper
 }
 
+function Get-VerifiedBrushRuntime {
+    param(
+        [string]$PythonExe,
+        [string]$Root
+    )
+
+    $code = @'
+import json
+import sys
+from pathlib import Path
+
+root = Path(sys.argv[1]).resolve()
+sys.path.insert(0, str(root))
+from backend.services.brush_engine import BRUSH_INSTALL_RELATIVE_PATH, BRUSH_VERSION
+from tools.install_brush import _installed_matches, resolve_release, verify_brush_cli
+
+destination = root / BRUSH_INSTALL_RELATIVE_PATH
+release = resolve_release()
+if not _installed_matches(destination, release):
+    raise RuntimeError('Pinned Brush installation is missing or invalid; run python tools/install_brush.py')
+binary = destination / release['binary']
+verify_brush_cli(binary)
+receipt = json.loads((destination / 'INSTALLATION.json').read_text(encoding='utf-8'))
+print(json.dumps({
+    'directory': str(destination),
+    'relativeDirectory': BRUSH_INSTALL_RELATIVE_PATH.as_posix(),
+    'executable': (BRUSH_INSTALL_RELATIVE_PATH / release['binary']).as_posix(),
+    'version': BRUSH_VERSION,
+    'sourceCommit': receipt['sourceCommit'],
+    'sourceUrl': receipt['sourceUrl'],
+    'archiveSha256': receipt['archiveSha256'],
+    'binarySha256': receipt['binarySha256'],
+}))
+'@
+    $temp = [System.IO.Path]::GetTempFileName()
+    try {
+        Set-Content -LiteralPath $temp -Encoding UTF8 -Value $code
+        $result = & $PythonExe $temp $Root
+        if ($LASTEXITCODE -ne 0) {
+            Fail "固定 Brush CLI 校验失败；请先运行 python tools\install_brush.py。"
+        }
+        return ($result | ConvertFrom-Json)
+    } finally {
+        Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
+    }
+}
+
 function Test-VideoReconstructionRuntime {
     param([string]$PackageRoot)
 
@@ -970,6 +1017,7 @@ if ($supportedTargetMatch.Count -eq 0) {
 }
 $videoReconEnvDir = Join-Path $root ".video-reconstruction-env"
 $ffmpegBinDir = $null
+$brushRuntime = $null
 if ($includeVideoReconstruction) {
     if (-not ([string]$torchInfo.cuda).StartsWith("12.8")) {
         Fail "cu128-rtx50-video-recon 需要主 venv 使用 CUDA 12.8 PyTorch，当前为 CUDA $($torchInfo.cuda)。"
@@ -981,6 +1029,7 @@ if ($includeVideoReconstruction) {
         Fail "未找到视频重建 COLMAP: $(Join-Path $videoReconEnvDir "colmap\bin\colmap.exe")"
     }
     $ffmpegBinDir = Resolve-FfmpegBinDir
+    $brushRuntime = Get-VerifiedBrushRuntime -PythonExe $venvPython -Root $root
 }
 
 $modelPath = $null
@@ -1024,6 +1073,8 @@ Write-Info "MinGit executable: $($script:MinGitExecutableRelativePath)"
 if ($includeVideoReconstruction) {
     Write-Info "视频重建环境: $videoReconEnvDir"
     Write-Info "ffmpeg 工具目录: $ffmpegBinDir"
+    Write-Info "Brush CLI: $($brushRuntime.version) / $($brushRuntime.executable)"
+    Write-Info "Brush binary SHA256: $($brushRuntime.binarySha256)"
 }
 if ($modelPath) {
     $modelSizeGb = [math]::Round((Get-Item -LiteralPath $modelPath).Length / 1GB, 2)
@@ -1151,6 +1202,9 @@ if ($includeVideoReconstruction) {
 
     $ffmpegDest = Join-Path $packageRoot "tools\ffmpeg\bin"
     Invoke-Robocopy -Source $ffmpegBinDir -Destination $ffmpegDest
+
+    $brushDest = Join-Path $packageRoot $brushRuntime.relativeDirectory
+    Invoke-Robocopy -Source $brushRuntime.directory -Destination $brushDest
 }
 
 Write-Step "生成便携启动脚本"
@@ -1277,7 +1331,20 @@ if ($includeVideoReconstruction) {
         portableBin = ".video-reconstruction-env\\portable-bin"
         colmap = ".video-reconstruction-env\\colmap\\bin"
         ffmpeg = "tools\\ffmpeg\\bin"
-        commands = @("ns-process-data", "ns-train", "ns-export", "colmap", "ffmpeg", "ffprobe")
+        commands = @("brush_app", "ns-process-data", "ns-train", "ns-export", "colmap", "ffmpeg", "ffprobe")
+        brush = [ordered]@{
+            version = $brushRuntime.version
+            sourceCommit = $brushRuntime.sourceCommit
+            sourceUrl = $brushRuntime.sourceUrl
+            archiveSha256 = $brushRuntime.archiveSha256
+            binarySha256 = $brushRuntime.binarySha256
+            executable = $brushRuntime.executable
+            installation = "$($brushRuntime.relativeDirectory)/INSTALLATION.json"
+            license = "$($brushRuntime.relativeDirectory)/LICENSE.txt"
+            notices = "$($brushRuntime.relativeDirectory)/THIRD_PARTY_NOTICES.txt"
+            upstreamRelease = "$($brushRuntime.relativeDirectory)/upstream-release"
+            completeLicenseInventoryPreserved = $true
+        }
     }
 } else {
     $videoMetadata = [ordered]@{
@@ -1326,7 +1393,7 @@ $packageInfo = [ordered]@{
         "包内使用本地 TORCH_HOME，模型文件放在 .cache\\torch\\hub\\checkpoints。",
         "本包包含固定校验的 MinGit，可在运行时兼容 revision 不变时接收 Stable 或 Latest 代码更新。",
         "Python/CUDA/视频重建运行时 revision 变化时必须下载新的完整便携包。",
-        $(if ($includeVideoReconstruction) { "本包包含 RTX 50 / CUDA 12.8 视频重建运行时。" } else { "本包不包含视频重建完整运行时。" })
+        $(if ($includeVideoReconstruction) { "本包包含固定 Brush CLI 和 RTX 50 / CUDA 12.8 Splatfacto 视频重建运行时。" } else { "本包不包含 Brush CLI 或视频重建完整运行时。" })
     )
 }
 $packageInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$packageRoot\portable-package.json" -Encoding UTF8
@@ -1334,6 +1401,8 @@ $packageInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$packageRoot\
 $videoReconNote = if ($includeVideoReconstruction) {
     @"
 - RTX 50 / CUDA 12.8 视频重建运行时
+  - `.sharp-gui-tools\brush\v$($brushRuntime.version)` 中的固定 Brush CLI，默认训练引擎
+  - Brush 的 INSTALLATION.json 来源与哈希、LICENSE.txt、THIRD_PARTY_NOTICES.txt 和完整 upstream-release 发行物
   - `.video-reconstruction-env` 中的 Nerfstudio / Splatfacto / gsplat
   - `.video-reconstruction-env\colmap\bin` 中的 COLMAP
   - `tools\ffmpeg\bin` 中的 ffmpeg / ffprobe
@@ -1403,6 +1472,10 @@ Test-ManagedPortablePackage `
     -CompatibilityInfo $compatibilityInfo
 
 if ($includeVideoReconstruction) {
+    $packagedBrushRuntime = Get-VerifiedBrushRuntime -PythonExe (Join-Path $packageRoot "python\python.exe") -Root $packageRoot
+    if ($packagedBrushRuntime.binarySha256 -ne $brushRuntime.binarySha256) {
+        Fail "包内 Brush CLI 与已验证源安装的 SHA256 不一致。"
+    }
     Test-VideoReconstructionRuntime -PackageRoot $packageRoot
 }
 

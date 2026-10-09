@@ -13,6 +13,7 @@ from backend.services.model_orientation import (
     VIEWER_ORIENTATION_Y_FRONT,
     normalize_source_media_type,
     normalize_viewer_orientation,
+    normalize_viewer_camera,
     resolve_viewer_orientation,
 )
 from backend.services.static_files import get_relative_files_path, is_real_path_inside
@@ -543,6 +544,7 @@ def build_gallery_item(
         ).isoformat(),
         "source_media_type": source_media_type,
         "viewer_orientation": viewer_orientation,
+        'viewer_camera': normalize_viewer_camera(metadata.get('viewer_camera')),
     }
 
     if source_media_type == "video":

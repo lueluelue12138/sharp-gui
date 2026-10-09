@@ -50,7 +50,7 @@ def get_default_access_control_config():
 def get_default_video_reconstruction_config():
     return {
         "default_quality": "high",
-        "default_engine": "auto",
+        "default_engine": "brush",
         "vram_budget": "12gb",
         "keep_intermediate_files": False,
     }
@@ -133,7 +133,7 @@ def normalize_video_reconstruction_config(current_config):
         default_quality = defaults["default_quality"]
 
     default_engine = raw.get("default_engine")
-    if default_engine not in {"auto", "stable"}:
+    if default_engine not in {"auto", "stable", "brush", "splatfacto"}:
         default_engine = defaults["default_engine"]
 
     vram_budget = raw.get("vram_budget")

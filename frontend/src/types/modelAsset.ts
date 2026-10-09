@@ -1,4 +1,4 @@
-import type { ViewerOrientationHint } from '@/types/modelPreview';
+import type { ViewerCameraHint, ViewerOrientationHint } from '@/types/modelPreview';
 
 export type ModelAssetFormat = 'ply' | 'spz' | 'splat' | 'rad';
 
@@ -32,6 +32,7 @@ export interface ModelAssetFile {
   primary?: boolean;
   source_media_type?: string | null;
   viewer_orientation?: ViewerOrientationHint | null;
+  viewer_camera?: ViewerCameraHint | null;
 }
 
 export interface ModelAsset {
@@ -60,6 +61,7 @@ export interface ModelAsset {
   is_imported?: boolean;
   source_media_type?: string | null;
   viewer_orientation?: ViewerOrientationHint | null;
+  viewer_camera?: ViewerCameraHint | null;
   source_media_id?: string | null;
   source_name?: string | null;
   source_video_url?: string | null;

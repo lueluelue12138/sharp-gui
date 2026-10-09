@@ -188,11 +188,11 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 - 模型资产导入文件存储在 `{workspace}/model-assets/imports/`，封面缓存存储在 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息存储在 `{workspace}/.model-asset-library/index.json`
 - 这些模型资产路径必须始终由当前 `PathContext.workspace_folder` 派生；Settings 切换工作目录后需要重启服务重建 `PathContext`，不得把模型资产索引或导入目录保存在项目根的全局位置
 - 本地媒体图库 catalog、每相册索引、照片缩略图、视频 poster 和批量下载临时 ZIP 存储在 `{workspace}/.photo-gallery-cache/`；浏览器不兼容音轨按播放进度实时转码，不落盘缓存，并采用小段快速预缓冲、有界速率补给和并发限制，兼顾首播/拖动体验与资源占用
-- 视频重建中间文件、Nerfstudio 数据、日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
+- 视频重建抽帧、COLMAP/Brush/Nerfstudio 数据和日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
 - 输出目录同时保留 `.ply` 原始模型和自动生成的 `.spz` 紧凑模型
-- 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、引擎和受控源视频引用；JSON 响应不得暴露 `source_video_path`
+- 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、实际引擎、受控源视频引用，以及资源参数、抽帧/注册统计、配准率和阶段耗时；中间目录清理后仍保留该摘要，JSON 响应不得暴露 `source_video_path`
 - 配置文件 `config.json` 位于项目根目录（`BASE_DIR`），不随 workspace 切换；证书、私钥、日志和依赖目录同样是项目根运行时/部署状态，不得通过 `/files/*` 暴露
-- `.sharp-gui-update/` 是项目根安装状态，只能保存原子更新阶段、最近检查的目标、操作锁与有界诊断；`.sharp-gui-tools/` 是便携包工具目录。两者都不随 workspace 切换，不得通过 `/files/*` 暴露，也不得被代码 checkout/失败恢复清理
+- `.sharp-gui-update/` 是项目根安装状态，只能保存原子更新阶段、最近检查的目标、操作锁与有界诊断；`.sharp-gui-tools/` 保存 MinGit 与固定 Brush CLI。两者都不随 workspace 切换，不得通过 `/files/*` 暴露，也不得被代码 checkout/失败恢复清理；Brush 由 `tools/install_brush.py` 安装至 `.sharp-gui-tools/brush/v0.3.0/`，保留二进制来源、哈希及完整许可资料
 - 本地媒体图库 API 只接受 photo/media/video id，不接受任意绝对路径；后端必须从索引反查原始文件并再次校验 root
 - 模型资产 API 只接受 asset id 与受支持扩展名，不接受前端传入的服务器绝对路径；导入、封面和下载路径必须从资产索引或受控目录反查并再次校验 root
 - 模型资产的受控根需要两级校验：先确认 `imports/`、`thumbnails/`、`outputs/` 等根的真实路径仍位于真实 workspace 内，再确认目标真实路径位于对应受控根内；根目录本身是 symlink、junction 或其它 reparse point 且指向 workspace 外时也必须安全失败
@@ -232,9 +232,9 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
   },
   "video_reconstruction": {
     "default_quality": "high",
-    "default_engine": "auto",
+    "default_engine": "brush",
     "vram_budget": "12gb",
-    "keep_intermediate": false
+    "keep_intermediate_files": false
   }
 }
 ```
@@ -256,19 +256,24 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 
 `access_control` 控制可选局域网门禁；缺省或 `enabled=false` 时读取资源保持旧的局域网开放行为，但 owner-only 端点仍必须限制真实 localhost。`lan_bind_enabled`（缺省 `true`）决定服务监听 `0.0.0.0`（局域网共享）还是 `127.0.0.1`（仅本机），修改后需重启生效。
 
-`video_reconstruction` 控制视频重建默认值；缺省时由 `normalize_video_reconstruction_config()` 补齐。当前已端到端验证的平台是 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB，默认 `high` 档应优先服务该硬件，不要把未验证平台写成已支持。
+`video_reconstruction` 控制视频重建默认值；缺省时由 `normalize_video_reconstruction_config()` 补齐为 `brush` / `high` / `12gb`。目标环境是 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB；合成数据用于验证链路，真实视频画质由用户试跑确认，不要把未验证平台写成已支持。
 
 ## 视频 3DGS 重建服务
 
-稳定路线位于 `backend/services/video_reconstruction.py`，路由位于 `backend/routes/video_reconstruction.py`。当前实现约定：
+流程位于 `backend/services/video_reconstruction.py`，Brush CLI 契约位于 `backend/services/brush_engine.py`，直接 COLMAP 抽帧/配准位于 `backend/services/video_geometry.py`，路由位于 `backend/routes/video_reconstruction.py`。默认使用 Brush，保留 Splatfacto 对照路线。当前实现约定：
 
 - `POST /api/video-reconstructions` 只接受本地相册 video id；后端必须通过相册索引反查路径并校验真实路径仍在相册 root 内。
 - `POST /api/video-reconstructions/upload` 只接受单个受支持视频文件，并保存到 `.video-reconstruction/uploads/` 这类受控工作区缓存。
 - 默认输出名使用源视频文件名 stem；只在冲突时追加唯一后缀，不自动追加质量、帧数或 cleanup 标记。
 - 依赖检测使用进程级缓存：`app_factory.create_app()` 调用后台 warmup；`/api/video-reconstructions/status?refresh=1` 可触发后台重扫；普通任务创建读取缓存，检测中时返回 `video_reconstruction_dependencies_checking`，不得同步阻塞页面。
+- 健康检查区分 `required`、`brush`、`splatfacto` 依赖组和 `brush_available` / `splatfacto_available`；缺少 `ns-train` 不得使可用 Brush 被判为不可用。明确选择 Brush 且缺失时返回 `video_reconstruction_brush_unavailable`，不静默替换为旧引擎；后端 `auto` 兼容回退必须记录实际引擎，`stable` 是 Splatfacto 别名。
+- `custom_options` 共享 `frame_count`、`max_num_iterations` 和 `matching_method`；Brush 的 `max_resolution` 为 640～3840 的长边上限且不放大小图，`downscale_factor` / `cache_images` 只适用于 Splatfacto。预设由后端按引擎和显存解析，不能将旧引擎无效参数传给 Brush。
+- Brush 在训练前检查 COLMAP 配准：至少 8 个注册帧、50% 配准率和非空稀疏点云；不完整时最多补密/扩大匹配一次，不达标以 `video_reconstruction_geometry_insufficient` 失败，50%～80% 保留警告。Splatfacto 也需要训练前最低配准门槛。
 - 子进程命令必须使用列表参数，不拼接 shell 字符串；日志默认只输出关键阶段、命令名、return code 和失败摘要，完整外部工具输出只在 `SHARP_LOG_LEVEL=DEBUG` 或 verbose 模式下显示。
 - OOM、缺依赖、非法选项、输出缺失、SPZ 失败、取消等错误应转换为稳定错误码，前端用 i18n 展示，不把原始堆栈作为主 UI 文案。
-- `auto` / `object` 模式默认尝试 focused cleanup；如果清理会删除过多几何，必须回退原始导出并记录原因；`environment` 模式不做主体裁剪。
+- `auto` / `environment` 模式不删点；只有显式 `object` 才尝试主体裁剪，并在任务目录保留原始 PLY。若清理会删除过多几何，必须回退原始导出并记录原因。
+- PLY → SPZ 必须保留源模型支持的球谐阶数，不能统一压成 SH0；转换失败保留可用 PLY 并报告警告。
+- 视频便携包包含固定 Brush CLI、安装凭据和许可树，与 MinGit 并存；核心包不包含 Brush。新增原生依赖使 `portableRuntimeRevision` 从 1 升为 2，实际发布前必须构建并验证新的完整包；源码修复与本机安装不能作为完整包发布证据。
 - 成功后调用现有模型图库逻辑生成视频封面缩略图、写 sidecar 元数据并刷新模型列表；源视频预览通过 `/api/gallery/<item_id>/source-video` 解析 sidecar，不能直接把绝对路径传给前端。
 
 ---

@@ -18,6 +18,14 @@ export type CurrentModelSource =
   | 'model-asset-imported'
   | 'temporary';
 
+export interface ViewerCameraHint {
+  position: [number, number, number];
+  target: [number, number, number];
+  up: [number, number, number];
+  fov_y_degrees: number;
+  aspect: number;
+}
+
 export interface CurrentModelDescriptor {
   id: string;
   url: string;
@@ -26,6 +34,7 @@ export interface CurrentModelDescriptor {
   source: CurrentModelSource;
   sourceMediaType: string | null;
   viewerOrientation: ViewerOrientationHint | null;
+  viewerCamera?: ViewerCameraHint | null;
 }
 
 export interface ViewerOrientationInput {

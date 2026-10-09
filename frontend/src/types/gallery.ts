@@ -1,4 +1,4 @@
-import type { ViewerOrientationHint } from '@/types/modelPreview';
+import type { ViewerCameraHint, ViewerOrientationHint } from '@/types/modelPreview';
 
 export type GalleryModelFormat = 'ply' | 'spz' | 'splat' | 'rad';
 
@@ -17,6 +17,7 @@ export interface GalleryItem {
   spz_size?: number | null;
   source_media_type?: 'video' | 'image' | string | null;
   viewer_orientation?: ViewerOrientationHint | null;
+  viewer_camera?: ViewerCameraHint | null;
   source_media_id?: string | null;
   source_name?: string | null;
   source_video_url?: string | null;

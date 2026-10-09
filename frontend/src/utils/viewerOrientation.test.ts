@@ -7,15 +7,51 @@ import { getNextModelReloadToken } from './modelPreviewState.js';
 import { resolveViewerOrientation } from './viewerOrientation.js';
 import {
   composeViewerModelQuaternion,
+  getReconstructionCameraView,
   getViewerModelLoadKey,
   isViewerLoadCurrent,
 } from './viewerRuntime.js';
 
 import type {
   CurrentModelDescriptor,
+  ViewerCameraHint,
   ViewerOrientationInput,
 } from '../types/modelPreview.js';
 import type { ModelAsset } from '../types/modelAsset.js';
+
+const cameraHint: ViewerCameraHint = {
+  position: [1, 2, 3], target: [1, 2, 6], up: [0, 1, 0],
+  fov_y_degrees: 50, aspect: 16 / 9,
+};
+
+describe('reconstruction camera framing', () => {
+  it('transforms the source camera with the model, preserving input data', () => {
+    const original = structuredClone(cameraHint);
+    const matrix = new THREE.Matrix4().compose(
+      new THREE.Vector3(4, 5, 6),
+      new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2),
+      new THREE.Vector3(2, 2, 2),
+    );
+    const view = getReconstructionCameraView(cameraHint, matrix, 16 / 9);
+    assert.ok(view);
+    assert.ok(view.position.distanceTo(new THREE.Vector3(6, -1, 10)) < 1e-9);
+    assert.ok(view.target.distanceTo(new THREE.Vector3(6, -7, 10)) < 1e-9);
+    assert.ok(view.up.distanceTo(new THREE.Vector3(0, 0, 1)) < 1e-9);
+    assert.ok(Math.abs(view.fov - 50) < 1e-9);
+    assert.deepEqual(cameraHint, original);
+  });
+
+  it('keeps horizontal coverage in a portrait panel and falls back for invalid hints', () => {
+    const matrix = new THREE.Matrix4();
+    const view = getReconstructionCameraView(cameraHint, matrix, 0.8);
+    assert.ok(view && view.fov > 50);
+    assert.equal(getReconstructionCameraView(null, matrix, 1), null);
+    assert.equal(getReconstructionCameraView({ ...cameraHint, target: cameraHint.position }, matrix, 1), null);
+    assert.equal(getReconstructionCameraView({ ...cameraHint, up: [0, 0, 1] }, matrix, 1), null);
+    assert.equal(getReconstructionCameraView({ ...cameraHint, aspect: NaN }, matrix, 1), null);
+    assert.equal(getReconstructionCameraView(cameraHint, matrix, 0), null);
+  });
+});
 
 describe('resolveViewerOrientation', () => {
   it('gives actionable explicit hints precedence over conflicting source metadata', () => {
@@ -143,9 +179,12 @@ describe('resolveViewerOrientation', () => {
       tags: [],
       source_media_type: 'video',
       viewer_orientation: 'y-front',
+      viewer_camera: cameraHint,
     };
     const plySource = resolveModelAssetSource(asset, 'ply');
     const spzSource = resolveModelAssetSource(asset, 'spz');
+    assert.deepEqual(plySource.viewerCamera, cameraHint);
+    assert.deepEqual(spzSource.viewerCamera, cameraHint);
 
     const plyDescriptor: CurrentModelDescriptor = {
       id: asset.id,
@@ -281,6 +320,9 @@ describe('viewer runtime isolation', () => {
       getViewerModelLoadKey(switchedModel),
     );
     assert.equal(getViewerModelLoadKey(null), null);
+    assert.notEqual(getViewerModelLoadKey(baseDescriptor), getViewerModelLoadKey({
+      ...baseDescriptor, viewerCamera: cameraHint,
+    }));
   });
 
   it('keeps a saved override stable through image to video to image switching', () => {

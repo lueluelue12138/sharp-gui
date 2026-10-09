@@ -32,11 +32,12 @@ const OVERVIEW_ITEMS = [
 ] as const;
 
 const SHOOTING_TIPS = ['path', 'overlap', 'light', 'blur', 'long'] as const;
-const PARAMETER_ITEMS = ['frames', 'iterations', 'downscale', 'matching', 'cache'] as const;
+const PARAMETER_ITEMS = ['frames', 'iterations', 'resolution', 'matching', 'cache'] as const;
 
 const DEPENDENCY_ITEMS = [
   { key: 'ffmpeg', Icon: Camera },
   { key: 'colmap', Icon: Route },
+  { key: 'brush', Icon: Layers3 },
   { key: 'nerfstudio', Icon: Layers3 },
   { key: 'gpu', Icon: Cpu },
   { key: 'storage', Icon: HardDrive },
@@ -70,15 +71,15 @@ export function VideoReconstructionGuide() {
           <div className={styles.factGrid}>
             <div>
               <span>{t('videoReconGuideFact.preview')}</span>
-              <strong>{t('videoReconQualityMeta.preview')}</strong>
+              <strong>{t('videoReconQualityMetaByEngine.brush.preview')}</strong>
             </div>
             <div>
               <span>{t('videoReconGuideFact.high')}</span>
-              <strong>{t('videoReconQualityMeta.high')}</strong>
+              <strong>{t('videoReconQualityMetaByEngine.brush.high')}</strong>
             </div>
             <div>
               <span>{t('videoReconGuideFact.extreme')}</span>
-              <strong>{t('videoReconQualityMeta.extreme')}</strong>
+              <strong>{t('videoReconQualityMetaByEngine.brush.extreme')}</strong>
             </div>
           </div>
         </section>

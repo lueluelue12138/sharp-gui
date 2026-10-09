@@ -24,13 +24,13 @@ Sharp GUI 采用 **前后端分离 + 双前端模式** 架构：
 │  ┌────────┴───────────────────────────────────┐  │
 │  │  TaskManager (queue.Queue + threading.Lock) │  │
 │  │  → image_sharp: sharp predict               │  │
-│  │  → video_3dgs: Nerfstudio/Splatfacto pipeline│  │
+│  │  → video_3dgs: COLMAP + Brush / Splatfacto  │  │
 │  └────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────┘
             │ subprocess
 ┌───────────┴───────────────────────────────────────┐
 │  AI / reconstruction engines                       │
-│  Apple ml-sharp；Nerfstudio/Splatfacto + COLMAP    │
+│  Apple ml-sharp；Brush；Splatfacto；COLMAP          │
 └───────────────────────────────────────────────────┘
 ```
 
@@ -67,7 +67,7 @@ sharp-gui/
 ├── update.sh / update.bat    # 自动更新脚本
 ├── update-manifest.json      # 受版本控制的更新协议/运行时兼容契约
 ├── .sharp-gui-update/        # 安装级更新状态、缓存、锁与有界诊断（忽略提交）
-├── .sharp-gui-tools/         # 便携包内置工具，含校验过的 MinGit（忽略提交）
+├── .sharp-gui-tools/         # 固定 MinGit / Brush CLI 与来源、许可（忽略提交）
 │
 ├── frontend/                 # React 前端
 │   ├── src/
@@ -127,7 +127,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `{workspace}/inputs/` | 上传图片、照片转 3D 队列输入副本 | 原始相册媒体不会直接搬进来，只有提交生成时复制 |
 | `{workspace}/inputs/.thumbnails/` | 历史/模型缩略图缓存 | 属于 `/files/*` 允许服务根之一 |
 | `{workspace}/outputs/` | 生成模型文件 | 当前主要包含 `.ply`、自动转换的 `.spz` 和同名 sidecar |
-| `{workspace}/outputs/*.meta.json` | 生成模型来源元数据 | 记录视频来源、质量、引擎、受控源引用；响应不得暴露绝对磁盘路径 |
+| `{workspace}/outputs/*.meta.json` | 生成模型来源元数据与重建摘要 | 记录视频来源、质量、实际引擎、受控源引用，以及资源参数、配准率和阶段耗时；响应不得暴露绝对磁盘路径 |
 | `{workspace}/model-assets/imports/` | 导入的模型资产文件 | 只保存白名单格式，属于 `/files/*` 允许服务根之一 |
 | `{workspace}/model-assets/thumbnails/` | 模型资产封面缓存 | 属于 `/files/*` 允许服务根之一 |
 | `{workspace}/.model-asset-library/index.json` | 模型资产稳定身份、导入文件映射、标签、备注、封面和用户编辑信息 | 持久化状态文件而非可随意清理的缓存；不得加入静态服务白名单 |
@@ -151,11 +151,11 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `cert.pem` / `key.pem` | 本地 HTTPS 证书与私钥 | 私钥敏感，不得服务、提交或打包进共享示例 |
 | `sharp-gui-verbose.log` / `*.log` | 本地诊断日志 | 可能包含路径和错误上下文，默认忽略 |
 | `venv/` | 主程序 Python 虚拟环境 | 依赖目录，不是用户 workspace 状态 |
-| `.video-reconstruction-env/` | 视频重建独立 Python 环境 | 可复用或重建，不跟 workspace 切换 |
+| `.video-reconstruction-env/` | Splatfacto 独立 Python 环境及可复用 COLMAP | Brush 不依赖其中的 Nerfstudio；不跟 workspace 切换 |
 | `ml-sharp/` | Apple ML-Sharp 引擎目录 | 上游依赖目录，不要修改内部文件 |
 | `update-manifest.json` | 更新协议、portable runtime revision、默认分支、最低 Git 与受支持包目标 | **受 Git 跟踪**；每个可更新目标必须包含，不得加入 `.gitignore` |
 | `.sharp-gui-update/` | 原子 `state.json`、最近检查目标、操作锁和有界诊断 | 安装级状态；不随 workspace 切换，代码更新/失败恢复期间保留，空闲时删除会丢失检查与操作记录 |
-| `.sharp-gui-tools/` | 完整便携包内置的 MinGit 等更新工具 | 由便携包构建器拥有；代码更新/失败恢复不得替换或删除，不修改系统 PATH |
+| `.sharp-gui-tools/` | 固定 MinGit 与 `.sharp-gui-tools/brush/v0.3.0/` 的 Brush CLI | 工具安装器与便携包构建器拥有；保留来源、哈希和许可；代码更新/失败恢复不得替换或删除，不修改系统 PATH |
 | `.portable-build/`、`.portable-smoke/`、`.portable-venvs/`、`portable-dist/` | 本地便携包构建缓存和产物 | 构建输出，不属于源码 |
 
 维护要求：
@@ -167,8 +167,8 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - Settings 切换到不同 workspace 前必须先尝试取得并释放目标工作区锁；目标已被其他实例占用时返回 409，且不得先修改 `config.json`。
 - 目标工作区锁预检只用于保存前尽早反馈，不代表锁所有权已转移；重启后的新进程仍必须正式获取目标锁，获取失败时安全退出且不得开始清理或写入运行时数据。
 - 图片与视频残留清理只能在 `TaskManager` 成功取得当前 workspace 的独占锁后执行；`create_app()`、模块导入及锁获取失败路径不得提前清理运行时文件。
-- `.sharp-gui-update/` 与 `.sharp-gui-tools/` 不是 workspace 数据，不得由 `PathContext` 派生，也不得加入 `/files/*` 静态服务根；只有更新管理器、外部 updater 或便携包构建器可以写入。诊断状态不得保存凭据、任意命令或面向 API 暴露绝对路径。
-- 便携包 staging 不得复制构建机残留的 `.sharp-gui-update/`；应创建干净基线并保留 `.sharp-gui-tools/` 的完整 MinGit 发行物和许可树。卸载/完整换包可以移除这些目录，普通代码更新和自动回滚不可以。
+- `.sharp-gui-update/` 与 `.sharp-gui-tools/` 不是 workspace 数据，不得由 `PathContext` 派生，也不得加入 `/files/*` 静态服务根；更新管理器、外部 updater、便携包构建器可维护相应目录，`tools/install_brush.py` 只维护固定 Brush 依赖目录。诊断状态不得保存凭据、任意命令或面向 API 暴露绝对路径。
+- 便携包 staging 不得复制构建机残留的 `.sharp-gui-update/`；应创建干净基线并保留完整 MinGit 发行物和许可树。视频包还必须验证并复制固定 Brush 目录、`INSTALLATION.json`、Apache-2.0 许可、第三方声明和完整 `upstream-release/`；核心包不复制 Brush。卸载/完整换包可以移除依赖目录，普通代码更新和自动回滚不可以。
 
 ## 自更新兼容清单纪律
 
@@ -177,7 +177,8 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - `version.txt` 只表示正式 Release 基线；安装身份还必须包含精确 Git SHA，Latest 可显示为 `vX.Y.Z + N commits (abcdefg)`。
 - `update-manifest.json` 是代码更新许可的显式契约。任何进入 `main` 且可能成为 Latest 的提交，都必须包含可识别清单与已构建的 `frontend/dist/`，并保持 `defaultBranch`、`minimumGitVersion` 和 `supportedPortableTargets` 与实际发行物一致。
 - 改动更新状态格式、目标解析或事务协议且旧 updater 无法安全处理时，必须递增 `updateProtocolRevision`，并提供相应迁移或完整包边界。
-- 只要代码需要不同的嵌入式 Python、PyTorch/CUDA、视频重建环境、COLMAP/ffmpeg 或其它不可由代码 checkout 安全替换的便携运行时，就必须在**同一个提交**递增 `portableRuntimeRevision`。不得仅凭 changed-files 推断兼容。
+- 只要代码需要不同的嵌入式 Python、PyTorch/CUDA、视频重建环境、Brush CLI、COLMAP/ffmpeg 或其它不可由代码 checkout 安全替换的便携运行时，就必须在**同一个提交**递增 `portableRuntimeRevision`。不得仅凭 changed-files 推断兼容。
+- 引入固定 Brush CLI 将 `portableRuntimeRevision` 从 1 递增为 2；本机修复阶段不等于发布完成。发布此运行时变更前必须构建并验证新的完整便携包，旧包不能通过代码更新补齐依赖。
 - installed/target `portableRuntimeRevision` 不一致、清单缺失/非法或目标缺少已构建前端时，代码更新必须在 checkout 前拒绝并要求完整便携包；严禁静默修改大型运行时来绕过 revision gate。
 - Stable 只指受信任仓库中版本号最高的正式 `vX.Y.Z` 标签；Latest 只指该仓库 `main` 的精确提交。两者都只能应用后端最近解析并验证过的目标 SHA。
 
@@ -209,8 +210,9 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | plyfile | PLY 文件解析 |
 | ml-sharp (sharp CLI) | AI 推理引擎 |
 | ffmpeg / ffprobe | 视频重建抽帧、元数据、poster 和源视频缩略图 |
-| Nerfstudio / Splatfacto / gsplat | 视频 3DGS 稳定重建路线 |
-| COLMAP | Nerfstudio 视频数据处理中的位姿/稀疏几何估计 |
+| Brush CLI v0.3.0 | 默认视频 3DGS 训练引擎；固定官方二进制与哈希，由 `tools/install_brush.py` 安装 |
+| Nerfstudio / Splatfacto / gsplat | 可切换的旧视频重建路线，用于对照 |
+| COLMAP | 两种视频路线的相机位姿与稀疏几何估计 |
 | pytest | 后端开发/重构验证（仅开发依赖，见 `requirements-dev.txt`） |
 
 ## 环境变量
@@ -226,6 +228,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `SHARP_BIND_HOST` | 跟随门禁设置 | 覆盖监听地址；不设时由 `lan_bind_enabled` 决定（开 `0.0.0.0` / 关 `127.0.0.1`） |
 | `SHARP_LAN_IP` | 自动检测 | 局域网访问 IP |
 | `SHARP_DEVICE` | 自动选择 | 推理设备：`cpu` / `cuda` / `mps` |
+| `SHARP_BRUSH_EXECUTABLE` | 固定安装目录优先 | 源码安装可显式指定 Brush CLI；便携包构建只接受固定版本目录和有效安装凭据 |
 | `PYTHONHTTPSVERIFY` | `0`（安装时） | 绕过 SSL 验证（企业/学校网络） |
 
 > `SHARP_DEBUG` 同时控制调试器、堆栈泄露与源码热重载（三者都需要 reloader 关闭才能让 `/api/restart` 正确重新绑定监听地址，详见 backend-guide）。默认全部关闭；`SHARP_DEBUG=1` 时全部开启，仅本机排障使用。
@@ -264,7 +267,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - 近期模型侧栏是资产库的辅助入口：可独立滚动增量查询，同时保持“近期模型/查看全部”和底部“储存占用”区域固定；按钮样式复用现有 hover/focus 图标按钮，不做共享胶囊背景。
 - 视频重建生成的模型也写入 `outputs/`，并额外写入同名 `.meta.json` 记录来源视频、模式、质量、引擎和受控源视频引用；前端不得看到绝对磁盘路径。
 - 视频生成模型应复用现有模型图库：缩略图优先使用源视频封面帧；hover 操作中可提供原视频预览入口；删除拖入视频生成的模型时可清理受控上传缓存，但不得删除本地相册原视频。
-- 视频 3DGS 重建稳定路线已在 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB 验证；其他平台或显卡需要单独验证后再写入已支持矩阵。
+- 视频重建目标环境为 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB；Brush 集成使用合成数据验证链路，真实视频画质由用户试跑确认，其他平台或显卡需单独验证后再写入支持矩阵。
 - 图库响应包含原图 URL、缩略图 URL、PLY/SPZ 大小与版本戳；缺失缩略图会在请求时限量修复。
 - React 图库使用虚拟滚动和缩略图加载状态，避免大量模型时滚动卡顿。
 - 本地媒体图库通过 `photo_gallery_roots_by_workspace` 配置多个目录，并**按工作目录分桶记忆**（键为归一化后的工作目录路径）；每个目录作为一个相册展示，图片缩略图或视频 poster 可作为封面。切换工作目录时只展示对应桶的相册，切回原目录即可恢复，与模型列表绑定 `{workspace}/outputs` 的行为一致；旧的顶层 `photo_gallery_roots` 会在启动或切换工作目录前自动迁移到对应桶。
@@ -281,23 +284,28 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 
 ## 视频 3DGS 重建
 
-当前稳定路线：
+默认 Brush 路线：
 
 ```
 本地相册视频 / 拖入视频
   → ffprobe/ffmpeg 元数据与抽帧
-  → ns-process-data video / COLMAP 位姿估计
-  → ns-train splatfacto 高斯优化
-  → ns-export gaussian-splat 导出 PLY
-  → focused cleanup（auto/object）
-  → 现有 ply_to_spz 压缩
-  → outputs/ + 模型图库 + Spark Viewer
+  → COLMAP 位姿估计与配准率检查
+  → Brush CLI 高斯优化与 PLY 导出
+  → 可选主体裁剪（仅显式 object）
+  → 保留球谐系数的 ply_to_spz 压缩
+  → outputs/ + 重建诊断 sidecar + 模型图库 + Spark Viewer
 ```
+
+`splatfacto` 保留 `ns-process-data` / `ns-train splatfacto` / `ns-export` 路线。当前只接入视频，不提供多图片任务入口。固定 Brush 安装目录为 `.sharp-gui-tools/brush/v0.3.0/`，旧安装缺少该目录时必须显示缺依赖；显式选择 Brush 不静默切换引擎。
 
 开发约束：
 
 - 默认输出名使用源视频同名 stem；只有冲突时追加 `-2`、`-3` 等唯一后缀，不把质量档、帧数或 cleanup 作为用户可见后缀。
-- `auto` / `object` 模式默认应用 focused cleanup；`environment` 模式保留完整场景。
+- `auto` / `environment` 模式保留原始导出几何；只有显式 `object` 才进行主体裁剪，并保留任务中的原始 PLY。
+- 默认引擎为 `brush`，前端提供 `brush` / `splatfacto`。后端兼容旧 `auto`（优先 Brush，缺失时可用 Splatfacto 并记录实际引擎）及 `stable`（Splatfacto 别名）。
+- Brush 的训练分辨率表示长边上限，不放大小图；依显存约束选档，不得再用隐含二次下采样降低实际训练像素。
+- 相机配准至少需要 8 帧、50% 配准率和非空稀疏点云；Brush 配准不完整时最多补密一次，仍不达标必须在训练前失败，50%～80% 应保留明确警告。
+- 重建摘要保存在输出 sidecar，记录资源参数、抽帧/注册帧数、配准率、阶段耗时和实际引擎；即使中间 jobs 被清理仍能用于诊断。
 - 依赖检测使用进程级异步缓存：后端启动后后台预热一次，Settings 可用 `refresh=1` 手动重扫；首页、模型页、普通弹窗和任务创建不得同步重复扫描外部工具。
 - Viewer 对视频重建模型的坐标适配应优先保持 camera/OrbitControls 的干净默认状态；当前策略是在模型侧隐藏预乘 orientation 修正视频形态 Y-front 模型，避免相机落入极点导致拖拽 roll。旧 ml-sharp 单图模型不得被该适配改变预览手感。
 - Quick Controls 中的相机/模型调试读数可保留，便于后续排查新模型的坐标系、包围盒和交互问题。

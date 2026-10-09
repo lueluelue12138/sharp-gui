@@ -50,6 +50,7 @@ function getOrientationReasonLabelKey(
 }
 
 function getFramingModeLabelKey(mode: ViewerDebugInfo['framingMode']): string {
+  if (mode === 'reconstruction-camera') return 'quickControlsDebugFramingModeReconstructionCamera';
   if (mode === 'bounds-centered') return 'quickControlsDebugFramingModeBoundsCentered';
   if (mode === 'bounds-default') return 'quickControlsDebugFramingModeBoundsDefault';
   if (mode === 'bounds-unavailable') return 'quickControlsDebugFramingModeBoundsUnavailable';

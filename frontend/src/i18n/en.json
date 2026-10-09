@@ -3,15 +3,12 @@
   "gallery": "Gallery",
   "generateNew": "Generate New",
   "processingQueue": "Processing Queue",
-
   "emptyStateTitle": "Select a model, or drop images/videos to generate",
   "emptyStateHint": "Drop .ply / .splat / .spz / .rad files to preview; drop images or one video to generate a 3D model",
   "dragToSidebarHint": "Drag images or videos to the sidebar to generate",
-
   "loading": "Loading...",
   "loadingModel": "Loading Model...",
   "loadingScene": "Loading Scene...",
-
   "controls_view_front": "Front View",
   "controls_view_free": "Free View",
   "controls_gyro": "Gyro",
@@ -24,7 +21,6 @@
   "controls_ar": "AR View",
   "controls_exit_ar": "Exit AR",
   "controls_help": "Help",
-
   "quickControlsOpen": "Quick Controls",
   "quickControlsClose": "Close Quick Controls",
   "quickControlsOpenAria": "Open quick controls panel",
@@ -69,6 +65,7 @@
   "quickControlsDebugOrientationReasonLegacyVideo": "Legacy video recovery",
   "quickControlsDebugOrientationReasonUnknownFallback": "Unknown fallback",
   "quickControlsDebugFramingMode": "Framing",
+  "quickControlsDebugFramingModeReconstructionCamera": "Reconstruction camera",
   "quickControlsDebugFramingModeDefault": "Default",
   "quickControlsDebugFramingModeBoundsCentered": "Bounds centered",
   "quickControlsDebugFramingModeBoundsDefault": "Bounds offset",
@@ -91,7 +88,6 @@
   "quickControlsDebugBoundsCenter": "Bounds Center",
   "quickControlsDebugBoundsSize": "Bounds Size",
   "quickControlsDebugTargetDelta": "Target Delta",
-
   "revealEffectsTitle": "Reveal Effects",
   "revealEffectsOpenAria": "Open reveal effects panel. Current effect: {{effect}}",
   "revealEffectsSelectAria": "Switch reveal effect to {{effect}}",
@@ -105,7 +101,6 @@
   "revealEffectsUnroll": "Unroll",
   "revealEffectsTwister": "Twister",
   "revealEffectsRain": "Rain",
-
   "helpTitle": "Controls Guide",
   "helpCatGeneral": "General",
   "helpCatDesktop": "Desktop / Keyboard",
@@ -142,14 +137,12 @@
   "helpVRResetDesc": "Press A/X button on controller to reset position",
   "helpResetKey": "R Key",
   "helpResetKeyDesc": "Reset camera to initial position",
-
   "zoomTooltip": "Hold Shift + Scroll for Precision Zoom",
   "gyroHint": "Tilt to explore",
   "gyroNotSupported": "Your device does not support gyroscope",
   "selectModelFirst": "Please select a 3D model first",
   "fastMode": "Fast Mode",
   "precisionMode": "Precision Mode",
-
   "viewOriginal": "View Original",
   "viewOriginalVideo": "Preview Original Video",
   "download": "Download Model",
@@ -163,12 +156,10 @@
   "confirmDeleteFull": "Are you sure you want to delete this item?",
   "deleteFailed": "Delete failed",
   "errorDeleting": "Error deleting item",
-
   "queueWaiting": "Waiting...",
   "queueProcessing": "Processing...",
   "queueCompleted": "Completed",
   "queueFailed": "Failed",
-
   "settings": "Settings",
   "updateCenterSectionLabel": "Application Update",
   "updateCenterTitle": "Update Center",
@@ -348,10 +339,8 @@
   "lanBindRestarting": "Restarting server to apply settings...",
   "serverRestartFailed": "Automatic server restart did not complete. Please try saving again or restart the server manually.",
   "accessGateHttpWarning": "This connection is not encrypted (HTTP). Your access code and session are sent in plain text over the network. Enable HTTPS for LAN sharing when possible.",
-
   "errorOccurred": "Something went wrong",
   "showDetails": "Show Details",
-
   "preparingExport": "Preparing export...",
   "convertingModel": "Converting model format...",
   "optimizingData": "Optimizing data...",
@@ -360,22 +349,18 @@
   "exportFailed": "Export failed",
   "exportDoneHint": "Export complete\nFormat: {{format}}\nModel data: {{modelSize}}\nHTML file: {{htmlSize}}",
   "unknownSize": "Unknown",
-
   "selectImageFiles": "Please select image files.",
   "uploadFailed": "Upload Failed",
   "uploadingFiles": "Uploading {{count}} file(s)...",
   "uploadingVideo": "Uploading video and creating reconstruction task...",
-
   "ready": "Ready",
   "viewerError": "Viewer Error",
   "restarting": "Restarting...",
   "pageWillRefresh": "Page will refresh automatically",
-
   "dropModelHint": "Drop .ply / .splat / .spz / .rad file to preview",
   "unsupportedFormat": "Unsupported format. Drop model files (.ply / .splat / .spz / .rad), images, or one video (.mp4 / .mov / .m4v / .webm / .mkv).",
   "modelLoaded": "Model loaded",
   "modelLoadFailed": "Failed to load model",
-
   "modelFormatLabel": "Default Model Format",
   "modelFormatHint": "SPZ is 5-10x smaller with no visible quality loss. PLY preserves full original data.",
   "formatCompact": "(Compact)",
@@ -423,7 +408,6 @@
   "hfOn": "On",
   "hfHint": "Unleashes native device resolution and disables anti-aliasing to restore extreme sharpness, at the cost of high performance overhead.",
   "settingsRestartWarning": "Changing workspace folder requires server restart",
-
   "appViewTabs": "Application views",
   "modelView": "Models",
   "photoView": "Gallery",
@@ -556,16 +540,15 @@
   "photoVideoFullscreen": "Fullscreen",
   "photoVideoExitFullscreen": "Exit fullscreen",
   "photoDownloadVideo": "Download video",
-
   "videoReconGenerate3d": "Generate 3D",
   "videoReconLiveProgress": "Live progress",
   "videoReconSingleVideoOnly": "Select one video",
   "videoReconDialogTitle": "Video to 3D",
   "videoReconStatusLoadFailed": "Failed to load video reconstruction diagnostics.",
   "videoReconCheckingDependencies": "Checking local reconstruction tools...",
-  "videoReconRequiredMissing": "ffmpeg or ffprobe is missing. Video reconstruction cannot start.",
-  "videoReconStableMissing": "Nerfstudio / Splatfacto CLI tools are missing. Install them before starting a reconstruction.",
-  "videoReconDependenciesReady": "Stable reconstruction route is ready.",
+  "videoReconRequiredMissing": "ffmpeg or ffprobe is unavailable. Check Settings > Video Reconstruction.",
+  "videoReconStableMissing": "The legacy Nerfstudio / Splatfacto tools are unavailable. Install them to use this engine.",
+  "videoReconDependenciesReady": "{{engine}} is ready for reconstruction.",
   "videoReconQueued": "Video reconstruction task queued.",
   "videoReconCreateFailed": "Failed to create video reconstruction task.",
   "videoReconUploadingFile": "Uploading video...",
@@ -577,7 +560,7 @@
   "videoReconAdvanced": "Advanced",
   "videoReconEngineLabel": "Engine",
   "videoReconKeepIntermediate": "Keep intermediate files",
-  "videoReconKeepIntermediateHint": "Useful for debugging frames, poses and Nerfstudio logs. Uses more disk space.",
+  "videoReconKeepIntermediateHint": "Keep frames, camera poses and training files for troubleshooting. Uses more disk space; a compact reconstruction report is always saved.",
   "videoReconVramBudget": "VRAM budget",
   "videoReconStart": "Start",
   "videoReconSubmitting": "Submitting...",
@@ -588,7 +571,7 @@
   "videoReconDefaultQuality": "Default quality",
   "videoReconDefaultQualityMeta": "Frames, resolution, iterations and runtime",
   "videoReconDefaultEngine": "Default engine",
-  "videoReconDefaultEngineMeta": "Route selection; Auto is recommended",
+  "videoReconDefaultEngineMeta": "Brush is recommended; Splatfacto is available for comparison",
   "videoReconVramBudgetMeta": "Resource guard for the local GPU",
   "videoReconSettingsSaved": "Video reconstruction settings saved.",
   "videoReconSettingsUnsaved": "Unsaved video reconstruction changes",
@@ -597,7 +580,7 @@
   "videoReconGuideTitle": "Video Reconstruction Guide",
   "videoReconGuideBadge": "Local 3DGS route",
   "videoReconGuideHeroTitle": "Shoot well, then tune",
-  "videoReconGuideHeroText": "Video reconstruction extracts key frames from the full clip, estimates camera poses with COLMAP, then trains a Gaussian Splat model with Splatfacto. Think of it as static scene scanning, not video effects.",
+  "videoReconGuideHeroText": "Video reconstruction extracts frames, estimates camera poses with COLMAP, then trains a static Gaussian Splat model with Brush by default. You can select the legacy Splatfacto engine for comparison.",
   "videoReconGuideFact": {
     "preview": "Quick check",
     "high": "Common final",
@@ -608,7 +591,7 @@
   "videoReconGuideOverview": {
     "route": {
       "title": "Reconstruction route",
-      "text": "The stable route reads the video with ffmpeg/ffprobe, estimates camera poses with COLMAP, then trains and exports PLY/SPZ through Nerfstudio Splatfacto."
+      "text": "ffmpeg / ffprobe decode the video, COLMAP aligns cameras, and Brush trains PLY models. Splatfacto remains available as a separate engine. Auto and Environment keep all points; Object applies a subject crop."
     },
     "sampling": {
       "title": "Frame sampling",
@@ -656,7 +639,7 @@
     },
     "iterations": {
       "title": "Training iterations",
-      "text": "Controls how long Splatfacto optimizes. More iterations can refine detail, but they cannot fix a missing camera path."
+      "text": "Controls the selected engine's training budget. More steps do not repair missing views or failed camera alignment."
     },
     "downscale": {
       "title": "Input downscale",
@@ -668,7 +651,11 @@
     },
     "cache": {
       "title": "Image cache",
-      "text": "GPU cache can be faster. CPU cache saves VRAM for high frame counts, high input detail, or tighter GPUs."
+      "text": "Splatfacto only: GPU cache can be faster; CPU cache saves VRAM. Brush manages its own image loading."
+    },
+    "resolution": {
+      "title": "Input resolution",
+      "text": "Brush uses an actual long-edge pixel cap and does not enlarge smaller inputs. Splatfacto exposes its own downscale control."
     }
   },
   "videoReconGuideDependencyTitle": "Environment dependencies",
@@ -684,24 +671,28 @@
     },
     "nerfstudio": {
       "title": "Nerfstudio / Splatfacto",
-      "text": "Trains the 3D Gaussian Splatting model and exports the PLY used by the model gallery."
+      "text": "Optional: needed only for the legacy Splatfacto engine, with PyTorch / CUDA and gsplat."
     },
     "gpu": {
-      "title": "NVIDIA GPU / CUDA / PyTorch",
-      "text": "The currently verified end-to-end platform is Windows + NVIDIA GPU. More VRAM supports more frames and input detail."
+      "title": "GPU and drivers",
+      "text": "The target environment is Windows with an RTX 5070 Ti Laptop and 12 GB VRAM. Brush uses its own GPU runtime; Splatfacto uses CUDA / PyTorch."
     },
     "storage": {
       "title": "Disk space",
       "text": "Frames, the COLMAP database, training logs and temporary models use disk space. Long videos need extra cache room."
+    },
+    "brush": {
+      "title": "Pinned Brush CLI",
+      "text": "Trains and exports Gaussian Splats. Use the fixed CLI build installed by Sharp GUI, which supports running without its editor window."
     }
   },
   "videoReconGuideSetupTitle": "Setup guide",
   "videoReconGuideSetupText": "Once the requirements are clear, configure it manually from the README or let a local AI agent handle it.",
   "videoReconGuideInstallTitle": "Installation is covered in the README",
-  "videoReconGuideInstallText": "The README includes the manual video reconstruction setup for .video-reconstruction-env, CUDA/PyTorch, COLMAP, Nerfstudio and ffmpeg/ffprobe.",
+  "videoReconGuideInstallText": "The README covers the pinned Brush CLI, COLMAP and ffmpeg/ffprobe. Nerfstudio, CUDA and PyTorch are needed for the optional Splatfacto engine.",
   "videoReconGuideAgentTitle": "You can also ask an AI agent",
   "videoReconGuideAgentText": "Useful when you do not want to debug PATH, CUDA, Python and external commands step by step. Give this prompt to a local AI coding agent.",
-  "videoReconGuideAgentPrompt": "First understand the current Sharp GUI project and video reconstruction flow. Check the OS, GPU/driver, Python and PATH, then follow the README to install or reuse .video-reconstruction-env, CUDA/PyTorch, COLMAP, Nerfstudio/Splatfacto and ffmpeg/ffprobe. Do not change unrelated application code. Finally run the diagnostics API and basic commands to confirm the dependencies are available.",
+  "videoReconGuideAgentPrompt": "First understand the current Sharp GUI video reconstruction flow. Check the OS, GPU/driver and local tool paths. Follow the README to install the pinned Brush CLI, COLMAP and ffmpeg/ffprobe; install the separate Nerfstudio/Splatfacto environment only if the legacy engine is needed. Do not change unrelated application code. Refresh the diagnostics API and verify each selected engine separately using synthetic data.",
   "videoReconGuideReadReadme": "Open Chinese README",
   "videoReconGuideReadReadmeEn": "English README",
   "videoReconDependencyAvailable": "Available",
@@ -713,8 +704,8 @@
     "environment": "Environment"
   },
   "videoReconModeMeta": {
-    "auto": "Recommended",
-    "object": "Subject first",
+    "auto": "Full result",
+    "object": "Subject crop",
     "environment": "Room scale"
   },
   "videoReconQuality": {
@@ -742,11 +733,11 @@
   "videoReconCustomIterations": "Training iterations",
   "videoReconCustomIterationsHint": "More iterations can refine detail, but each extra step costs time.",
   "videoReconCustomDownscale": "Input downscale",
-  "videoReconCustomDownscaleHint": "Lower downscale keeps more input detail; higher downscale reduces VRAM pressure and noise.",
+  "videoReconCustomDownscaleHint": "Splatfacto only: lower downscale preserves more input detail. This option is not used by Brush.",
   "videoReconCustomMatching": "COLMAP matching",
   "videoReconCustomMatchingHint": "Sequential scales to long walk-throughs. Exhaustive is more robust for fewer frames but grows quickly.",
   "videoReconCustomCacheImages": "Image cache",
-  "videoReconCustomCacheImagesHint": "GPU cache can be faster; CPU cache saves VRAM for heavy frame counts or high input detail.",
+  "videoReconCustomCacheImagesHint": "Splatfacto only: GPU cache can be faster; CPU cache saves VRAM. Brush manages its own image loading.",
   "videoReconDownscale": {
     "1": "1x",
     "2": "2x",
@@ -776,19 +767,20 @@
   "videoReconCustomValidation": {
     "frameCount": "Target frames must be between 24 and 1200.",
     "iterations": "Training iterations must be between 1k and 80k.",
-    "exhaustiveFrames": "Exhaustive matching is capped at 450 custom frames. Use Sequential for longer videos."
+    "exhaustiveFrames": "Exhaustive matching is capped at 450 custom frames. Use Sequential for longer videos.",
+    "maxResolution": "The long-edge cap must be an integer from 640 to 3840 pixels."
   },
   "videoReconEngine": {
-    "auto": "Auto",
-    "stable": "Stable"
+    "brush": "Brush",
+    "splatfacto": "Splatfacto"
   },
   "videoReconEngineMeta": {
-    "auto": "Recommended",
-    "stable": "Nerfstudio"
+    "brush": "Recommended",
+    "splatfacto": "Legacy comparison"
   },
   "videoReconEngineHint": {
-    "auto": "Uses the currently verified stable 3DGS route while leaving room for future strategy changes.",
-    "stable": "Always uses COLMAP + Nerfstudio Splatfacto. This is the route that produced the current clean high-detail result."
+    "brush": "COLMAP aligns cameras, then the pinned Brush CLI trains the model. No Nerfstudio training environment is required.",
+    "splatfacto": "Use the existing COLMAP + Nerfstudio engine to compare reconstruction results. Its parameters and environment are separate from Brush."
   },
   "videoReconVram": {
     "auto": "Auto",
@@ -798,12 +790,14 @@
     "24gb": "24 GB"
   },
   "videoReconDependency": {
-    "required": "Video tools",
-    "stable": "Stable 3DGS route"
+    "required": "Video decoding tools",
+    "brush": "Brush training",
+    "splatfacto": "Splatfacto (optional)"
   },
   "videoReconDependencyHint": {
-    "required": "ffmpeg and ffprobe decode metadata and extract frames.",
-    "stable": "Nerfstudio Splatfacto trains and exports the Gaussian Splat model."
+    "required": "ffmpeg / ffprobe read video metadata and extract frames.",
+    "brush": "COLMAP and the pinned Brush CLI align cameras, train and export. Missing Nerfstudio does not block Brush.",
+    "splatfacto": "COLMAP and Nerfstudio / Splatfacto are required when the legacy engine is selected."
   },
   "videoReconError": {
     "video_reconstruction_dependency_missing": "Required video reconstruction dependencies are missing.",
@@ -815,7 +809,14 @@
     "video_reconstruction_oom": "GPU memory ran out. Try a lower quality preset or fewer frames.",
     "video_reconstruction_output_missing": "The reconstruction finished without a usable PLY output.",
     "video_reconstruction_spz_failed": "SPZ compression failed, but the PLY output was kept.",
-    "video_reconstruction_unsupported_video": "Unsupported video format. Please use MP4, MOV, M4V, WebM, or MKV."
+    "video_reconstruction_unsupported_video": "Unsupported video format. Please use MP4, MOV, M4V, WebM, or MKV.",
+    "video_reconstruction_brush_unavailable": "Brush CLI is unavailable. Install the pinned CLI and refresh diagnostics.",
+    "video_reconstruction_geometry_insufficient": "Too few cameras aligned reliably. At least 8 frames and a 50% registration rate are required. Try a shorter clip or recapture with more overlap.",
+    "video_reconstruction_geometry_retry": "Camera coverage was low; reconstruction is retrying once with denser frames.",
+    "video_reconstruction_geometry_incomplete": "Only part of the extracted frames aligned. Missing views may reduce reconstruction coverage.",
+    "video_reconstruction_invalid_video": "The video cannot be decoded or does not contain enough usable frames.",
+    "video_reconstruction_training_failed": "The selected engine failed during training. Check the reconstruction report and retained intermediate files.",
+    "video_reconstruction_unexpected_failure": "Video reconstruction failed unexpectedly. Check the reconstruction report for details."
   },
   "open": "Open",
   "select": "Select",
@@ -977,5 +978,43 @@
     "video_export": "Exporting PLY",
     "video_compress_spz": "Compressing SPZ",
     "video_done": "Done"
-  }
+  },
+  "videoReconBrushMissing": "Brush CLI is unavailable. Install the pinned Brush CLI using the video environment installer, then refresh diagnostics.",
+  "videoReconCustomMaxResolution": "Maximum image long edge (pixels)",
+  "videoReconCustomMaxResolutionHint": "640–3840 pixels. Images are capped at this long edge without enlarging smaller source frames. More pixels use more VRAM.",
+  "videoReconQualityMetaByEngine": {
+    "brush": {
+      "preview": "8k / 1600 px",
+      "high": "15k / 1920 px",
+      "extreme": "30k / VRAM budget",
+      "custom": "Manual settings"
+    },
+    "splatfacto": {
+      "preview": "7k / preview",
+      "high": "30k / detail",
+      "extreme": "50k / VRAM budget",
+      "custom": "Manual settings"
+    }
+  },
+  "videoReconQualityHintByEngine": {
+    "brush": {
+      "preview": "Start with 8,000 iterations and a 1600 px long-edge cap. Runtime depends on camera alignment, frame count and the scene.",
+      "high": "15,000 iterations with a 1920 px long-edge cap. A useful starting point for the 12 GB target GPU.",
+      "extreme": "30,000 iterations; resolution follows the VRAM budget. Higher settings use more time and memory, and cannot fix missing camera coverage.",
+      "custom": "Set frame count, iterations, the actual long-edge cap and COLMAP matching for this video."
+    },
+    "splatfacto": {
+      "preview": "Use the legacy engine with a smaller training budget to check coverage.",
+      "high": "Use the legacy high-quality profile for a comparison with Brush. Runtime depends on the scene and input size.",
+      "extreme": "More training steps and frames for the legacy engine. Choose the actual GPU memory budget in Settings.",
+      "custom": "Set frame count, iterations, downscale, matching and image cache for the legacy engine."
+    }
+  },
+  "videoReconModeHint": {
+    "auto": "Keep the full reconstruction without automatic point removal.",
+    "object": "Crop around the subject after training. This can remove surrounding geometry; automatic foreground masks are not provided.",
+    "environment": "Keep the full scene without cropping."
+  },
+  "videoReconColmapMissing": "COLMAP is unavailable. Install the camera alignment tool and refresh diagnostics.",
+  "videoReconDependencyMissingTools": "Missing or unavailable: {{tools}}."
 }

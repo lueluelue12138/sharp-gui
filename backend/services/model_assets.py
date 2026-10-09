@@ -16,6 +16,7 @@ from backend.services import model_gallery
 from backend.services.model_orientation import (
     VIEWER_ORIENTATION_UNKNOWN,
     normalize_source_media_type,
+    normalize_viewer_camera,
     resolve_viewer_orientation,
 )
 from backend.services.static_files import get_relative_files_path, is_real_path_inside, to_url_path
@@ -575,6 +576,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         "is_imported": False,
         "source_media_type": source_media_type,
         "viewer_orientation": viewer_orientation,
+        'viewer_camera': normalize_viewer_camera(metadata.get('viewer_camera')),
         "source_media_id": metadata.get("source_media_id"),
         "source_name": metadata.get("source_name") or original_filename,
         "source_video_url": source_video_url,

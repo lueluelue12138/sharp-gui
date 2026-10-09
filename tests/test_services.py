@@ -153,7 +153,7 @@ def test_video_reconstruction_config_and_paths_are_normalized(workspace):
 
     assert video_config == {
         "default_quality": "high",
-        "default_engine": "auto",
+        "default_engine": "brush",
         "vram_budget": "12gb",
         "keep_intermediate_files": True,
     }
@@ -2072,7 +2072,7 @@ def test_build_failure_message_detects_oom_text():
 
     assert oom_code == video_reconstruction.ERROR_OOM
     assert "GPU memory" in oom_message
-    assert plain_code is None
+    assert plain_code == 'video_reconstruction_training_failed'
     assert "generic failure line" in plain_message
 
 

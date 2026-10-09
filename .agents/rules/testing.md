@@ -42,22 +42,26 @@ python -m pytest -q
 - LAN 门禁：门禁开/关、owner-only、远程生成条件、转发头不能提权。
 - 静态文件：模型文件允许访问，敏感文件和路径穿越拒绝。
 - 本地媒体图库：media/photo/video id 解析、缓存优先分页、迁移后不重建全局索引、视频扫描、poster/metadata 降级、Range 播放、相册上传文件名净化/扩展名白名单/无效图片清理。
-- 视频重建：`/api/video-reconstructions`、`/api/video-reconstructions/upload`、`/api/video-reconstructions/status`、任务 kind 分发、依赖缓存、输出名唯一化、focused cleanup、sidecar 元数据、source-video 路径安全和 OOM/取消/缺依赖错误码。
+- 视频重建：`/api/video-reconstructions`、`/api/video-reconstructions/upload`、`/api/video-reconstructions/status`、任务 kind 分发、分引擎依赖缓存、输出名唯一化、显式 object 裁剪、sidecar 诊断、SH 保留、source-video 路径安全和 OOM/取消/缺依赖错误码。
 - 任务队列：无需真实推理即可验证入队、列出、取消和状态变更。
 - 自更新：版本/部署识别、Stable/Latest Git 精确目标、网络失败、manifest/runtime revision、dirty/active/non-main precondition、owner-only 路由、持久化阶段、自动失败恢复与响应脱敏。
 
 ### 视频 3DGS 重建 smoke checklist
 
-视频重建稳定路线已验证平台仅写为 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB。新增或修改相关逻辑时，至少覆盖：
+视频重建目标平台为 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB。自动化测试使用合成数据；完整流程已在用户明确提供的非敏感视频上验证，不读取其他用户媒体。合成测试不代表真实画质验证。新增或修改相关逻辑时，至少覆盖：
 
 - `GET /api/video-reconstructions/status` 首次可返回 checking 或缓存状态；Settings `?refresh=1` 触发后台重扫；普通首页、弹窗和任务创建不会重复同步扫描外部工具。
+- 缺 Nerfstudio 而 Brush/COLMAP 可用时 Brush 可创建任务；缺 Brush 而旧环境可用时仅明确的 Splatfacto 或后端兼容 auto 回退可用。显式 Brush 缺失返回固定错误码，不静默切换；前端不显示或发送另一引擎专属参数。
+- 抽帧/训练分辨率符合长边上限，不放大小图、不隐含二次下采样；配准不足最多补密一次，注册少于 8 帧或配准率低于 50% 时不调用训练，50%～80% 保留警告。
 - 本地相册视频创建任务：只接受 video media id，拒绝照片 id、未知 id、root 外路径和源视频缺失；响应和 `/api/tasks` 不暴露 `source_video_path`。
 - 拖入视频创建任务：单视频可入队，默认输出名为源视频同名 stem；多个视频或混合图片/视频时前端给出明确提示。
-- 成功任务生成 `outputs/<id>.ply`，尽量生成 `.spz`，写入 `.meta.json`，并生成或复用源视频封面缩略图。
+- 成功任务生成 `outputs/<id>.ply`，尽量生成 `.spz`，写入 `.meta.json`，并生成或复用源视频封面缩略图；即使不保留 jobs，sidecar 仍含实际引擎、资源参数、抽帧/注册帧数、配准率和阶段耗时。用含非零高阶系数的模型验证 PLY → SPZ 保留 SH0～SH3。
 - 原视频预览入口通过 `/api/gallery/<id>/source-video` 打开，支持 Range/下载名，且不泄露绝对路径；删除本地相册来源模型不得删除原视频。
-- `auto` / `object` 模式 focused cleanup 能移除外围游离 splat；清理过度时回退原始导出并记录原因；`environment` 模式不裁剪完整场景。
+- `auto` / `environment` 模式保留原始 PLY；显式 `object` 才裁剪并保留任务中原始 PLY，清理过度时回退并记录原因。
 - Viewer 打开视频重建模型时初始画面朝向主体，左右拖拽为正常 yaw；旧 ml-sharp 单图模型预览手感不回归。
+- 新 Brush 模型的 `viewer_camera` 提示从注册位姿生成，PLY / SPZ 切换保留提示；非法提示退回原取景，模型变换与窄窗口视野调整需验证。
 - 失败路径至少覆盖缺依赖、非法选项、输出名冲突、CUDA OOM 文本、SPZ 失败和取消清理。
+- Brush 参数必须符合固定 v0.3.0 CLI 的 help；合成烟测覆盖真实 CLI 导出，单元测试覆盖不支持参数拒绝、失败/取消和 OOM 处理，不使用用户私有视频。
 - 后端默认日志只显示关键阶段和失败摘要；`SHARP_LOG_LEVEL=DEBUG` 或 verbose 模式下再输出完整外部工具日志。
 
 ### 本地媒体图库 smoke checklist
@@ -103,10 +107,12 @@ python -m pytest -q
 
 - 先运行 `build_portable_release.bat -Version <version> -PlanOnly`，确认每个未跳过 target 都打印 exact Sharp GUI source SHA、`portableRuntimeRevision`、MinGit `v2.55.0.windows.3`、标准 x64 asset 和固定 SHA256；完成构建后执行 `7z t` 并核对 ZIP/`.sha256.txt`。
 - 在全新目录解压，隐藏系统 Git/Python（测试 PATH 不包含二者），断言 `update.bat` 使用包内 Python 与 `.sharp-gui-tools/git/cmd/git.exe`；Git 版本、asset digest、`portable-package.json` provenance、根 `THIRD_PARTY_NOTICES.md`、包内 `LICENSE.txt` 与两棵 license tree 都存在且匹配。
+- 视频包必须包含 `.sharp-gui-tools/brush/v0.3.0/` 的固定二进制、`INSTALLATION.json`、`LICENSE.txt`、`THIRD_PARTY_NOTICES.txt` 和完整 `upstream-release/`；核对包元数据中的来源、版本、archive/binary SHA256，执行包内 `brush_app.exe --version` / `--help`，不能借用构建机 PATH。核心包不得复制 Brush，旧包缺 Brush 时必须明确报告依赖缺失。
 - 初始受管 worktree 必须 clean 且 HEAD 等于 package metadata。用临时本地 bare remote 构造兼容目标，至少同时包含 tracked addition/modification/deletion/rename；应用后 tracked tree 必须逐项收敛到 exact target，不能留下已删除旧文件。
 - 分别验证 Stable、Latest、already-current no-op 和 Latest → Stable 显式降级；版本标签必须能区分正式 `vX.Y.Z` 与 `vX.Y.Z + N commits (abcdefg)`，apply 只能使用刚检查过的 exact SHA。
-- 在 Python/PyTorch/CUDA、`.video-reconstruction-env/`、模型/缓存、三个 workspace 的 inputs/outputs/model-assets/index、`config.json`、证书、日志、`portable-package.json`、`.sharp-gui-update/` 和 `.sharp-gui-tools/` 放置可校验 marker；兼容 update 与自动失败恢复后均须保留，必要时比较 hash/字节内容。
+- 在 Python/PyTorch/CUDA、`.video-reconstruction-env/`、固定 Brush 目录、模型/缓存、三个 workspace 的 inputs/outputs/model-assets/index、`config.json`、证书、日志、`portable-package.json`、`.sharp-gui-update/` 和 `.sharp-gui-tools/` 放置可校验 marker；兼容 update 与自动失败恢复后均须保留，必要时比较 hash/字节内容。
 - 构造不同 `portableRuntimeRevision`、缺失/非法 manifest、缺失 `frontend/dist` 的目标，断言 checkout 前拒绝、HEAD/markers 不变且状态明确要求完整包。
+- `tools/install_brush.py` 属于 runtime-sensitive 文件，守卫测试必须拒绝 revision 1→1 并接受 1→2；本次固定 Brush 原生依赖要求 revision 2。只运行脚本语法/针对性测试不等于便携包发布完成，发布前仍须完成完整构建与 clean-extract gate。
 - 构造 dirty tracked file、pending/running/processing generation task、非 `main` source branch、并发锁和过期 target；均须稳定拒绝且不得 fetch apply target、改文件或停止服务。远程会话及伪造 `X-Forwarded-For`/`Forwarded`/`X-Real-IP` 不能调用 check/apply。
 - 注入网络/TLS/rate-limit、只读目录/磁盘不足、checkout/compile/import/frontend/health-check 失败和 updater 中断。验证错误不被误报为 up-to-date/success，mutation 后失败自动恢复 previous SHA，非终态下次启动可对账恢复且服务最终可用。
 - 启动 Settings，验证当前版本、Stable/Latest、兼容/需全包原因、确认、阶段进度、预期断线重连、成功 reload 和自动失败恢复提示；同时覆盖窄屏、键盘焦点、light/dark 与 reduced-motion。

@@ -19,6 +19,7 @@ export interface Task {
   custom_options?: {
     frame_count?: number;
     max_num_iterations?: number;
+    max_resolution?: number;
     downscale_factor?: number;
     matching_method?: string;
     cache_images?: string;

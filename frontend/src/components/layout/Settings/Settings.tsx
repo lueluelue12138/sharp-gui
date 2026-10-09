@@ -7,6 +7,7 @@ import {
     fetchPhotoGalleryCacheStats,
     fetchSettings,
     fetchVideoReconstructionStatus,
+    normalizeVideoReconstructionConfig,
     clearPhotoGalleryCache,
     logoutAccessSession,
     restartServer,
@@ -44,7 +45,7 @@ const FolderIcon = () => (
 
 const DEFAULT_VIDEO_CONFIG: VideoReconstructionConfig = {
     default_quality: 'high',
-    default_engine: 'auto',
+    default_engine: 'brush',
     vram_budget: '12gb',
     keep_intermediate_files: false,
 };
@@ -162,8 +163,9 @@ export const Settings: React.FC = () => {
                 setOriginalWorkspace(data.workspace_folder);
             }
             if (data.video_reconstruction) {
-                setVideoConfig(data.video_reconstruction);
-                setSavedVideoConfig(data.video_reconstruction);
+                const config = normalizeVideoReconstructionConfig(data.video_reconstruction);
+                setVideoConfig(config);
+                setSavedVideoConfig(config);
             }
             const nextAuthStatus = await fetchAuthStatus();
             applyAccessStatus(nextAuthStatus);
@@ -393,14 +395,17 @@ export const Settings: React.FC = () => {
     };
 
     const renderDependencyGroup = (
-        groupKey: 'required' | 'stable',
+        groupKey: 'required' | 'brush' | 'splatfacto',
         group?: VideoReconstructionDependencies['required'],
     ) => {
         const checking = Boolean(videoDependencies?.summary.checking && !group?.tools.length);
         const available = Boolean(group?.available);
+        const missingTools = group?.tools.filter((tool) => !tool.available).map((tool) => tool.name).join(', ');
         const dependencyMessage = checking
             ? t('videoReconCheckingDependencies')
-            : group?.message || t(`videoReconDependencyHint.${groupKey}`);
+            : missingTools
+                ? `${t('videoReconDependencyMissingTools', { tools: missingTools })} ${t(`videoReconDependencyHint.${groupKey}`)}`
+                : t(`videoReconDependencyHint.${groupKey}`);
         return (
             <div className={styles.dependencyRow}>
                 <div>
@@ -820,11 +825,11 @@ export const Settings: React.FC = () => {
                                             onClick={() => updateVideoConfig({ default_quality: quality })}
                                         >
                                             <span>{t(`videoReconQuality.${quality}`)}</span>
-                                            <small>{t(`videoReconQualityMeta.${quality}`)}</small>
+                                            <small>{t(`videoReconQualityMetaByEngine.${videoConfig.default_engine}.${quality}`)}</small>
                                         </button>
                                     ))}
                                 </div>
-                                <p className={styles.optionHint}>{t(`videoReconQualityHint.${videoConfig.default_quality}`)}</p>
+                                <p className={styles.optionHint}>{t(`videoReconQualityHintByEngine.${videoConfig.default_engine}.${videoConfig.default_quality}`)}</p>
                             </div>
 
                             <div>
@@ -833,7 +838,7 @@ export const Settings: React.FC = () => {
                                     <small>{t('videoReconDefaultEngineMeta')}</small>
                                 </label>
                                 <div className={styles.segmentedControl}>
-                                    {(['auto', 'stable'] as VideoReconstructionEngine[]).map((engine) => {
+                                    {(['brush', 'splatfacto'] as VideoReconstructionEngine[]).map((engine) => {
                                         const engineDisabled = !isLocalAccess;
                                         return (
                                             <button
@@ -893,7 +898,8 @@ export const Settings: React.FC = () => {
 
                         <div className={styles.dependencyList}>
                             {renderDependencyGroup('required', videoDependencies?.required)}
-                            {renderDependencyGroup('stable', videoDependencies?.stable)}
+                            {renderDependencyGroup('brush', videoDependencies?.brush)}
+                            {renderDependencyGroup('splatfacto', videoDependencies?.splatfacto)}
                         </div>
 
                         <div className={styles.dependencyFooter}>

@@ -19,6 +19,8 @@ class UpdateCompatibilityGuardTests(unittest.TestCase):
             ("install.bat", True),
             ("build_portable_release.bat", True),
             ("tools/install_torch.py", True),
+            ("tools/install_brush.py", True),
+            (".\\tools\\install_brush.py", True),
             ("tools/build_portable_package.ps1", True),
             ("tools/portable_update_common.ps1", True),
             ("pyproject.toml", True),
@@ -67,6 +69,17 @@ class UpdateCompatibilityGuardTests(unittest.TestCase):
     def test_runtime_revision_cannot_decrease(self):
         with self.assertRaises(guard.CompatibilityGuardError):
             guard.check_runtime_revision([], manifest(4), manifest(3))
+
+    def test_brush_native_dependency_requires_new_portable_runtime(self):
+        paths = ["tools/install_brush.py", "tools/build_portable_package.ps1"]
+        with self.assertRaises(guard.CompatibilityGuardError):
+            guard.check_runtime_revision(paths, manifest(1), manifest(1))
+
+        sensitive, base_revision, head_revision = guard.check_runtime_revision(
+            paths, manifest(1), manifest(2),
+        )
+        self.assertEqual(sensitive, sorted(paths))
+        self.assertEqual((base_revision, head_revision), (1, 2))
 
     def test_runtime_revision_must_be_a_positive_integer(self):
         for revision in [None, True, 0, "2"]:

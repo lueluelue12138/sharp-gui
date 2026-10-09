@@ -439,6 +439,7 @@ function App() {
             : 'model-asset-generated',
           sourceMediaType: firstModelSource.sourceMediaType,
           viewerOrientation: firstModelSource.viewerOrientation,
+          viewerCamera: firstModelSource.viewerCamera,
         });
         replaceTemporaryModelPreview(null);
       }

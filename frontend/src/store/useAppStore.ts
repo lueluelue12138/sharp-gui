@@ -75,7 +75,7 @@ const DEFAULT_MODEL_ASSET_COUNTS: ModelAssetListCounts = {
 const DEFAULT_MODEL_ASSET_BATCH_SIZE = 12;
 const DEFAULT_VIDEO_RECONSTRUCTION_CONFIG: VideoReconstructionConfig = {
   default_quality: 'high',
-  default_engine: 'auto',
+  default_engine: 'brush',
   vram_budget: '12gb',
   keep_intermediate_files: false,
 };
@@ -819,6 +819,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         source: 'gallery',
         sourceMediaType: selectedItem.source_media_type ?? null,
         viewerOrientation: selectedItem.viewer_orientation ?? null,
+        viewerCamera: selectedItem.viewer_camera ?? null,
       };
       const descriptorUnchanged = state.currentModelDescriptor
         && state.currentModelDescriptor.id === nextDescriptor.id
@@ -827,7 +828,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         && state.currentModelDescriptor.size === nextDescriptor.size
         && state.currentModelDescriptor.source === nextDescriptor.source
         && state.currentModelDescriptor.sourceMediaType === nextDescriptor.sourceMediaType
-        && state.currentModelDescriptor.viewerOrientation === nextDescriptor.viewerOrientation;
+        && state.currentModelDescriptor.viewerOrientation === nextDescriptor.viewerOrientation
+        && JSON.stringify(state.currentModelDescriptor.viewerCamera) === JSON.stringify(nextDescriptor.viewerCamera);
       currentModelDescriptor = descriptorUnchanged
         ? state.currentModelDescriptor
         : nextDescriptor;

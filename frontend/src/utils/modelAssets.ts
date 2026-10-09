@@ -5,6 +5,7 @@ import type {
   ModelAssetFormat,
   ModelFormat,
   ViewerOrientationHint,
+  ViewerCameraHint,
 } from '@/types';
 
 const MODEL_ASSET_FORMAT_FALLBACKS: ModelAssetFormat[] = ['spz', 'ply', 'splat', 'rad'];
@@ -16,6 +17,7 @@ export interface ResolvedModelAssetSource {
   size: number;
   sourceMediaType: string | null;
   viewerOrientation: ViewerOrientationHint | null;
+  viewerCamera?: ViewerCameraHint | null;
 }
 
 function getFormatPriority(preferredFormat: ModelFormat): ModelAssetFormat[] {
@@ -44,6 +46,7 @@ export function resolveModelAssetSource(
         size: file.size,
         sourceMediaType: file.source_media_type ?? asset.source_media_type ?? null,
         viewerOrientation: file.viewer_orientation ?? asset.viewer_orientation ?? null,
+        viewerCamera: file.viewer_camera ?? asset.viewer_camera ?? null,
       };
     }
   }
@@ -60,5 +63,6 @@ export function resolveModelAssetSource(
     size: defaultFile?.size ?? asset.primary_size ?? asset.size ?? 0,
     sourceMediaType: defaultFile?.source_media_type ?? asset.source_media_type ?? null,
     viewerOrientation: defaultFile?.viewer_orientation ?? asset.viewer_orientation ?? null,
+    viewerCamera: defaultFile?.viewer_camera ?? asset.viewer_camera ?? null,
   };
 }

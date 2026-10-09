@@ -21,6 +21,7 @@ RUNTIME_SENSITIVE_FILES = {
     "tools/portable_update_common.ps1",
     "tools/install_torch.py",
     "tools/install_video_reconstruction.py",
+    "tools/install_brush.py",
 }
 
 DEPENDENCY_FILENAMES = {

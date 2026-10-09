@@ -1,9 +1,36 @@
-import { apiGet, apiPost, apiPostFormDataWithProgress } from './client';
+import { apiGet, apiPost, apiPostFormDataWithProgress } from '@/api/client';
 import type {
+  VideoReconstructionConfig,
+  VideoReconstructionCustomOptions,
+  VideoReconstructionEngine,
   VideoReconstructionRequest,
   VideoReconstructionResponse,
   VideoReconstructionStatusResponse,
 } from '@/types';
+
+export function normalizeVideoReconstructionConfig(
+  config: VideoReconstructionConfig,
+): VideoReconstructionConfig {
+  const savedEngine = String(config.default_engine);
+  return {
+    ...config,
+    default_engine: savedEngine === 'splatfacto' || savedEngine === 'stable' ? 'splatfacto' : 'brush',
+  };
+}
+
+function selectCustomOptions(
+  engine: VideoReconstructionEngine,
+  options: VideoReconstructionCustomOptions,
+): VideoReconstructionCustomOptions {
+  return {
+    frame_count: options.frame_count,
+    max_num_iterations: options.max_num_iterations,
+    matching_method: options.matching_method,
+    ...(engine === 'brush'
+      ? { max_resolution: options.max_resolution }
+      : { downscale_factor: options.downscale_factor, cache_images: options.cache_images }),
+  };
+}
 
 interface UploadProgress {
   loaded: number;
@@ -16,7 +43,8 @@ export async function fetchVideoReconstructionStatus(options?: {
   refresh?: boolean;
 }): Promise<VideoReconstructionStatusResponse> {
   const query = options?.refresh ? '?refresh=1' : '';
-  return apiGet<VideoReconstructionStatusResponse>(`/api/video-reconstructions/status${query}`);
+  const status = await apiGet<VideoReconstructionStatusResponse>(`/api/video-reconstructions/status${query}`);
+  return { ...status, config: normalizeVideoReconstructionConfig(status.config) };
 }
 
 export async function createVideoReconstruction(
@@ -24,7 +52,12 @@ export async function createVideoReconstruction(
 ): Promise<VideoReconstructionResponse> {
   return apiPost<VideoReconstructionResponse>(
     '/api/video-reconstructions',
-    request,
+    {
+      ...request,
+      custom_options: request.quality === 'custom' && request.custom_options
+        ? selectCustomOptions(request.engine, request.custom_options)
+        : undefined,
+    },
     { timeout: 300000 },
   );
 }
@@ -44,8 +77,8 @@ export async function createVideoReconstructionFromFile(
   if (options?.quality) {
     formData.append('quality', options.quality);
   }
-  if (options?.custom_options) {
-    formData.append('custom_options', JSON.stringify(options.custom_options));
+  if (options?.quality === 'custom' && options.custom_options) {
+    formData.append('custom_options', JSON.stringify(selectCustomOptions(options.engine, options.custom_options)));
   }
   if (options?.engine) {
     formData.append('engine', options.engine);

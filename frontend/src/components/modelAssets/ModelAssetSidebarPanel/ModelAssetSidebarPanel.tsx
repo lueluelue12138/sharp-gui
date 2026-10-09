@@ -149,6 +149,7 @@ export function ModelAssetSidebarPanel({
         : 'model-asset-generated',
       sourceMediaType: modelSource.sourceMediaType,
       viewerOrientation: modelSource.viewerOrientation,
+      viewerCamera: modelSource.viewerCamera,
     });
   }, [onOpenModel, preferredModelFormat, setCurrentModel, setModelAssetError, setSelectedModelAsset, t]);
 

@@ -1,5 +1,5 @@
 import type { ViewerModelFormat } from '@/constants/spark';
-import type { GalleryItem, ModelFormat, ViewerOrientationHint } from '@/types';
+import type { GalleryItem, ModelFormat, ViewerCameraHint, ViewerOrientationHint } from '@/types';
 
 export type GalleryRendererMode = 'virtualized' | 'legacy';
 
@@ -117,10 +117,12 @@ export function getGalleryModelSource(
   size: number | null;
   sourceMediaType: string | null;
   viewerOrientation: ViewerOrientationHint | null;
+  viewerCamera?: ViewerCameraHint | null;
 } {
   const previewContext = {
     sourceMediaType: item.source_media_type ?? null,
     viewerOrientation: item.viewer_orientation ?? null,
+    viewerCamera: item.viewer_camera ?? null,
   };
 
   if (preferredFormat === 'spz' && item.spz_url) {

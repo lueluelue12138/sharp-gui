@@ -17,7 +17,7 @@ from werkzeug.utils import secure_filename
 
 from backend import runtime
 from backend.config import get_video_reconstruction_config
-from backend.services import model_gallery, photo_gallery
+from backend.services import brush_engine, model_gallery, photo_gallery, video_geometry
 from backend.services.model_orientation import VIEWER_ORIENTATION_Y_FRONT
 from backend.services.static_files import is_real_path_inside
 
@@ -27,7 +27,7 @@ VALID_RECONSTRUCTION_MODES = {"auto", "object", "environment"}
 PRESET_RECONSTRUCTION_QUALITIES = {"preview", "high", "extreme"}
 CUSTOM_RECONSTRUCTION_QUALITY = "custom"
 VALID_RECONSTRUCTION_QUALITIES = PRESET_RECONSTRUCTION_QUALITIES | {CUSTOM_RECONSTRUCTION_QUALITY}
-VALID_RECONSTRUCTION_ENGINES = {"auto", "stable"}
+VALID_RECONSTRUCTION_ENGINES = {"auto", "stable", "brush", "splatfacto"}
 VALID_VRAM_BUDGETS = {"auto", "8gb", "12gb", "16gb", "24gb"}
 VALID_MATCHING_METHODS = {"sequential", "exhaustive"}
 VALID_CACHE_IMAGE_MODES = {"gpu", "cpu"}
@@ -43,6 +43,9 @@ ERROR_OOM = "video_reconstruction_oom"
 ERROR_OUTPUT_MISSING = "video_reconstruction_output_missing"
 ERROR_SPZ_FAILED = "video_reconstruction_spz_failed"
 ERROR_UNSUPPORTED_VIDEO = "video_reconstruction_unsupported_video"
+ERROR_GEOMETRY_INSUFFICIENT = "video_reconstruction_geometry_insufficient"
+ERROR_BRUSH_UNAVAILABLE = "video_reconstruction_brush_unavailable"
+ERROR_INVALID_VIDEO = "video_reconstruction_invalid_video"
 
 # COLMAP 特征匹配策略按质量档绑定：
 # - preview: sequential，只匹配相邻帧，最快，快速预览可接受偶尔断链；
@@ -191,6 +194,9 @@ OOM_PATTERNS = (
     "cudnn_status_alloc_failed",
     "hip out of memory",
     "memoryerror",
+    'outofmemory',
+    'vk_error_out_of_device_memory',
+    'failed to allocate memory',
 )
 
 TRAIN_VISUALIZER_VIEWER = "viewer"
@@ -208,6 +214,8 @@ VIDEO_RUNTIME_PROCESS_TOKENS = (
     "ns-train",
     "ns-export",
     "colmap",
+    "brush_app",
+    "brush",
 )
 
 _DEPENDENCY_STATUS_LOCK = threading.Lock()
@@ -431,7 +439,7 @@ def coerce_custom_int(options, key, default, minimum, maximum):
     return value, None
 
 
-def normalize_custom_quality_options(value):
+def normalize_custom_quality_options(value, engine='stable'):
     options = parse_custom_options_value(value)
     if options is None:
         return None, {
@@ -455,7 +463,7 @@ def normalize_custom_quality_options(value):
     max_num_iterations, error = coerce_custom_int(
         options,
         "max_num_iterations",
-        CUSTOM_QUALITY_DEFAULTS["max_num_iterations"],
+        15000 if engine in {'brush', 'auto'} else CUSTOM_QUALITY_DEFAULTS["max_num_iterations"],
         iter_min,
         iter_max,
     )
@@ -504,6 +512,21 @@ def normalize_custom_quality_options(value):
             "field": "custom_options.cache_images",
         }
 
+    if engine in {'brush', 'auto'}:
+        max_resolution, error = coerce_custom_int(options, 'max_resolution', 1920, 640, 3840)
+        if error:
+            return None, error
+        normalized = {
+            'frame_count': frame_count,
+            'max_num_iterations': max_num_iterations,
+            'matching_method': matching_method,
+            'max_resolution': max_resolution,
+        }
+        if engine == 'auto':
+            # 自动选择可能回退旧引擎；保留两种引擎各自需要的参数。
+            normalized.update(downscale_factor=downscale_factor, cache_images=cache_images)
+        return normalized, None
+
     return {
         "frame_count": frame_count,
         "max_num_iterations": max_num_iterations,
@@ -538,7 +561,7 @@ def validate_reconstruction_options(data):
 
     custom_options = None
     if quality == CUSTOM_RECONSTRUCTION_QUALITY:
-        custom_options, custom_error = normalize_custom_quality_options(data.get("custom_options"))
+        custom_options, custom_error = normalize_custom_quality_options(data.get("custom_options"), engine)
         if custom_error:
             return None, custom_error, 400
 
@@ -655,7 +678,63 @@ def build_custom_quality_profile(custom_options, vram_budget):
     }
 
 
-def resolve_quality_profile(quality, vram_budget, custom_options=None):
+def resolve_brush_quality_profile(quality, vram_budget, custom_options=None):
+    """固定 Brush 日程，并分别控制 SfM 与训练图像的真实长边。"""
+    presets = {
+        'preview': (6, 1600, 1200, 4096, 8000, 6000, 0.00004, 0.15),
+        'high': (8, 1920, 1600, 8192, 15000, 12000, 0.00003, 0.2),
+        'extreme': (12, 3840, 3200, 16384, 30000, 25000, 0.00002, 0.3),
+    }
+    fps, resolution, sfm_resolution, features, iterations, stop, threshold, fraction = presets.get(quality, presets['high'])
+    if vram_budget == '8gb':
+        resolution = min(resolution, 1920)
+        max_splats = 1000000
+    elif vram_budget in {'16gb', '24gb'}:
+        max_splats = 4000000
+    else:
+        max_splats = 1500000
+    profile = {
+        'engine': 'brush', 'sampling_fps': fps, 'frame_count': 1200,
+        'max_resolution': resolution, 'sfm_max_resolution': sfm_resolution,
+        'sfm_max_features': features, 'sfm_allow_two_view_tracks': quality == 'extreme',
+        'max_num_iterations': iterations, 'matching_method': 'sequential',
+        'brush_growth_grad_threshold': threshold, 'brush_growth_select_fraction': fraction,
+        'brush_growth_stop_iter': stop, 'brush_max_splats': max_splats,
+        'vram_budget': vram_budget,
+    }
+    if quality == CUSTOM_RECONSTRUCTION_QUALITY:
+        options, error = normalize_custom_quality_options(custom_options, 'brush')
+        if error:
+            raise ValueError(error['error'])
+        profile.update(options)
+        profile['sampling_fps'] = None
+        profile['brush_growth_stop_iter'] = max(1, round(options['max_num_iterations'] * 0.8))
+    return profile
+
+
+def effective_vram_budget(configured):
+    """仅在任务开始探测显存；用户预算可以更低，不能高于实际设备。"""
+    try:
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode:
+            return configured
+        memory_mb = max(int(line.strip()) for line in result.stdout.splitlines() if line.strip())
+        # 留出驱动保留显存造成的 MiB 偏差，12227 MiB 属于标称 12GB 卡。
+        detected = '24gb' if memory_mb >= 23000 else '16gb' if memory_mb >= 15300 else '12gb' if memory_mb >= 11500 else '8gb'
+        if configured == 'auto':
+            return detected
+        order = ['8gb', '12gb', '16gb', '24gb']
+        return order[min(order.index(configured), order.index(detected))] if configured in order else detected
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return configured
+
+
+def resolve_quality_profile(quality, vram_budget, custom_options=None, engine='stable'):
+    if engine == 'brush':
+        return resolve_brush_quality_profile(quality, vram_budget, custom_options)
     if quality == CUSTOM_RECONSTRUCTION_QUALITY:
         return build_custom_quality_profile(custom_options, vram_budget)
 
@@ -789,9 +868,13 @@ def _pending_dependency_status():
             "tools": [],
             "message": message,
         },
+        'brush': {'available': False, 'tools': [], 'message': None},
+        'splatfacto': {'available': False, 'tools': [], 'message': None},
         "summary": {
             "available": False,
             "stable_available": False,
+            'brush_available': False,
+            'splatfacto_available': False,
             "checking": True,
             "checked_at": None,
             "cached": False,
@@ -812,9 +895,13 @@ def _dependency_error_status(exc):
             "tools": [],
             "message": message,
         },
+        'brush': {'available': False, 'tools': [], 'message': message},
+        'splatfacto': {'available': False, 'tools': [], 'message': message},
         "summary": {
             "available": False,
             "stable_available": False,
+            'brush_available': False,
+            'splatfacto_available': False,
         },
     }
 
@@ -837,6 +924,19 @@ def _scan_dependencies():
     required_tools = [ffmpeg, ffprobe]
     stable_available = all(tool["available"] for tool in stable_tools)
     required_available = all(tool["available"] for tool in required_tools)
+    brush_path = brush_engine.find_brush_executable()
+    brush = command_version(brush_path, ['--help'], timeout=15) if brush_path else {
+        'name': 'brush', 'available': False, 'message': 'Install the pinned Brush CLI using tools/install_brush.py.',
+    }
+    brush['name'] = 'brush'
+    brush['category'] = 'brush'
+    brush['required'] = True
+    brush_available = required_available and colmap['available'] and brush['available']
+    stable_group = {
+        'available': required_available and stable_available,
+        'tools': stable_tools,
+        'message': None if stable_available else 'Nerfstudio CLI tools and COLMAP are required for Splatfacto.',
+    }
 
     return {
         "required": {
@@ -844,26 +944,34 @@ def _scan_dependencies():
             "tools": required_tools,
             "message": None if required_available else "ffmpeg and ffprobe are required for video decoding.",
         },
-        "stable": {
-            "available": required_available and stable_available,
-            "tools": stable_tools,
-            "message": None if stable_available else "Nerfstudio CLI tools and COLMAP are required for the stable Splatfacto route.",
+        'stable': stable_group,
+        'splatfacto': stable_group,
+        'brush': {
+            'available': brush_available,
+            'tools': [colmap, brush],
+            'message': None if brush_available else 'COLMAP and the pinned Brush CLI are required for the Brush route.',
         },
         "summary": {
-            "available": required_available and stable_available,
+            "available": brush_available or (required_available and stable_available),
             "stable_available": required_available and stable_available,
+            'splatfacto_available': required_available and stable_available,
+            'brush_available': brush_available,
         },
     }
 
 
 def resolve_engine_strategy(engine, dependencies=None):
     dependencies = dependencies or check_dependencies()
-    stable_available = bool(dependencies["stable"]["available"])
+    stable_available = bool(dependencies.get('splatfacto', dependencies.get('stable', {})).get('available'))
+    brush_available = bool(dependencies.get('brush', {}).get('available'))
 
-    if engine in {"auto", "stable"}:
+    if engine == 'brush' or (engine == 'auto' and brush_available):
+        return ('brush', None) if brush_available else (None, ERROR_BRUSH_UNAVAILABLE)
+
+    if engine in {"auto", "stable", 'splatfacto'}:
         if not stable_available:
             return None, ERROR_DEPENDENCY_MISSING
-        return "stable", None
+        return ('splatfacto' if engine == 'splatfacto' else 'stable'), None
 
     return None, ERROR_INVALID_REQUEST
 
@@ -894,7 +1002,8 @@ def unique_output_paths(paths, requested_name, fallback_name):
         stem = f"{base}{suffix}"
         ply_path = os.path.join(paths.output_folder, f"{stem}.ply")
         spz_path = os.path.join(paths.output_folder, f"{stem}.spz")
-        if not os.path.exists(ply_path) and not os.path.exists(spz_path):
+        metadata_path = os.path.join(paths.output_folder, f'{stem}.meta.json')
+        if not os.path.exists(ply_path) and not os.path.exists(spz_path) and not os.path.exists(metadata_path):
             return stem, ply_path, spz_path
     raise RuntimeError("Could not allocate a unique output name")
 
@@ -1126,9 +1235,15 @@ def check_dependencies(force=False):
 
 def build_video_model_metadata(task):
     """Build safe sidecar metadata for a video reconstruction output."""
+    details = task.get('details') or {}
+    report = {key: copy.deepcopy(details[key]) for key in (
+        'resource_profile', 'geometry', 'stage_durations', 'focused_cleanup', 'output_stats',
+        'brush_oom_retry', 'up_alignment',
+    ) if key in details}
     return {
         "source_media_type": "video",
         "viewer_orientation": VIEWER_ORIENTATION_Y_FRONT,
+        'viewer_camera': details.get('viewer_camera'),
         "source_media_id": task.get("source_media_id"),
         "source_name": task.get("source_name"),
         "source_video_path": task.get("source_video_path"),
@@ -1139,6 +1254,7 @@ def build_video_model_metadata(task):
         "custom_options": task.get("custom_options"),
         "engine": task.get("engine"),
         "resolved_engine": task.get("resolved_engine"),
+        'reconstruction': report,
     }
 
 
@@ -1283,7 +1399,7 @@ def is_task_cancelled(task_manager, task_id):
         return task_manager.task_status.get(task_id, {}).get("status") == "cancelled"
 
 
-def wait_for_process(task_manager, task_id, process, output_lines, stage=None, profile=None, last_output=None):
+def wait_for_process(task_manager, task_id, process, output_lines, stage=None, profile=None, last_output=None, log_file=None):
     cancelled = False
     last_reported_progress = None
     viewer_url_logged = False
@@ -1293,6 +1409,13 @@ def wait_for_process(task_manager, task_id, process, output_lines, stage=None, p
         if last_output is not None:
             last_output[0] = time.time()
         output_lines.append(line)
+        if log_file is not None:
+            try:
+                log_file.write(line)
+                log_file.flush()
+            except OSError as exc:
+                runtime.log('WARN', f'Video task {task_id} stage log was disabled after a write failure: {exc}')
+                log_file = None
         append_task_log(task_manager, task_id, line)
         if stage == "video_optimize":
             if not viewer_url_logged:
@@ -1343,8 +1466,12 @@ def parse_training_progress(line, profile):
         return None
 
     ratio = None
+    if profile.get('engine') == 'brush':
+        parsed = brush_engine.parse_brush_progress(line, max_iter)
+        if parsed:
+            ratio = parsed['progress']
     percent_matches = TRAIN_PERCENT_PATTERN.findall(line)
-    if percent_matches:
+    if percent_matches and ratio is None:
         try:
             percent = float(percent_matches[-1])
         except ValueError:
@@ -1488,11 +1615,19 @@ def _log_command_heartbeat(task_id, stage, command_name, process, last_output, s
 
 
 def run_command(task_manager, task_id, cmd, cwd=None, stage=None, progress=None, profile=None):
+    if is_task_cancelled(task_manager, task_id):
+        return None, [], True
     if stage:
         update_task(task_manager, task_id, stage=stage, progress=progress or STAGE_PROGRESS.get(stage, 0))
 
     process_env = build_video_process_env()
+    if profile and profile.get('engine') == 'brush':
+        process_env = brush_engine.build_brush_environment(process_env)
     command_name = Path(str(cmd[0])).name if cmd else "command"
+    actual_cmd = cmd
+    if cmd and cmd[0] == 'ns-train':
+        shim = Path(__file__).resolve().parents[2] / 'tools' / 'train_splatfacto.py'
+        actual_cmd = [resolve_video_python(), str(shim), *cmd[1:]]
 
     append_task_log(task_manager, task_id, "$ " + " ".join(str(part) for part in cmd))
     runtime.log(
@@ -1511,7 +1646,7 @@ def run_command(task_manager, task_id, cmd, cwd=None, stage=None, progress=None,
     else:
         popen_kwargs["start_new_session"] = True
     process = subprocess.Popen(
-        cmd,
+        actual_cmd,
         cwd=cwd,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -1534,6 +1669,14 @@ def run_command(task_manager, task_id, cmd, cwd=None, stage=None, progress=None,
         daemon=True,
     )
     heartbeat.start()
+    log_file = None
+    if cwd and stage:
+        try:
+            log_dir = Path(cwd) / 'logs'
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = (log_dir / f'{stage}-{uuid.uuid4().hex[:8]}.log').open('w', encoding='utf-8')
+        except OSError as exc:
+            runtime.log('WARN', f'Video task {task_id} could not write a stage log: {exc}')
     try:
         return_code, cancelled = wait_for_process(
             task_manager,
@@ -1543,8 +1686,17 @@ def run_command(task_manager, task_id, cmd, cwd=None, stage=None, progress=None,
             stage=stage,
             profile=profile,
             last_output=last_output,
+            log_file=log_file,
         )
+    except Exception:
+        terminate_process_tree(process)
+        raise
     finally:
+        if log_file is not None:
+            try:
+                log_file.close()
+            except OSError as exc:
+                runtime.log('WARN', f'Video task {task_id} could not close its stage log: {exc}')
         heartbeat_stop.set()
         with task_manager.task_lock:
             if task_manager.running_processes.get(task_id) is process:
@@ -1586,7 +1738,7 @@ def build_failure_message(return_code, output_lines):
             "GPU memory is not enough for this reconstruction. "
             "Try a lower quality preset, fewer frames, or lower resolution."
         )
-    return None, tail or f"Command failed with return code {return_code}"
+    return 'video_reconstruction_training_failed', tail or f"Command failed with return code {return_code}"
 
 
 def clean_job_dir(job_dir, keep):
@@ -1908,7 +2060,7 @@ def find_exported_ply(export_dir):
 
 
 def should_apply_focused_cleanup(task):
-    return task.get("mode") != "environment"
+    return task.get("mode") == "object"
 
 
 def _find_dataparser_transforms(train_dir):
@@ -2213,6 +2365,17 @@ def count_registered_frames(data_dir):
 
 def resolve_training_profile(profile, data_dir, task_manager=None, task_id=None, task=None):
     """Downgrade FPS camera sampling to random when too few cameras registered."""
+    try:
+        with open(os.path.join(data_dir, 'transforms.json'), encoding='utf-8') as file:
+            transforms = json.load(file)
+        long_edge = max(int(transforms.get('w') or 0), int(transforms.get('h') or 0))
+        if long_edge and not profile.get('custom_options'):
+            factor = 1
+            while long_edge / factor > profile['max_resolution']:
+                factor *= 2
+            profile = {**profile, 'downscale_factor': factor, 'effective_training_long_edge': long_edge / factor}
+    except (OSError, ValueError, TypeError):
+        pass
     if profile.get("train_cameras_sampling_strategy") != "fps":
         return profile
 
@@ -2266,6 +2429,63 @@ def record_train_visualizer_fallback(task, from_visualizer, to_visualizer, reaso
         warnings.append(warning)
 
 
+def run_brush_training_stage(task_manager, task_id, task, job_dir, data_dir, train_dir, profile):
+    """调用固定 Brush CLI；显存不足时最多降低预算重训一次。"""
+    executable = brush_engine.find_brush_executable()
+    if not executable:
+        return 'failed', None, ERROR_BRUSH_UNAVAILABLE, 'The pinned Brush CLI is not installed.'
+    dataset_dir = os.path.join(train_dir, 'dataset')
+    dataset = brush_engine.prepare_brush_dataset(data_dir, dataset_dir)
+    task.setdefault('details', {})['up_alignment'] = dataset['up_alignment']
+    task['details']['viewer_camera'] = brush_engine.build_brush_viewer_camera(dataset_dir)
+    profile['brush_max_splats'] = max(int(profile['brush_max_splats']), int(dataset['sfm_points']))
+    for attempt in range(2):
+        output_dir = os.path.join(train_dir, f'brush-{attempt + 1}')
+        os.makedirs(output_dir, exist_ok=True)
+        command = brush_engine.build_brush_train_command(executable, dataset_dir, output_dir, profile)
+        return_code, lines, cancelled = run_command(
+            task_manager, task_id, command, cwd=job_dir,
+            stage='video_optimize', progress=STAGE_PROGRESS['video_optimize'], profile=profile,
+        )
+        if cancelled or is_task_cancelled(task_manager, task_id):
+            return 'cancelled', None, None, None
+        if return_code == 0:
+            exported_ply = brush_engine.find_brush_output(output_dir)
+            if not exported_ply:
+                return 'failed', None, ERROR_OUTPUT_MISSING, 'Brush completed without a final PLY.'
+            stats = brush_engine.validate_brush_ply(exported_ply)
+            task.setdefault('details', {})['output_stats'] = stats
+            update_task(task_manager, task_id, stage='video_export', progress=STAGE_PROGRESS['video_export'])
+            return 'ok', exported_ply, None, None
+        if attempt == 0 and contains_oom(''.join(lines)):
+            previous = {'max_resolution': profile['max_resolution'], 'max_splats': profile['brush_max_splats']}
+            profile['max_resolution'] = max(640, round(profile['max_resolution'] * 0.75))
+            profile['brush_max_splats'] = max(int(dataset['sfm_points']), round(profile['brush_max_splats'] * 0.67))
+            task.setdefault('details', {})['brush_oom_retry'] = {
+                'previous': previous, 'max_resolution': profile['max_resolution'],
+                'max_splats': profile['brush_max_splats'],
+            }
+            append_task_log(task_manager, task_id, 'Brush ran out of VRAM; retrying once with a smaller image and splat budget.')
+            continue
+        code, message = build_failure_message(return_code, lines)
+        return 'failed', None, code, message
+    return 'failed', None, ERROR_OOM, 'Brush could not fit this reconstruction in GPU memory.'
+
+
+def publish_video_ply(source_path, output_path):
+    """完整复制后原子发布，图库不会读到半个训练结果。"""
+    output_dir = os.path.dirname(output_path)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=output_dir, prefix='.video-export-', suffix='.tmp', delete=False) as file:
+            temporary = file.name
+        shutil.copy2(source_path, temporary)
+        os.replace(temporary, output_path)
+    finally:
+        if temporary and os.path.exists(temporary):
+            os.remove(temporary)
+
+
 def run_video_reconstruction_task(task_manager, task_id, task):
     job_dir = os.path.join(task_manager.paths.video_reconstruction_jobs_folder, task_id)
     source_dir = os.path.join(job_dir, "source")
@@ -2273,11 +2493,14 @@ def run_video_reconstruction_task(task_manager, task_id, task):
     train_dir = os.path.join(job_dir, "train")
     export_dir = os.path.join(job_dir, "export")
     logs_dir = os.path.join(job_dir, "logs")
-    keep_intermediate = bool(task.get("keep_intermediate_files"))
+    keep_intermediate = bool(task.get("keep_intermediate_files")) or task.get('mode') == 'object'
+    engine = task.get('resolved_engine') or task.get('engine') or 'brush'
+    budget = effective_vram_budget(task.get('vram_budget') or '12gb')
     profile = resolve_quality_profile(
         task.get("quality"),
-        task.get("vram_budget"),
+        budget,
         task.get("custom_options"),
+        engine=engine,
     )
     task.setdefault("details", {})["resource_profile"] = profile
 
@@ -2288,6 +2511,9 @@ def run_video_reconstruction_task(task_manager, task_id, task):
         os.makedirs(folder, exist_ok=True)
 
     try:
+        if is_task_cancelled(task_manager, task_id):
+            cleanup_failed()
+            return
         update_task(
             task_manager,
             task_id,
@@ -2310,9 +2536,30 @@ def run_video_reconstruction_task(task_manager, task_id, task):
                 "Automatic foreground segmentation is not configured; continuing without masks.",
             )
 
-        geometry_status, geometry_code, geometry_message = run_geometry_stage(
-            task_manager, task_id, task, job_dir, data_dir, profile
-        )
+        if engine == 'brush':
+            geometry_status, chosen_data_dir, geometry_lines, geometry_report = video_geometry.run_video_geometry(
+                task_manager, task_id, task, job_dir, data_dir, profile, run_command, build_video_process_env(),
+            )
+            task.setdefault('details', {})['geometry'] = geometry_report
+            if geometry_status == 'ok':
+                data_dir = chosen_data_dir
+                geometry_code, geometry_message = None, None
+                if geometry_report['registration_ratio'] < 0.8:
+                    task['details'].setdefault('warnings', []).append({
+                        'code': 'video_reconstruction_geometry_incomplete',
+                        'message': 'Some video views could not be registered; inspect the reconstruction report.',
+                    })
+            elif geometry_status == 'quality_failed':
+                geometry_code = ERROR_GEOMETRY_INSUFFICIENT
+                geometry_message = 'Too few video views were aligned reliably; training was stopped before spending more time.'
+            elif geometry_status == 'cancelled':
+                geometry_code, geometry_message = None, None
+            else:
+                geometry_code, geometry_message = build_failure_message(1, geometry_lines)
+        else:
+            geometry_status, geometry_code, geometry_message = run_geometry_stage(
+                task_manager, task_id, task, job_dir, data_dir, profile
+            )
         if geometry_status == "cancelled":
             update_task(task_manager, task_id, status="cancelled", error=None)
             cleanup_failed()
@@ -2328,63 +2575,39 @@ def run_video_reconstruction_task(task_manager, task_id, task):
             cleanup_failed()
             return
 
-        training_profile = resolve_training_profile(
-            profile,
-            data_dir,
-            task_manager=task_manager,
-            task_id=task_id,
-            task=task,
-        )
-        train_visualizer = TRAIN_VISUALIZER_VIEWER
-        train_cmd = build_train_command(data_dir, train_dir, training_profile, visualizer=train_visualizer)
-        return_code, output_lines, cancelled = run_command(
-            task_manager,
-            task_id,
-            train_cmd,
-            cwd=job_dir,
-            stage="video_optimize",
-            progress=STAGE_PROGRESS["video_optimize"],
-            profile=training_profile,
-        )
-        if cancelled:
-            update_task(task_manager, task_id, status="cancelled", error=None)
-            cleanup_failed()
-            return
-        if is_task_cancelled(task_manager, task_id):
-            update_task(task_manager, task_id, status="cancelled", error=None)
-            cleanup_failed()
-            return
-        if return_code != 0 and should_retry_train_without_viewer(train_visualizer, output_lines):
-            fallback_visualizer = TRAIN_VISUALIZER_FALLBACK
-            record_train_visualizer_fallback(
-                task,
-                train_visualizer,
-                fallback_visualizer,
-                "viser_startup_failed",
+        if engine == 'brush':
+            training_status, exported_ply, code, message = run_brush_training_stage(
+                task_manager, task_id, task, job_dir, data_dir, train_dir, profile,
             )
-            append_task_log(
-                task_manager,
-                task_id,
-                (
-                    "Nerfstudio viewer failed during startup; "
-                    f"retrying ns-train with --vis {fallback_visualizer}."
-                ),
-            )
-            runtime.log(
-                "WARN",
-                "Video task "
-                f"{task_id} retrying ns-train with --vis {fallback_visualizer} "
-                "because the Viser live viewer failed to start.",
-            )
-            shutil.rmtree(train_dir, ignore_errors=True)
-            os.makedirs(train_dir, exist_ok=True)
-            train_visualizer = fallback_visualizer
-            train_cmd = build_train_command(
+            if training_status != 'ok':
+                update_task(task_manager, task_id, status='cancelled' if training_status == 'cancelled' else 'failed',
+                            error=message, error_code=code)
+                cleanup_failed()
+                return
+        else:
+            registered = count_registered_frames(data_dir)
+            if registered is not None:
+                extracted = len(list((Path(data_dir) / 'images').glob('*')))
+                ratio = registered / extracted if extracted else None
+                task['details']['geometry'] = {
+                    'registered_frames': registered, 'extracted_frames': extracted,
+                    'registration_ratio': ratio,
+                }
+                if registered < video_geometry.MIN_REGISTERED_IMAGES or (ratio is not None and ratio < 0.5):
+                    update_task(task_manager, task_id, status='failed', error_code=ERROR_GEOMETRY_INSUFFICIENT,
+                                error='Too few video views were aligned reliably; training was stopped.')
+                    cleanup_failed()
+                    return
+            training_profile = resolve_training_profile(
+                profile,
                 data_dir,
-                train_dir,
-                training_profile,
-                visualizer=train_visualizer,
+                task_manager=task_manager,
+                task_id=task_id,
+                task=task,
             )
+            task['details']['resource_profile'] = training_profile
+            train_visualizer = TRAIN_VISUALIZER_VIEWER
+            train_cmd = build_train_command(data_dir, train_dir, training_profile, visualizer=train_visualizer)
             return_code, output_lines, cancelled = run_command(
                 task_manager,
                 task_id,
@@ -2402,64 +2625,115 @@ def run_video_reconstruction_task(task_manager, task_id, task):
                 update_task(task_manager, task_id, status="cancelled", error=None)
                 cleanup_failed()
                 return
-        if return_code != 0:
-            code, message = build_failure_message(return_code, output_lines)
-            update_task(task_manager, task_id, status="failed", error=message, error_code=code)
-            cleanup_failed()
-            return
+            if return_code != 0 and should_retry_train_without_viewer(train_visualizer, output_lines):
+                fallback_visualizer = TRAIN_VISUALIZER_FALLBACK
+                record_train_visualizer_fallback(
+                    task,
+                    train_visualizer,
+                    fallback_visualizer,
+                    "viser_startup_failed",
+                )
+                append_task_log(
+                    task_manager,
+                    task_id,
+                    (
+                        "Nerfstudio viewer failed during startup; "
+                        f"retrying ns-train with --vis {fallback_visualizer}."
+                    ),
+                )
+                runtime.log(
+                    "WARN",
+                    "Video task "
+                    f"{task_id} retrying ns-train with --vis {fallback_visualizer} "
+                    "because the Viser live viewer failed to start.",
+                )
+                shutil.rmtree(train_dir, ignore_errors=True)
+                os.makedirs(train_dir, exist_ok=True)
+                train_visualizer = fallback_visualizer
+                train_cmd = build_train_command(
+                    data_dir,
+                    train_dir,
+                    training_profile,
+                    visualizer=train_visualizer,
+                )
+                return_code, output_lines, cancelled = run_command(
+                    task_manager,
+                    task_id,
+                    train_cmd,
+                    cwd=job_dir,
+                    stage="video_optimize",
+                    progress=STAGE_PROGRESS["video_optimize"],
+                    profile=training_profile,
+                )
+                if cancelled:
+                    update_task(task_manager, task_id, status="cancelled", error=None)
+                    cleanup_failed()
+                    return
+                if is_task_cancelled(task_manager, task_id):
+                    update_task(task_manager, task_id, status="cancelled", error=None)
+                    cleanup_failed()
+                    return
+            if return_code != 0:
+                code, message = build_failure_message(return_code, output_lines)
+                update_task(task_manager, task_id, status="failed", error=message, error_code=code)
+                cleanup_failed()
+                return
 
-        config_path = find_nerfstudio_config(train_dir)
-        if not config_path:
-            update_task(
+            config_path = find_nerfstudio_config(train_dir)
+            if not config_path:
+                update_task(
+                    task_manager,
+                    task_id,
+                    status="failed",
+                    error="Nerfstudio training finished but config.yml was not found.",
+                    error_code=ERROR_OUTPUT_MISSING,
+                )
+                cleanup_failed()
+                return
+
+            return_code, output_lines, cancelled = run_command(
                 task_manager,
                 task_id,
-                status="failed",
-                error="Nerfstudio training finished but config.yml was not found.",
-                error_code=ERROR_OUTPUT_MISSING,
+                build_export_command(config_path, export_dir),
+                cwd=job_dir,
+                stage="video_export",
+                progress=STAGE_PROGRESS["video_export"],
             )
-            cleanup_failed()
-            return
+            if cancelled:
+                update_task(task_manager, task_id, status="cancelled", error=None)
+                cleanup_failed()
+                return
+            if is_task_cancelled(task_manager, task_id):
+                update_task(task_manager, task_id, status="cancelled", error=None)
+                cleanup_failed()
+                return
+            if return_code != 0:
+                code, message = build_failure_message(return_code, output_lines)
+                update_task(task_manager, task_id, status="failed", error=message, error_code=code)
+                cleanup_failed()
+                return
 
-        return_code, output_lines, cancelled = run_command(
-            task_manager,
-            task_id,
-            build_export_command(config_path, export_dir),
-            cwd=job_dir,
-            stage="video_export",
-            progress=STAGE_PROGRESS["video_export"],
-        )
-        if cancelled:
-            update_task(task_manager, task_id, status="cancelled", error=None)
-            cleanup_failed()
-            return
-        if is_task_cancelled(task_manager, task_id):
-            update_task(task_manager, task_id, status="cancelled", error=None)
-            cleanup_failed()
-            return
-        if return_code != 0:
-            code, message = build_failure_message(return_code, output_lines)
-            update_task(task_manager, task_id, status="failed", error=message, error_code=code)
-            cleanup_failed()
-            return
-
-        exported_ply = find_exported_ply(export_dir)
-        if not exported_ply:
-            update_task(
-                task_manager,
-                task_id,
-                status="failed",
-                error="Nerfstudio export finished but no .ply file was found.",
-                error_code=ERROR_OUTPUT_MISSING,
-            )
-            cleanup_failed()
-            return
+            exported_ply = find_exported_ply(export_dir)
+            if not exported_ply:
+                update_task(
+                    task_manager,
+                    task_id,
+                    status="failed",
+                    error="Nerfstudio export finished but no .ply file was found.",
+                    error_code=ERROR_OUTPUT_MISSING,
+                )
+                cleanup_failed()
+                return
 
         output_ply = exported_ply
         if should_apply_focused_cleanup(task):
             focused_ply = os.path.join(export_dir, "splat-focused.ply")
             object_focus = None
             if task.get("mode") == "object":
-                object_focus = estimate_object_focus(train_dir, data_dir)
+                object_focus = (
+                    brush_engine.estimate_brush_object_focus(os.path.join(train_dir, 'dataset'))
+                    if engine == 'brush' else estimate_object_focus(train_dir, data_dir)
+                )
                 if object_focus is None:
                     append_task_log(
                         task_manager,
@@ -2505,7 +2779,7 @@ def run_video_reconstruction_task(task_manager, task_id, task):
                 append_task_log(task_manager, task_id, f"Focused cleanup failed: {exc}")
 
         os.makedirs(task_manager.paths.output_folder, exist_ok=True)
-        shutil.copy2(output_ply, task["output_path"])
+        publish_video_ply(output_ply, task["output_path"])
         persist_video_model_assets(task_manager.paths, task)
 
         spz_error = None
@@ -2520,6 +2794,10 @@ def run_video_reconstruction_task(task_manager, task_id, task):
         except Exception as exc:
             spz_error = str(exc)
             append_task_log(task_manager, task_id, f"SPZ conversion failed: {spz_error}")
+
+        if is_task_cancelled(task_manager, task_id):
+            cleanup_failed()
+            return
 
         try:
             from backend.services import model_assets
@@ -2541,12 +2819,22 @@ def run_video_reconstruction_task(task_manager, task_id, task):
             error_code=ERROR_SPZ_FAILED if spz_error else None,
             completed_at=time.time(),
         )
+        # 完成状态结算最后阶段耗时后再保存精简报告，清理帧图也不会丢失诊断。
+        try:
+            model_gallery.write_model_metadata(task_manager.paths, task['output_name'], build_video_model_metadata(task))
+        except OSError as exc:
+            runtime.log('WARN', f'Video task {task_id} could not save its final reconstruction report: {exc}')
         clean_job_dir(job_dir, keep_intermediate)
+    except video_geometry.InvalidVideoError as exc:
+        update_task(task_manager, task_id, status='failed', error=str(exc), error_code=ERROR_INVALID_VIDEO)
+        cleanup_failed()
     except Exception as exc:
         if is_task_cancelled(task_manager, task_id):
             update_task(task_manager, task_id, status="cancelled", error=None)
         else:
             error_text = traceback.format_exc()
             runtime.log("ERROR", f"Video task {task_id} exception traceback:\n{error_text}")
-            update_task(task_manager, task_id, status="failed", error=error_text)
+            update_task(task_manager, task_id, status="failed",
+                        error='The video reconstruction failed unexpectedly. Inspect the local task logs.',
+                        error_code='video_reconstruction_unexpected_failure')
         cleanup_failed()

@@ -128,7 +128,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 **📦 模型资产库**：统一展示生成模型与导入的 `.ply/.spz/.splat/.rad`，支持筛选、排序、滚动增量加载、近期模型、详情面板、批量导入、下载和删除；默认打开/下载格式会跟随 Settings 中的默认模型格式并自动回退到可用文件。
 
-**🎥 视频 3DGS 重建**：在 Windows + NVIDIA RTX 5070 Ti Laptop GPU 环境中，已验证本地视频可通过 Nerfstudio/Splatfacto 稳定路线生成 `.ply/.spz` 模型；支持质量档、focused cleanup、视频封面缩略图、原视频回看和视频模型预览坐标适配。
+**🎥 视频 3DGS 重建**：默认 COLMAP + Brush，保留 Nerfstudio/Splatfacto 做对照；支持质量档、可靠配准检查、可选主体裁剪、视频封面、原视频回看和 `.ply/.spz` 模型导出。
 
 **📥 当前相册上传**：可直接把照片上传到当前相册目录，支持选择文件和拖拽上传，上传后自动刷新当前相册。
 
@@ -155,7 +155,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | 功能                | 描述                                                                                                                                            |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **📸 空间影像生成** | 上传任意图片，基于 Apple ML-Sharp 自动生成 3D 高斯溅射模型，安装时预下载约 2.62 GiB 模型                                                        |
-| **🎥 视频 3DGS 重建** | 从本地相册视频或拖入视频创建静态 Gaussian Splat 模型，走 Nerfstudio/Splatfacto 稳定路线，支持质量档、focused cleanup、任务阶段、缩略图和原视频回看 |
+| **🎥 视频 3DGS 重建** | 从本地相册视频或拖入视频创建静态 Gaussian Splat 模型，默认 COLMAP + Brush，支持旧版 Splatfacto 对照、质量档、任务阶段、缩略图和原视频回看 |
 | **🖼️ 现代工作流**   | 多选/拖拽批量上传、虚拟滚动图库、站内原图对比、智能任务队列（活跃 2s / 空闲 10s 轮询），删除滑出动画、可取消的待处理任务                          |
 | **📦 模型资产库**   | 统一浏览生成与导入模型，支持 `.ply/.spz/.splat/.rad`、筛选排序、详情元数据、近期模型、批量导入和游标式滚动加载                              |
 | **🗂️ 本地媒体图库** | 配置多个本地/NAS 目录作为相册，支持照片与视频混合浏览、筛选、预览、下载；照片可一键转 3D，视频可播放并发起视频重建                          |
@@ -296,7 +296,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 >
 > 🛠️ **零手动配置**：有 NVIDIA GPU 时，安装脚本会自动检测驱动并匹配对应的 PyTorch CUDA 版本（cu118 / cu126 / cu128）。
 >
-> 🎥 **视频重建环境需单独确认**：常规安装和核心便携包会先保证主程序和图片 3D 推理可用；如果要从视频生成 3D 模型，请下载 `cu128-rtx50-video-recon` 包，或按 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南) 安装/复用 `.video-reconstruction-env`、Nerfstudio/Splatfacto、COLMAP 和 `ffmpeg/ffprobe`。
+> 🎥 **视频重建环境需单独确认**：常规安装和核心便携包会先保证主程序和图片 3D 推理可用；如果要从视频生成 3D 模型，请下载 `cu128-rtx50-video-recon` 包，或按 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南) 安装固定版本 Brush CLI、COLMAP 和 `ffmpeg/ffprobe`，按需复用可选 Splatfacto 环境。
 >
 > 👉 未验证平台理论上可正常工作，如遇问题欢迎在 [Issues](https://github.com/lueluelue12138/sharp-gui/issues) 反馈。
 
@@ -378,7 +378,7 @@ run.bat           # Windows
 - 📦 **检测/安装 Git** - 缺失时自动安装 (Windows)
 - 🎮 **检测 NVIDIA GPU** - 有 GPU 时自动安装匹配驱动的 CUDA 版 PyTorch（cu118 / cu126 / cu128）
 - 🧩 **安装依赖** - 创建虚拟环境，安装 ml-sharp 核心和 GUI 依赖
-- 🎥 **视频重建环境需单独准备** - Nerfstudio/Splatfacto、COLMAP 和 `ffmpeg/ffprobe` 不作为常规安装的必需项；需要视频重建时请参考 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南)
+- 🎥 **视频重建环境需单独准备** - Brush CLI、COLMAP 和 `ffmpeg/ffprobe` 不作为常规安装的必需项；需要视频重建时请参考 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南)
 - 📥 **预下载模型** - 安装阶段即下载约 2.62 GiB 的推理模型，避免首次运行等待
 - 🔐 **生成 HTTPS 证书** - 自动生成自签名证书，支持局域网安全访问
 
@@ -464,20 +464,29 @@ rm -rf sharp-gui/
 
 ### 从视频生成 3D 模型
 
-> 🎥 开始前请先确认视频重建依赖可用：安装或复用 `.video-reconstruction-env`，并确保 Nerfstudio/Splatfacto、COLMAP、`ffmpeg/ffprobe` 通过诊断。完整步骤见 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南)。
+开始前在 Settings > 视频重建中检查所选引擎。默认 **Brush**，相机由 COLMAP 自动对齐；**Splatfacto** 保留为旧版对照引擎。安装方式见 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南)。
 
-1. **选择视频** - 在本地媒体图库中选择一个视频，或把单个视频拖入模型视图 / 模型列表 /「生成新模型」入口
-2. **选择参数** - 弹窗中可选择模式（自动 / 物品 / 环境）、质量（快速预览 / 高质量 / 极致 / 自定义）和引擎（自动 / 稳定）；自定义可填写帧数、迭代、输入下采样、匹配方式和图像缓存
-3. **等待重建** - 任务队列会显示抽帧、位姿估计、高斯优化、导出、SPZ 压缩等阶段
-4. **查看结果** - 完成后模型进入现有模型图库，默认使用视频封面作为缩略图，并在 hover 操作中提供原视频回看入口
+1. **选择视频** - 在本地媒体图库选择一个视频，或把单个视频拖入模型视图 / 模型列表 /「生成新模型」入口。
+2. **选择引擎与质量** - Brush 提供快速预览、高质量、极致和自定义；自定义填写帧数、迭代、真实长边像素上限及匹配方式。Splatfacto 单独提供输入下采样和图像缓存选项。
+3. **等待重建** - 抽帧后估计相机位姿；至少 8 张注册帧且配准率达到 50% 才进入训练。低配准率会尝试一次补密或扩大匹配范围，仍不足时提示重新拍摄或拆段。Brush 训练前联合去畸变图片与相机内参，并统一相机和稀疏点的上方向。
+4. **查看结果** - 模型进入图库，可查看源视频、下载 PLY/SPZ。新增 SPZ 保留高阶球谐颜色；历史 SH0 文件无法恢复这些数据，需要从原 PLY 重新转换。
 
-当前建议：
+Brush 档位：
 
-- **默认质量**：高质量，适合 RTX 5070 Ti Laptop 12GB 这类本机环境，约 180 帧 / 30k 迭代 / 2x 输入下采样
-- **长视频建议**：选择自定义后可从 600 帧 / 35k 迭代 / 2x 输入下采样 / sequential 匹配 / CPU 图像缓存起步，优先覆盖连续走拍路径；若改用 exhaustive 完整匹配，需要显著降低帧数以避免 COLMAP 匹配压力爆炸
-- **默认引擎**：自动；当前等价于已验证的稳定 Nerfstudio/Splatfacto 路线，保留后续策略切换空间
-- **默认清理**：自动 / 物品模式会启用 focused cleanup，尽量移除外围游离碎片；环境模式保留完整场景
-- **当前限制**：一次只提交一个视频；动态 4D、网格修补、手工裁剪、云端训练不属于当前范围
+| 档位 | 迭代 | 图像长边上限 |
+| --- | ---: | --- |
+| 快速预览 | 8,000 | 1600 像素 |
+| 高质量 | 15,000 | 1920 像素 |
+| 极致 | 30,000 | 根据显存预算调整 |
+| 自定义 | 1,000–80,000 | 640–3840 像素 |
+
+- **长视频**：可从自定义 600 帧 / 15k / 1920 像素 / sequential 开始；更高帧数增加配准和训练成本。Exhaustive 两两匹配最多允许 450 帧。
+- **模式**：自动和环境保留完整模型，不自动删点。物品模式才执行主体裁剪，可能删除周边几何；暂不提供自动前景遮罩。
+- **显存预算**：按实际显卡容量选择；本机目标为 RTX 5070 Ti Laptop 12GB，不应设置成 16GB。
+- **排查问题**：精简重建报告保存在模型 sidecar；开启保留中间文件可检查抽帧、位姿和训练文件。物品裁剪的原始 PLY 在保留的任务目录中可用于对照。
+- **初始取景**：新 Brush 模型保存注册相机的取景位置，打开时直接面向主体，避免远处高斯点把包围盒中心拉偏。
+- **验证范围**：已通过合成流程测试和本机非敏感视频的完整重建、PLY 渲染与 SPZ 查看器验证。画质仍需结合素材对照；更多迭代无法补足缺失视角，耗时取决于素材、相机配准和场景规模。
+- **当前范围**：一次处理一个视频并生成静态 3DGS；多图联合重建尚未接入。
 
 ### 3D 交互控制
 
@@ -567,136 +576,61 @@ rm -rf sharp-gui/
 
 ### 视频重建配置
 
-Settings 中的「视频重建」区域用于查看依赖诊断和保存默认值：
+Settings 中的「视频重建」区域保存默认质量、默认引擎、实际显存预算和中间文件保留选项。默认引擎为 Brush，Splatfacto 可切换用于对照；旧配置的 auto / stable 会迁移显示为 Brush / Splatfacto。
 
-- **默认质量**：快速预览 / 高质量 / 极致，对应不同帧数、训练迭代、匹配策略和输入分辨率预算；单次任务可在生成弹窗中选择自定义参数
-- **默认引擎**：自动 / 稳定；自动当前使用已验证的稳定 Nerfstudio/Splatfacto 路线
-- **显存预算**：自动 / 8GB / 12GB / 16GB / 24GB，用于收紧或放宽资源边界
-- **保留中间文件**：用于排查抽帧、位姿和 Nerfstudio 日志，关闭时完成/取消后会清理 job 目录
+依赖诊断分别显示公共视频与相机工具、Brush 和可选 Splatfacto。缺少 `ns-train` 不会阻止 Brush；缺少 Brush CLI 不会阻止已安装的 Splatfacto。后端启动后异步预热诊断，普通打开弹窗复用缓存，Settings 中点击刷新才重新扫描。
 
-Settings 中的「默认模型格式」用于控制模型资产库、近期模型、下载和打开模型时的格式优先级：
-
-- **SPZ（紧凑）**：优先使用压缩模型，适合浏览、分享和移动端访问
-- **PLY（原始）**：优先使用原始模型，适合需要保留完整原始数据的调试或后处理
-- 如果资产没有首选格式，系统会自动回退到该资产可用的 `.spz/.ply/.splat/.rad`
-
-后端进程启动后会异步预热一次视频重建依赖状态；普通打开首页或重建弹窗不会同步扫描外部工具。Settings 中点击刷新会触发后台重新检测。
+「默认模型格式」控制模型资产库、近期模型、下载与预览的格式优先级：SPZ 适合紧凑传输，PLY 保留原始数据；首选格式缺失时回退至资产可用格式。
 
 ### 视频重建环境手动搭建指南
 
-以下说明面向没有下载视频重建完整包、或需要手动排障的用户和 AI Agent，覆盖从零搭建稳定视频重建路线（COLMAP + Nerfstudio/Splatfacto）的依赖。当前唯一已验证平台为 **Windows + NVIDIA GPU（RTX 5070 Ti Laptop 12GB）**。
+默认路线为 **ffmpeg/ffprobe → COLMAP → 官方 Brush CLI v0.3.0**。目标环境为 Windows + RTX 5070 Ti Laptop 12GB；已验证该环境下的完整本机视频重建，其他素材的画质和耗时需实际评估。Nerfstudio / PyTorch / CUDA 训练环境仅供可选的 Splatfacto 引擎。
 
-#### 使用 AI Agent 辅助搭建
+#### 1. 安装固定版本 Brush CLI
 
-如果不想逐步手动配置，可以把当前项目交给本机 AI coding agent，让它按 README 安装并验证。推荐提示词：
+先完成主程序安装，再在项目根目录运行：
 
-> 请先了解当前 Sharp GUI 项目和视频重建流程，检查系统、GPU/驱动、Python 与 PATH；按 README 安装或复用 .video-reconstruction-env、CUDA/PyTorch、COLMAP、Nerfstudio/Splatfacto、ffmpeg/ffprobe。不要修改无关业务代码。最后运行诊断 API 和基础命令，确认依赖可用。
-
-#### 前置条件
-
-| 依赖 | 用途 | 获取方式 |
-|------|------|----------|
-| Python 3.10–3.12 | 视频重建虚拟环境基础 | [python.org](https://www.python.org/downloads/) 或系统包管理器 |
-| NVIDIA GPU + 驱动 ≥ 535 | CUDA 推理与训练 | [nvidia.com/drivers](https://www.nvidia.com/Download/index.aspx) |
-| Git | 克隆依赖仓库 | [git-scm.com](https://git-scm.com/) |
-
-#### 1. 创建视频重建虚拟环境
-
-```bash
-# 在项目根目录创建独立 venv（与主项目 venv 隔离）
-python -m venv .video-reconstruction-env
-
-# 激活（Windows）
-.video-reconstruction-env\Scripts\activate
-# 激活（Linux/macOS）
-source .video-reconstruction-env/bin/activate
+```powershell
+python tools/install_brush.py
 ```
 
-#### 2. 安装 PyTorch (CUDA)
+安装器下载并校验固定版本的官方 [Brush v0.3.0](https://github.com/ArthurBrussee/brush/releases/tag/v0.3.0)，保存到 `.sharp-gui-tools/brush/v0.3.0/brush_app.exe`。请使用该 CLI 程序；普通打开 Brush 编辑器不代表已配置 Sharp GUI 的后台训练命令。旧的视频便携包可能只包含 Splatfacto，不能据此认定 Brush 已安装。
 
-根据你的 GPU 和驱动选择对应 CUDA 版本。查看驱动支持的最高 CUDA：`nvidia-smi` 右上角。
+#### 2. 准备公共视频与相机工具
 
-```bash
-# RTX 50 系列（CUDA 12.8，需驱动 ≥ 570）
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu128
+- **COLMAP**：使用 [官方 Windows 构建](https://github.com/colmap/colmap/releases)，或复用 `.video-reconstruction-env/colmap/bin/colmap.exe`。
+- **ffmpeg / ffprobe**：使用 [Windows 构建](https://www.gyan.dev/ffmpeg/builds/)，确保两者可以被项目找到。
+- **GPU 驱动**：保持当前 NVIDIA 驱动可用；Brush 使用自己的 GPU 运行时，不需要安装 Nerfstudio 来训练。
 
-# RTX 20/30/40 系列主流（CUDA 12.6，需驱动 ≥ 560）
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu126
+验证 `colmap -h`、`ffmpeg -version`、`ffprobe -version` 和 Brush CLI 的 `--help`。项目安装器的工具位置会优先于系统 PATH。
 
-# 较旧显卡（CUDA 11.8，需驱动 ≥ 520）
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+#### 3. 可选：安装旧版 Splatfacto 环境
+
+只有需要与旧路线对照时才运行：
+
+```powershell
+python tools/install_video_reconstruction.py
 ```
 
-#### 3. 安装稳定路线依赖（Nerfstudio / COLMAP / ffmpeg）
+该环境位于 `.video-reconstruction-env`，与主程序隔离；安装器管理 PyTorch CUDA、Nerfstudio、gsplat 和 COLMAP。现有参考组合为 Nerfstudio 1.1.5、gsplat 1.5.3、PyTorch 2.8.0 + CUDA 12.8，面向 RTX 50。安装后验证 `ns-process-data --help`、`ns-train --help`、`ns-export --help`。
 
-##### 3a. Nerfstudio + gsplat（Splatfacto 训练/导出引擎）
+#### 4. 检查所选引擎
 
-```bash
-# gsplat（Gaussian Splatting CUDA 内核，Nerfstudio 依赖）
-pip install gsplat
+启动后打开 Settings > 视频重建并刷新，或读取：
 
-# Nerfstudio（提供 ns-process-data / ns-train / ns-export 命令）
-pip install nerfstudio
+```powershell
+curl.exe http://127.0.0.1:5050/api/video-reconstructions/status
 ```
 
-> 安装后验证：`ns-train --help`、`ns-process-data --help`、`ns-export --help` 均正常输出即可。
+| 分组 | 作用 |
+| --- | --- |
+| `required` | ffmpeg / ffprobe 视频解码 |
+| `brush` | COLMAP + 固定版本 Brush CLI |
+| `splatfacto` | COLMAP + 可选 Nerfstudio 训练和导出工具 |
 
-##### 3b. COLMAP（稀疏重建/位姿估计）
+`summary.brush_available` 与 `summary.splatfacto_available` 分别表示完整路线能否运行。只需所选引擎可用；不要因另一引擎缺失反复安装无关环境。
 
-- **Windows**: 下载预编译版 [COLMAP releases](https://github.com/colmap/colmap/releases)，解压后将 `bin/` 目录加入系统 `PATH`
-- **Linux (Ubuntu/Debian)**: `sudo apt install colmap`
-- **macOS**: `brew install colmap`
-
-> 验证：`colmap -h` 正常输出。
-
-##### 3c. ffmpeg + ffprobe（视频解码/抽帧）
-
-- **Windows**: 下载 [gyan.dev builds](https://www.gyan.dev/ffmpeg/builds/) 或 [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases)，解压后将 `bin/` 加入 `PATH`
-- **Linux**: `sudo apt install ffmpeg`
-- **macOS**: `brew install ffmpeg`
-
-> 验证：`ffmpeg -version` 和 `ffprobe -version` 正常输出。
-
-#### 4. 验证环境完整性
-
-启动 Sharp GUI 后打开 Settings > 视频重建，或者直接调用诊断 API：
-
-```bash
-curl http://127.0.0.1:5050/api/video-reconstructions/status | python -m json.tool
-```
-
-正确配置后各分组状态应为：
-
-| 分组 | 状态 | 包含检测项 |
-|------|------|-----------|
-| **视频基础工具** (required) | ✅ Available | ffmpeg, ffprobe |
-| **稳定 3DGS 路线** (stable) | ✅ Available | ns-process-data, ns-train, ns-export, colmap |
-
-#### 依赖版本参考（已验证组合）
-
-| 包 | 验证版本 | 备注 |
-|----|---------|------|
-| Python | 3.11.x | .video-reconstruction-env 使用 |
-| PyTorch | 2.5+ (cu128) | RTX 5070 Ti 需 cu128；主流显卡用 cu126 |
-| Nerfstudio | 1.1.x+ | 需支持 `splatfacto` 方法和 `nerfstudio-data` dataparser |
-| gsplat | 1.4+ | Nerfstudio 的 Gaussian Splatting CUDA 后端 |
-| COLMAP | 3.9+ | 预编译版即可，无需从源码编译 |
-| ffmpeg / ffprobe | 6.x+ | 需支持 `-vf fps=` 滤镜 |
-
-#### 目录结构总览
-
-```
-sharp-gui/
-├── .video-reconstruction-env/    # 视频重建独立 venv（已被 .gitignore）
-│   ├── Scripts/ 或 bin/          #   → python, ns-train, ns-export, colmap 等命令
-│   └── Lib/ 或 lib/              #   → torch, nerfstudio, gsplat 等包
-├── .video-reconstruction/         # 运行时中间文件（workspace 内，自动创建）
-│   ├── jobs/                     #   每任务工作目录（训练/导出后清理）
-│   └── uploads/                  #   拖入视频的上传缓存
-└── outputs/                       # 最终产物：*.ply + *.spz + *.meta.json
-```
-
-> 💡 `.video-reconstruction-env` 已在 `.gitignore` 中排除，不会被提交到仓库。
+重建运行文件位于当前 workspace 的 `.video-reconstruction/jobs/`，最终 PLY、SPZ 和精简报告位于 `outputs/`。关闭保留中间文件后会清理任务目录，模型及其报告保留。
 
 ### 启用 HTTPS (推荐)
 
@@ -832,7 +766,7 @@ frontend/
 | **国际化**   | i18next + react-i18next                            |
 | **样式**     | CSS Modules + Apple Glass Morphism                 |
 | **后端**     | Python 3.10+, Flask app factory + Blueprints, TaskManager |
-| **AI 引擎**  | Apple ML-Sharp (PyTorch, gsplat)；视频重建稳定路线使用 Nerfstudio/Splatfacto + COLMAP/ffmpeg |
+| **AI 引擎**  | Apple ML-Sharp (PyTorch, gsplat)；视频重建默认 Brush + COLMAP/ffmpeg，保留 Nerfstudio/Splatfacto |
 | **3D 渲染**  | Three.js + Spark 2.0 (WASM 加速高斯溅射)           |
 
 ### 性能优化
