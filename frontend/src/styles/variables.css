@@ -48,6 +48,14 @@
   --glass-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
   --glass-blur: blur(30px) saturate(180%);
 
+  /* === 模型编辑器：在明暗场景上保持浮层可读 === */
+  --editor-panel-bg: var(--glass-bg);
+  --editor-text-secondary: var(--text-secondary);
+  --editor-text-muted: var(--text-muted);
+  --editor-accent: var(--accent-blue);
+  --editor-danger: var(--danger-color);
+  --editor-disabled-text: #a3adba;
+
   /* === 布局 === */
   --sidebar-width: 280px;
   --controls-height: 60px;
@@ -74,5 +82,11 @@
     --glass-bg-light: rgba(40, 40, 45, 0.5);
     --glass-border: rgba(255, 255, 255, 0.15);
     --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+
+    --editor-panel-bg: rgba(24, 27, 34, 0.88);
+    --editor-text-secondary: #c7cdd7;
+    --editor-text-muted: #afb8c6;
+    --editor-accent: #75baff;
+    --editor-danger: #ff9b98;
   }
 }

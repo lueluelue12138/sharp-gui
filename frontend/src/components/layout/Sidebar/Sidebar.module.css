@@ -1,4 +1,5 @@
 /* Sidebar styles - migrated from original index.html */
+:global(body:has([data-model-editor])) .toggleBtn { display: none; }
 
 .sidebar {
     width: var(--sidebar-width);

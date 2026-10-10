@@ -1,0 +1,537 @@
+.root {
+  position: absolute;
+  inset: 0;
+  z-index: 110;
+  pointer-events: none;
+  color: var(--text-primary);
+}
+.confirmLayer {
+  pointer-events: auto;
+}
+.header,
+.views,
+.inspector,
+.toolRail,
+.message,
+.inspectorToggle {
+  pointer-events: auto;
+  border: 1px solid var(--glass-border);
+  background: var(--editor-panel-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  box-shadow:
+    var(--glass-shadow),
+    0 12px 40px rgba(0, 0, 0, 0.08);
+}
+.header {
+  position: absolute;
+  inset: var(--space-lg) var(--space-xl) auto;
+  min-height: 68px;
+  padding: var(--space-sm) var(--space-md);
+  display: flex;
+  gap: var(--space-md);
+  align-items: center;
+  border-radius: var(--radius-xl);
+}
+.title {
+  flex: 1;
+  min-width: 0;
+}
+.eyebrow {
+  font-size: 9px;
+  font-weight: 650;
+  letter-spacing: 0.12em;
+  color: var(--editor-text-secondary);
+}
+.title h2 {
+  margin: 3px 0 0;
+  font-size: 18px;
+  font-weight: 650;
+  letter-spacing: -0.035em;
+}
+.iconButton,
+.saveButton,
+.views button,
+.toolRail button,
+.actionPair button,
+.cameraButton,
+.clearButton {
+  font: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  border: 0;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
+}
+.iconButton {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+  color: var(--editor-text-secondary);
+  background: transparent;
+}
+.iconButton:hover:not(:disabled),
+.views button:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.1);
+  color: var(--text-primary);
+}
+.history {
+  display: flex;
+  gap: 2px;
+  border-left: 1px solid rgba(127, 127, 127, 0.15);
+  padding-left: var(--space-sm);
+}
+.saveButton {
+  min-height: 44px;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-md);
+  color: white;
+  background: var(--accent-blue);
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 3px 12px rgba(0, 113, 227, 0.2);
+}
+.saveButton:hover:not(:disabled) {
+  background: var(--accent-blue-hover);
+}
+.root button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.root button:focus-visible,
+.root input:focus-visible {
+  outline: 2px solid var(--editor-accent);
+  outline-offset: 2px;
+}
+.views {
+  position: absolute;
+  top: 100px;
+  left: var(--space-xl);
+  display: flex;
+  padding: var(--space-xs);
+  border-radius: var(--radius-md);
+}
+.views button {
+  min-width: 56px;
+  min-height: 36px;
+  padding: 0 var(--space-sm);
+  color: var(--editor-text-secondary);
+  font-size: 12px;
+  background: transparent;
+  border-radius: var(--radius-sm);
+}
+.inspector {
+  position: absolute;
+  top: 100px;
+  right: var(--space-xl);
+  width: 286px;
+  max-height: calc(100% - 232px);
+  padding: var(--space-lg);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border-radius: var(--radius-xl);
+  scrollbar-width: thin;
+}
+.panelHeading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.panelHeading h3 {
+  margin: var(--space-xs) 0 var(--space-sm);
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+}
+.hint {
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--editor-text-secondary);
+  margin: var(--space-sm) 0;
+}
+.inspector section {
+  padding: var(--space-md) 0;
+  border-top: 1px solid rgba(127, 127, 127, 0.13);
+}
+.inspector section:last-child {
+  padding-bottom: 0;
+}
+.inspector h4 {
+  margin: 0 0 var(--space-sm);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--editor-text-secondary);
+}
+.inspector h4 span {
+  font-weight: 400;
+}
+.fieldGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.numberField {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.numberField span {
+  color: var(--editor-text-muted);
+  font-size: 11px;
+  padding-left: 2px;
+}
+.numberField input,
+.nameField input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: var(--space-sm);
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: rgba(127, 127, 127, 0.07);
+  border: 1px solid rgba(127, 127, 127, 0.12);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+}
+.numberField input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+.selectionSummary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  margin-bottom: var(--space-md);
+  color: var(--editor-text-secondary);
+}
+.selectionSummary strong {
+  font-size: 15px;
+  color: var(--editor-accent);
+  font-variant-numeric: tabular-nums;
+}
+.actionPair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-sm);
+}
+.actionPair button {
+  min-height: 40px;
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--text-primary);
+  border: 1px solid rgba(127, 127, 127, 0.14);
+  background: rgba(127, 127, 127, 0.04);
+}
+.actionPair button:first-child {
+  color: var(--editor-danger);
+}
+.actionPair button:last-child {
+  color: var(--editor-accent);
+}
+.actionPair button:hover:not(:disabled),
+.cameraButton:hover:not(:disabled) {
+  background: rgba(0, 113, 227, 0.1);
+}
+.clearButton {
+  width: 100%;
+  min-height: 32px;
+  margin-top: var(--space-xs);
+  background: transparent;
+  color: var(--editor-text-muted);
+  font-size: 11px;
+}
+.cameraButton {
+  width: 100%;
+  min-height: 40px;
+  border-radius: var(--radius-md);
+  background: rgba(0, 113, 227, 0.08);
+  color: var(--editor-accent);
+  font-size: 12px;
+}
+.nameField {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  font-size: 12px;
+  color: var(--editor-text-secondary);
+}
+.bottomTools {
+  position: absolute;
+  bottom: 48px;
+  left: 50%;
+  translate: -50% 0;
+  max-width: calc(100% - 40px);
+}
+.toolRail {
+  display: flex;
+  gap: var(--space-xs);
+  padding: 6px;
+  border-radius: var(--radius-xl);
+}
+.toolRail button {
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+  min-width: 66px;
+  min-height: 58px;
+  padding: var(--space-sm);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--editor-text-secondary);
+  font-size: 11px;
+}
+.toolRail button:hover:not(:disabled) {
+  background: rgba(127, 127, 127, 0.08);
+}
+.toolRail button.active {
+  background: rgba(0, 113, 227, 0.12);
+  color: var(--editor-accent);
+  box-shadow: inset 0 0 0 1px rgba(0, 113, 227, 0.08);
+}
+.shortcuts {
+  margin: var(--space-sm) 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--editor-text-secondary);
+  text-shadow: 0 1px 4px var(--bg-color);
+  white-space: nowrap;
+}
+.status {
+  position: absolute;
+  bottom: 12px;
+  left: var(--space-xl);
+  right: var(--space-xl);
+  display: flex;
+  gap: var(--space-sm);
+  align-items: center;
+  font-size: 11px;
+  color: var(--editor-text-secondary);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 4px var(--bg-color);
+}
+.statusDot {
+  width: 5px;
+  height: 5px;
+  border-radius: var(--radius-full);
+  background: var(--success-color);
+}
+.statusDivider {
+  width: 1px;
+  height: 10px;
+  background: rgba(127, 127, 127, 0.25);
+  margin: 0 var(--space-xs);
+}
+.removed {
+  margin-left: auto;
+}
+.message {
+  position: absolute;
+  left: 50%;
+  top: 46%;
+  translate: -50% -50%;
+  max-width: calc(100% - 48px);
+  padding: var(--space-lg) var(--space-xl);
+  border-radius: var(--radius-lg);
+  font-size: 13px;
+  text-align: center;
+}
+.error {
+  color: var(--editor-danger);
+}
+.rectangle {
+  position: absolute;
+  border: 1px solid var(--editor-accent);
+  background: rgba(0, 113, 227, 0.12);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
+}
+.inspectorToggle,
+.mobileClose {
+  display: none;
+}
+@media (prefers-color-scheme: dark) {
+  .root {
+    color-scheme: dark;
+  }
+  .history,
+  .inspector section {
+    border-color: rgba(255, 255, 255, 0.14);
+  }
+  .iconButton:hover:not(:disabled),
+  .views button:hover:not(:disabled),
+  .toolRail button:hover:not(:disabled),
+  .clearButton:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.09);
+    color: var(--text-primary);
+  }
+  .numberField input,
+  .nameField input {
+    background: rgba(0, 0, 0, 0.22);
+    border-color: rgba(255, 255, 255, 0.2);
+  }
+  .actionPair button {
+    background: rgba(255, 255, 255, 0.04);
+    border-color: rgba(255, 255, 255, 0.18);
+  }
+  .actionPair button:first-child:hover:not(:disabled) {
+    background: rgba(255, 155, 152, 0.12);
+  }
+  .actionPair button:last-child:hover:not(:disabled),
+  .cameraButton:hover:not(:disabled) {
+    background: rgba(117, 186, 255, 0.12);
+  }
+  .cameraButton {
+    background: rgba(117, 186, 255, 0.1);
+    border: 1px solid rgba(117, 186, 255, 0.24);
+  }
+  .toolRail button.active {
+    background: rgba(43, 136, 255, 0.2);
+    box-shadow: inset 0 0 0 1px rgba(117, 186, 255, 0.3);
+    font-weight: 600;
+  }
+  .root button:disabled,
+  .root input:disabled {
+    opacity: 1;
+    color: var(--editor-disabled-text);
+    -webkit-text-fill-color: var(--editor-disabled-text);
+  }
+  .actionPair button:disabled,
+  .cameraButton:disabled,
+  .saveButton:disabled {
+    background: rgba(255, 255, 255, 0.035);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: none;
+  }
+  .shortcuts,
+  .status {
+    width: fit-content;
+    box-sizing: border-box;
+    padding: 6px var(--space-sm);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-md);
+    background: var(--editor-panel-bg);
+    backdrop-filter: var(--glass-blur);
+    -webkit-backdrop-filter: var(--glass-blur);
+    text-shadow: none;
+  }
+  .shortcuts {
+    margin-inline: auto;
+  }
+  .status {
+    right: auto;
+    max-width: calc(100% - 40px);
+  }
+  .statusDivider {
+    background: rgba(255, 255, 255, 0.24);
+  }
+}
+@media (max-width: 860px) {
+  .inspectorToggle {
+    display: inline-flex;
+    position: absolute;
+    right: var(--space-xl);
+    top: 100px;
+  }
+  .inspector {
+    display: none;
+    top: 154px;
+    max-height: calc(100% - 294px);
+  }
+  .inspectorOpen {
+    display: block;
+  }
+  .mobileClose {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+  }
+}
+@media (max-width: 560px) {
+  .header {
+    inset: var(--space-md) var(--space-md) auto;
+    min-height: 56px;
+    padding: 6px;
+    gap: var(--space-xs);
+    border-radius: var(--radius-lg);
+  }
+  .title h2 {
+    font-size: 15px;
+  }
+  .eyebrow {
+    font-size: 8px;
+  }
+  .history {
+    border: 0;
+    padding: 0;
+    gap: 0;
+  }
+  .history .iconButton {
+    width: 32px;
+  }
+  .saveButton {
+    width: 44px;
+    padding: 0;
+  }
+  .saveButton span {
+    display: none;
+  }
+  .views {
+    top: 88px;
+    left: var(--space-md);
+  }
+  .views button {
+    min-width: 48px;
+  }
+  .inspectorToggle {
+    top: 88px;
+    right: var(--space-md);
+  }
+  .inspector {
+    top: auto;
+    bottom: 152px;
+    left: var(--space-md);
+    right: var(--space-md);
+    width: auto;
+    max-height: 44%;
+  }
+  .bottomTools {
+    bottom: max(52px, calc(env(safe-area-inset-bottom) + 40px));
+    max-width: calc(100% - 24px);
+  }
+  .toolRail {
+    overflow-x: auto;
+    gap: 0;
+  }
+  .toolRail button {
+    min-width: 58px;
+    padding: 6px;
+  }
+  .shortcuts {
+    font-size: 10px;
+    max-width: 100%;
+    white-space: normal;
+  }
+  .status {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: var(--space-md);
+    right: var(--space-md);
+    font-size: 10px;
+  }
+}
+@media (prefers-color-scheme: dark) and (max-width: 560px) {
+  .inspector {
+    bottom: max(168px, calc(env(safe-area-inset-bottom) + 156px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .root button {
+    transition: none;
+  }
+}

@@ -8,6 +8,7 @@ import re
 import shutil
 import struct
 import tempfile
+import time
 from pathlib import Path, PurePosixPath
 
 
@@ -518,7 +519,15 @@ def prepare_brush_dataset(data_dir, dataset_dir, normalize_up=True):
         # staging 完整后才发布，失败时不留下会被误当作可训练数据的半成品。
         if destination.exists():
             destination.rmdir()
-        os.replace(staging, destination)
+        # Windows 索引或扫描可能暂时占用刚创建的目录；保留完整 staging 后有限重试。
+        for attempt in range(5):
+            try:
+                os.replace(staging, destination)
+                break
+            except PermissionError as error:
+                if getattr(error, 'winerror', None) not in {5, 32, 33} or attempt == 4:
+                    raise
+                time.sleep(0.1 * (attempt + 1))
     return {
         **model, 'dataset_dir': str(destination), 'model_dir': str(destination / 'sparse' / '0'),
         'image_count': len(image_sources), 'up_alignment': up_alignment,

@@ -185,6 +185,41 @@ def test_dataset_copies_registered_full_size_images_and_keeps_source_untouched(t
     assert all(path.read_bytes() == payload for path, payload in original.items())
 
 
+@pytest.mark.parametrize('permanent', [False, True])
+def test_dataset_publish_retries_windows_busy_directory_without_partial_output(tmp_path, monkeypatch, permanent):
+    data = tmp_path / 'data'
+    images = data / 'images'
+    images.mkdir(parents=True)
+    for name in ('a.png', 'b.png'):
+        Image.new('RGB', (40, 24), (123, 40, 50)).save(images / name)
+    write_colmap_model(data / 'sparse' / '0', ['a.png', 'b.png'])
+    original = {path: path.read_bytes() for path in data.rglob('*') if path.is_file()}
+    target = tmp_path / 'brush-data'
+    replace = brush_engine.os.replace
+    calls = []
+    def busy_replace(source, destination):
+        calls.append((source, destination))
+        if permanent or len(calls) == 1:
+            error = PermissionError('Windows directory is temporarily busy')
+            error.winerror = 5
+            raise error
+        return replace(source, destination)
+    monkeypatch.setattr(brush_engine.os, 'replace', busy_replace)
+    monkeypatch.setattr(brush_engine.time, 'sleep', lambda duration: None)
+    if permanent:
+        with pytest.raises(PermissionError):
+            brush_engine.prepare_brush_dataset(data, target)
+        assert len(calls) == 5
+        assert not target.exists()
+    else:
+        result = brush_engine.prepare_brush_dataset(data, target)
+        assert len(calls) == 2
+        assert result['registered_images'] == 2
+        assert brush_engine.inspect_colmap_models(target)['registered_images'] == 2
+    assert not list(tmp_path.glob('.brush-dataset-*'))
+    assert all(path.read_bytes() == payload for path, payload in original.items())
+
+
 @pytest.mark.parametrize('text', [False, True])
 def test_z_up_normalization_preserves_projection_and_original_model_hashes(tmp_path, text):
     data = tmp_path / 'data'

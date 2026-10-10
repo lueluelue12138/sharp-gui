@@ -286,6 +286,36 @@ def test_spz_preserves_all_spherical_harmonic_degrees_and_ply_roundtrip(tmp_path
     assert gzip.decompress(restored_spz.read_bytes()) == raw
 
 
+@pytest.mark.parametrize('maximum, expected_bits', [(55.12345, 17), (12000.125, 9)])
+def test_spz_adapts_position_precision_without_clipping(tmp_path, maximum, expected_bits):
+    vertices = make_gaussian_vertices(3)
+    vertices['x'][0] = maximum
+    vertices['y'][1] = -maximum
+    source = write_gaussian_ply(tmp_path / 'source.ply', vertices)
+    target = tmp_path / 'source.spz'
+    model_convert.ply_to_spz(source, target)
+    decoded, raw, _ = decode_spz_v3_for_test(target)
+    assert raw[13] == expected_bits
+    for name in ('x', 'y', 'z'):
+        np.testing.assert_allclose(decoded[name], vertices[name], rtol=0, atol=0.5/(1 << expected_bits))
+    if expected_bits > 11:
+        legacy = tmp_path / 'legacy.spz'
+        model_convert.ply_to_spz(source, legacy, fractional_bits=11)
+        coarse, _, _ = decode_spz_v3_for_test(legacy)
+        assert abs(decoded['x'][0] - vertices['x'][0]) < abs(coarse['x'][0] - vertices['x'][0])
+
+
+def test_spz_rejects_unrepresentable_positions_before_overwriting(tmp_path):
+    vertices = make_gaussian_vertices(0)
+    vertices['x'][0] = 9000000
+    source = write_gaussian_ply(tmp_path / 'source.ply', vertices)
+    target = tmp_path / 'source.spz'
+    target.write_bytes(b'previous model')
+    with pytest.raises(ValueError, match='coordinate range'):
+        model_convert.ply_to_spz(source, target)
+    assert target.read_bytes() == b'previous model'
+
+
 def test_spz_sh_payload_matches_official_quantization_and_channel_order(tmp_path):
     source = make_gaussian_vertices(2, point_count=1)
     channels = [

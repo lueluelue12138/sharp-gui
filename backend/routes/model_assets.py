@@ -2,8 +2,9 @@ import datetime
 import os
 
 from flask import Blueprint, current_app, jsonify, request, send_file, send_from_directory
+from werkzeug.exceptions import RequestEntityTooLarge
 
-from backend.services import model_assets
+from backend.services import model_assets, model_editor
 
 bp = Blueprint("model_assets", __name__)
 
@@ -33,6 +34,41 @@ def get_model_asset(asset_id):
     if not asset:
         return jsonify({"error": "Model asset not found", "code": "model_asset_not_found"}), 404
     return jsonify(asset)
+
+
+@bp.route('/api/model-assets/<asset_id>/editor')
+def get_model_editor(asset_id):
+    try:
+        return jsonify(model_editor.get_editor_descriptor(get_paths(), asset_id))
+    except model_assets.ModelAssetServiceError as exc:
+        return service_error_response(exc)
+
+
+@bp.route('/api/model-assets/<asset_id>/editor/source')
+def get_model_editor_source(asset_id):
+    try:
+        _, path, _ = model_editor.resolve_source(get_paths(), asset_id)
+        if request.args.get('v') and request.args['v'] != model_editor.source_fingerprint(path):
+            return jsonify({'error': 'Source model has changed', 'code': 'model_editor_source_changed'}), 409
+        return send_from_directory(os.path.dirname(path), os.path.basename(path), conditional=True)
+    except model_assets.ModelAssetServiceError as exc:
+        return service_error_response(exc)
+
+
+@bp.route('/api/model-assets/<asset_id>/editor', methods=['POST'])
+def save_model_editor(asset_id):
+    request.max_content_length = model_editor.MAX_REQUEST_BYTES
+    if request.content_length and request.content_length > model_editor.MAX_REQUEST_BYTES:
+        return jsonify({'error': 'Model edit request is too large', 'code': 'model_editor_too_large'}), 413
+    try:
+        return jsonify(model_editor.save_edited_copy(get_paths(), asset_id, request.get_json(silent=True)))
+    except model_assets.ModelAssetServiceError as exc:
+        return service_error_response(exc)
+    except RequestEntityTooLarge:
+        return jsonify({'error': 'Model edit request is too large', 'code': 'model_editor_too_large'}), 413
+    except Exception:
+        current_app.logger.exception('Model editor save failed')
+        return jsonify({'error': 'Model editing could not be completed', 'code': 'model_editor_save_failed'}), 500
 
 
 @bp.route("/api/model-assets/import", methods=["POST"])

@@ -181,6 +181,7 @@ export function GalleryList() {
       sourceMediaType: nextModel.sourceMediaType,
       viewerOrientation: nextModel.viewerOrientation,
       viewerCamera: nextModel.viewerCamera,
+        viewerTransform: nextModel.viewerTransform,
     });
 
     if (window.innerWidth <= 768 && sidebarOpen) {

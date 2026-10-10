@@ -5,71 +5,95 @@ import { ControlsBar } from '@/components/layout/ControlsBar/ControlsBar';
 import { Help } from '@/components/layout/Help/Help';
 import { GyroIndicator } from '@/components/viewer/GyroIndicator/GyroIndicator';
 import { QuickControls } from '@/components/viewer/QuickControls';
+import { ModelEditor } from '@/components/viewer/ModelEditor';
 import { ViewerRevealEffectsRail } from '@/components/viewer/ViewerRevealEffectsRail';
 import { VirtualJoystick } from '@/components/viewer/VirtualJoystick/VirtualJoystick';
 import { SpeedTooltip } from '@/components/viewer/SpeedTooltip';
-import {
-  resolveRevealEffectPreference,
-  type RevealEffectId,
-} from '@/utils/viewerRevealEffects';
+import { resolveRevealEffectPreference, type RevealEffectId } from '@/utils/viewerRevealEffects';
 import styles from './ViewerCanvas.module.css';
 
 export const ViewerCanvas: React.FC = () => {
   const { currentModelUrl } = useAppStore();
-  
-  // Using key to force re-mounting when model URL changes, 
+
+  // Using key to force re-mounting when model URL changes,
   // implementing the "destroy and recreate" strategy from the original code
   // to avoid texture overlap/cleanup issues.
   if (!currentModelUrl) return null;
 
   return (
     <div className={styles.container}>
-        <ViewerInstance key={currentModelUrl} />
+      <ViewerInstance key={currentModelUrl} />
     </div>
   );
 };
 
 // Internal component to handle the actual viewer lifecycle
 const ViewerInstance: React.FC = () => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const viewerDefaultRevealEffect = useAppStore((state) => state.viewerDefaultRevealEffect);
-    const [activeEffect, setActiveEffect] = useState<RevealEffectId>(
-        resolveRevealEffectPreference(viewerDefaultRevealEffect),
-    );
-    const [replayToken, setReplayToken] = useState(0);
-    const viewerHook = useViewer(containerRef, {
-        revealEffect: activeEffect,
-        replayToken,
-    });
+  const [editorOpen, setEditorOpen] = useState(false);
+  const currentModelId = useAppStore((state) => state.currentModelId);
+  const currentModelSource = useAppStore((state) => state.currentModelSource);
+  const isOwnerAccess = useAppStore((state) => state.isOwnerAccess);
+  const isLoading = useAppStore((state) => state.isLoading);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const viewerDefaultRevealEffect = useAppStore((state) => state.viewerDefaultRevealEffect);
+  const [activeEffect, setActiveEffect] = useState<RevealEffectId>(
+    resolveRevealEffectPreference(viewerDefaultRevealEffect),
+  );
+  const [replayToken, setReplayToken] = useState(0);
+  const viewerHook = useViewer(containerRef, {
+    revealEffect: editorOpen ? 'none' : activeEffect,
+    replayToken,
+  });
 
-    useEffect(() => {
-        setActiveEffect(resolveRevealEffectPreference(viewerDefaultRevealEffect));
-    }, [viewerDefaultRevealEffect]);
+  useEffect(() => {
+    setActiveEffect(resolveRevealEffectPreference(viewerDefaultRevealEffect));
+  }, [viewerDefaultRevealEffect]);
 
-    return (
+  return (
+    <>
+      <div ref={containerRef} className={styles.viewerTarget} />
+      {editorOpen && currentModelId ? (
+        <ModelEditor
+          viewerRef={viewerHook.viewerRef}
+          assetId={currentModelId}
+          onClose={() => setEditorOpen(false)}
+        />
+      ) : (
         <>
-            <div ref={containerRef} className={styles.viewerTarget} />
-            <ControlsBar viewerHook={viewerHook} />
-            <GyroIndicator ballRef={viewerHook.indicatorBallRef} />
-            <VirtualJoystick 
-                visible={viewerHook.joystick.isJoystickVisible}
-                isActive={viewerHook.joystick.isActive}
-                containerRef={viewerHook.joystick.containerRef}
-                stickRef={viewerHook.joystick.stickRef}
-                handlers={viewerHook.joystick.handlers}
-            />
-            <SpeedTooltip mode={viewerHook.speedMode} />
-            <ViewerRevealEffectsRail
-                activeEffect={activeEffect}
-                isInXr={viewerHook.xr.isInXR}
-                onReplay={() => setReplayToken((value) => value + 1)}
-                onSelectEffect={setActiveEffect}
-            />
-            <QuickControls
-                debugInfo={viewerHook.debugInfo}
-                isInXr={viewerHook.xr.isInXR}
-            />
-            <Help />
+          <ControlsBar
+            viewerHook={viewerHook}
+            onEdit={
+              isOwnerAccess &&
+              currentModelId &&
+              currentModelSource !== 'temporary' &&
+              !isLoading &&
+              !viewerHook.xr.isInXR
+                ? () => {
+                    if (useAppStore.getState().isGyroEnabled) viewerHook.toggleGyro();
+                    setEditorOpen(true);
+                  }
+                : undefined
+            }
+          />
+          <GyroIndicator ballRef={viewerHook.indicatorBallRef} />
+          <VirtualJoystick
+            visible={viewerHook.joystick.isJoystickVisible}
+            isActive={viewerHook.joystick.isActive}
+            containerRef={viewerHook.joystick.containerRef}
+            stickRef={viewerHook.joystick.stickRef}
+            handlers={viewerHook.joystick.handlers}
+          />
+          <SpeedTooltip mode={viewerHook.speedMode} />
+          <ViewerRevealEffectsRail
+            activeEffect={activeEffect}
+            isInXr={viewerHook.xr.isInXR}
+            onReplay={() => setReplayToken((value) => value + 1)}
+            onSelectEffect={setActiveEffect}
+          />
+          <QuickControls debugInfo={viewerHook.debugInfo} isInXr={viewerHook.xr.isInXR} />
+          <Help />
         </>
-    );
+      )}
+    </>
+  );
 };

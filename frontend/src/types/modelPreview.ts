@@ -1,4 +1,5 @@
 import type { ViewerModelFormat } from '@/constants/spark';
+import type { ViewerTransformState } from '@/types/viewerQuickControls';
 
 export type ViewerOrientationHint = 'default' | 'y-front' | 'unknown';
 
@@ -35,6 +36,7 @@ export interface CurrentModelDescriptor {
   sourceMediaType: string | null;
   viewerOrientation: ViewerOrientationHint | null;
   viewerCamera?: ViewerCameraHint | null;
+  viewerTransform?: ViewerTransformState | null;
 }
 
 export interface ViewerOrientationInput {

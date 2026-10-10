@@ -440,6 +440,7 @@ function App() {
           sourceMediaType: firstModelSource.sourceMediaType,
           viewerOrientation: firstModelSource.viewerOrientation,
           viewerCamera: firstModelSource.viewerCamera,
+        viewerTransform: firstModelSource.viewerTransform,
         });
         replaceTemporaryModelPreview(null);
       }

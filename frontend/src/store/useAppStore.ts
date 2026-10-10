@@ -820,6 +820,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         sourceMediaType: selectedItem.source_media_type ?? null,
         viewerOrientation: selectedItem.viewer_orientation ?? null,
         viewerCamera: selectedItem.viewer_camera ?? null,
+        viewerTransform: selectedItem.viewer_transform ?? null,
       };
       const descriptorUnchanged = state.currentModelDescriptor
         && state.currentModelDescriptor.id === nextDescriptor.id
@@ -829,7 +830,8 @@ export const useAppStore = create<AppState>((set, get) => ({
         && state.currentModelDescriptor.source === nextDescriptor.source
         && state.currentModelDescriptor.sourceMediaType === nextDescriptor.sourceMediaType
         && state.currentModelDescriptor.viewerOrientation === nextDescriptor.viewerOrientation
-        && JSON.stringify(state.currentModelDescriptor.viewerCamera) === JSON.stringify(nextDescriptor.viewerCamera);
+        && JSON.stringify(state.currentModelDescriptor.viewerCamera) === JSON.stringify(nextDescriptor.viewerCamera)
+        && JSON.stringify(state.currentModelDescriptor.viewerTransform) === JSON.stringify(nextDescriptor.viewerTransform);
       currentModelDescriptor = descriptorUnchanged
         ? state.currentModelDescriptor
         : nextDescriptor;
@@ -900,6 +902,9 @@ export const useAppStore = create<AppState>((set, get) => ({
     const id = normalizedDescriptor?.id ?? null;
     const fallbackQuality = getViewerQualityFromPreset(state.lodPreset, state.isLodEnabled);
     const fallbackOverride = getDefaultViewerOverride(fallbackQuality);
+    if (normalizedDescriptor?.viewerTransform) {
+      fallbackOverride.transform = sanitizeViewerTransform(normalizedDescriptor.viewerTransform);
+    }
     const override = id ? state.modelViewerOverrides[id] : undefined;
     const resolved = override
       ? sanitizeViewerOverride(override, fallbackQuality)
@@ -1522,6 +1527,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   restoreViewerQuickControlsForModel: (modelId) => set((state) => {
     const fallbackQuality = getViewerQualityFromPreset(state.lodPreset, state.isLodEnabled);
     const fallbackOverride = getDefaultViewerOverride(fallbackQuality);
+    if (state.currentModelDescriptor?.viewerTransform) {
+      fallbackOverride.transform = sanitizeViewerTransform(state.currentModelDescriptor.viewerTransform);
+    }
     const override = modelId ? state.modelViewerOverrides[modelId] : undefined;
     const resolved = override
       ? sanitizeViewerOverride(override, fallbackQuality)

@@ -25,7 +25,7 @@ def probe_video(source_path, env):
     """读取尺寸、时长与旋转元数据，不读取其它用户媒体。"""
     result = subprocess.run(
         [which('ffprobe') or 'ffprobe', '-v', 'error', '-select_streams', 'v:0',
-         '-show_entries', 'stream=width,height,avg_frame_rate,duration:stream_tags=rotate:stream_side_data=rotation:format=duration',
+         '-show_entries', 'stream=width,height,avg_frame_rate,duration,nb_frames:stream_tags=rotate:stream_side_data=rotation:format=duration',
          '-of', 'json', str(source_path)],
         capture_output=True, text=True, encoding='utf-8', errors='replace',
         timeout=30, env=env,
@@ -62,7 +62,12 @@ def probe_video(source_path, env):
         width, height = height, width
     if width <= 0 or height <= 0 or not math.isfinite(duration) or duration <= 0:
         raise InvalidVideoError('The video dimensions or duration are invalid.')
-    return {'width': width, 'height': height, 'duration_seconds': duration, 'source_fps': fps}
+    try:
+        source_frames = int(stream.get('nb_frames') or 0)
+    except (ValueError, TypeError):
+        source_frames = 0
+    return {'width': width, 'height': height, 'duration_seconds': duration, 'source_fps': fps,
+            'source_frame_count': max(0, source_frames)}
 
 
 def scaled_dimensions(width, height, max_resolution):
@@ -72,28 +77,67 @@ def scaled_dimensions(width, height, max_resolution):
 
 
 def frame_plan(metadata, profile, rescue=False):
-    """预设按秒采样，自定义按总帧数采样；限制长视频的工作量。"""
+    """固定源帧编号清单；缺少源帧总数时回退按时间采样，限制长视频的工作量。"""
     duration = metadata['duration_seconds']
+    source_frames = int(metadata.get('source_frame_count') or 0)
     if profile.get('sampling_fps'):
-        fps = float(profile['sampling_fps']) * (1.5 if rescue else 1.0)
+        initial_fps = float(profile['sampling_fps'])
+        candidate_fps = max(initial_fps, float(profile.get('rescue_sampling_fps') or initial_fps * 1.5))
+        fps = candidate_fps if rescue else initial_fps
         fps = max(fps, 30 / duration)
         frame_limit = MAX_PRESET_FRAMES
     else:
         frame_limit = int(profile['frame_count'])
         fps = frame_limit / duration
-    source_fps = metadata.get('source_fps') or fps
+    source_fps = metadata.get('source_fps') or (source_frames / duration if source_frames > 0 else fps)
     fps = min(fps, source_fps, frame_limit / duration)
     count = max(1, min(frame_limit, math.ceil(duration * fps)))
     width, height = scaled_dimensions(metadata['width'], metadata['height'], profile['max_resolution'])
-    return {'sampling_fps': fps, 'target_frames': count, 'working_width': width, 'working_height': height}
+    plan = {'sampling_fps': fps, 'target_frames': count, 'working_width': width, 'working_height': height,
+            'selection_method': 'timestamp_fps'}
+    if source_frames > 0:
+        count = max(1, min(source_frames, frame_limit, math.floor(duration * fps + 0.5)))
+        candidate_count = count
+        if profile.get('sampling_fps') and not rescue:
+            rescue_fps = min(max(candidate_fps, 30 / duration),
+                             source_fps, frame_limit / duration)
+            candidate_count = min(source_frames, frame_limit,
+                                  max(count, math.floor(duration * rescue_fps + 0.5)))
+        # 初次从补密候选池取均匀子集；补密使用同一候选池，保留原先选中的源帧。
+        candidates = [position * source_frames // candidate_count for position in range(candidate_count)]
+        indices = [candidates[position * candidate_count // count] for position in range(count)]
+        plan.update(sampling_fps=count / duration, target_frames=count,
+                    selection_method='source_frame_indices', selected_frame_indices=indices)
+    return plan
+
+
+def extraction_filter(plan):
+    """过滤表达式只包含经过规划的整数编号，不拼接源媒体路径。"""
+    indices = plan.get('selected_frame_indices')
+    # 线性相加在较长清单上会超过 FFmpeg 表达式的递归限制；平衡分支也减少每帧比较次数。
+    def select_range(start, stop):
+        if stop - start == 1:
+            return f'eq(n,{indices[start]})'
+        middle = (start + stop) // 2
+        return (f'if(lt(n,{indices[middle]}),'
+                f'{select_range(start, middle)},{select_range(middle, stop)})')
+
+    sample = ("select='" + select_range(0, len(indices)) + "'"
+              if indices else f"fps={plan['sampling_fps']:.8f}")
+    return f"{sample},scale={plan['working_width']}:{plan['working_height']}:flags=lanczos"
 
 
 def build_extract_command(source_path, images_dir, plan):
     """直接产出训练工作图，不重复生成多套下采样 PNG。"""
-    return [
+    command = [
         which('ffmpeg') or 'ffmpeg', '-nostdin', '-hide_banner', '-y', '-i', str(source_path),
-        '-map', '0:v:0', '-an', '-vf',
-        f"fps={plan['sampling_fps']:.8f},scale={plan['working_width']}:{plan['working_height']}:flags=lanczos",
+        '-map', '0:v:0', '-an',
+    ]
+    if plan.get('selected_frame_indices'):
+        command += ['-filter_script:v', str(Path(images_dir).parent / 'frame-selection.filter'), '-vsync', 'vfr']
+    else:
+        command += ['-vf', extraction_filter(plan)]
+    return command + [
         '-frames:v', str(plan['target_frames']), '-q:v', '2',
         str(Path(images_dir) / 'frame_%06d.jpg'),
     ]
@@ -183,6 +227,9 @@ def run_video_geometry(task_manager, task_id, task, job_dir, data_dir, profile, 
         images.mkdir(parents=True, exist_ok=True)
         sparse.mkdir(parents=True, exist_ok=True)
         plan = frame_plan(metadata, profile, rescue=bool(attempt))
+        if plan.get('selected_frame_indices'):
+            (attempt_dir / 'frame-selection.filter').write_text(extraction_filter(plan), encoding='utf-8')
+        (attempt_dir / 'frame-plan.json').write_text(json.dumps(plan, indent=2), encoding='utf-8')
         attempt_profile = dict(profile)
         # 小规模失败允许穷举补救；长视频保持局部匹配，避免平方级耗时。
         if attempt and plan['target_frames'] <= 450:

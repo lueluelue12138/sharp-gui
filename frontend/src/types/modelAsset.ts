@@ -1,3 +1,4 @@
+import type { ViewerTransformState } from '@/types/viewerQuickControls';
 import type { ViewerCameraHint, ViewerOrientationHint } from '@/types/modelPreview';
 
 export type ModelAssetFormat = 'ply' | 'spz' | 'splat' | 'rad';
@@ -33,6 +34,7 @@ export interface ModelAssetFile {
   source_media_type?: string | null;
   viewer_orientation?: ViewerOrientationHint | null;
   viewer_camera?: ViewerCameraHint | null;
+  viewer_transform?: ViewerTransformState | null;
 }
 
 export interface ModelAsset {
@@ -62,6 +64,7 @@ export interface ModelAsset {
   source_media_type?: string | null;
   viewer_orientation?: ViewerOrientationHint | null;
   viewer_camera?: ViewerCameraHint | null;
+  viewer_transform?: ViewerTransformState | null;
   source_media_id?: string | null;
   source_name?: string | null;
   source_video_url?: string | null;

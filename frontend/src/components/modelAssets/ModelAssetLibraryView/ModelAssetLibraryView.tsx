@@ -589,6 +589,7 @@ export function ModelAssetLibraryView({
       sourceMediaType: modelSource.sourceMediaType,
       viewerOrientation: modelSource.viewerOrientation,
       viewerCamera: modelSource.viewerCamera,
+        viewerTransform: modelSource.viewerTransform,
     });
   }, [preferredModelFormat, setCurrentModel, setModelAssetError, t]);
 

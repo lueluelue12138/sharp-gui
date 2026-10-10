@@ -681,11 +681,12 @@ def build_custom_quality_profile(custom_options, vram_budget):
 def resolve_brush_quality_profile(quality, vram_budget, custom_options=None):
     """固定 Brush 日程，并分别控制 SfM 与训练图像的真实长边。"""
     presets = {
-        'preview': (6, 1600, 1200, 4096, 8000, 6000, 0.00004, 0.15),
-        'high': (8, 1920, 1600, 8192, 15000, 12000, 0.00003, 0.2),
-        'extreme': (12, 3840, 3200, 16384, 30000, 25000, 0.00002, 0.3),
+        'preview': (6, 9, 1600, 1200, 4096, 8000, 6000, 0.00004, 0.15),
+        # 中档对齐 OOOSplat 均衡档的实际工作图、帧覆盖和配准预算。
+        'high': (8, 12, 1920, 1600, 8192, 15000, 12000, 0.00003, 0.2),
+        'extreme': (12, 15, 3840, 3200, 16384, 30000, 25000, 0.00002, 0.3),
     }
-    fps, resolution, sfm_resolution, features, iterations, stop, threshold, fraction = presets.get(quality, presets['high'])
+    fps, rescue_fps, resolution, sfm_resolution, features, iterations, stop, threshold, fraction = presets.get(quality, presets['high'])
     if vram_budget == '8gb':
         resolution = min(resolution, 1920)
         max_splats = 1000000
@@ -694,7 +695,7 @@ def resolve_brush_quality_profile(quality, vram_budget, custom_options=None):
     else:
         max_splats = 1500000
     profile = {
-        'engine': 'brush', 'sampling_fps': fps, 'frame_count': 1200,
+        'engine': 'brush', 'sampling_fps': fps, 'rescue_sampling_fps': rescue_fps, 'frame_count': 1200,
         'max_resolution': resolution, 'sfm_max_resolution': sfm_resolution,
         'sfm_max_features': features, 'sfm_allow_two_view_tracks': quality == 'extreme',
         'max_num_iterations': iterations, 'matching_method': 'sequential',
@@ -2430,7 +2431,7 @@ def record_train_visualizer_fallback(task, from_visualizer, to_visualizer, reaso
 
 
 def run_brush_training_stage(task_manager, task_id, task, job_dir, data_dir, train_dir, profile):
-    """调用固定 Brush CLI；显存不足时最多降低预算重训一次。"""
+    """显存不足时有限重试；高质量 / 极致 / 自定义保留请求的训练像素。"""
     executable = brush_engine.find_brush_executable()
     if not executable:
         return 'failed', None, ERROR_BRUSH_UNAVAILABLE, 'The pinned Brush CLI is not installed.'
@@ -2459,13 +2460,17 @@ def run_brush_training_stage(task_manager, task_id, task, job_dir, data_dir, tra
             return 'ok', exported_ply, None, None
         if attempt == 0 and contains_oom(''.join(lines)):
             previous = {'max_resolution': profile['max_resolution'], 'max_splats': profile['brush_max_splats']}
-            profile['max_resolution'] = max(640, round(profile['max_resolution'] * 0.75))
+            if task.get('quality') == 'preview':
+                profile['max_resolution'] = max(640, round(profile['max_resolution'] * 0.75))
             profile['brush_max_splats'] = max(int(dataset['sfm_points']), round(profile['brush_max_splats'] * 0.67))
             task.setdefault('details', {})['brush_oom_retry'] = {
                 'previous': previous, 'max_resolution': profile['max_resolution'],
                 'max_splats': profile['brush_max_splats'],
             }
-            append_task_log(task_manager, task_id, 'Brush ran out of VRAM; retrying once with a smaller image and splat budget.')
+            message = ('Brush ran out of VRAM; retrying once with a smaller image and splat budget.'
+                       if task.get('quality') == 'preview' else
+                       'Brush ran out of VRAM; retrying once with a smaller splat budget while preserving training resolution.')
+            append_task_log(task_manager, task_id, message)
             continue
         code, message = build_failure_message(return_code, lines)
         return 'failed', None, code, message

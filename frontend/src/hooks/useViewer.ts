@@ -259,6 +259,7 @@ function showFocusRing(x: number, y: number, container: HTMLElement) {
  * Child hooks access: viewerRef.current.camera, .controls, .renderer, etc.
  */
 export interface ViewerContext {
+  editorActive?: boolean;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   renderer: THREE.WebGLRenderer;
@@ -722,6 +723,7 @@ export const useViewer = (
         };
 
         const onPointerUp = (e: PointerEvent) => {
+          if (viewerRef.current?.editorActive) return;
           // Only treat as click if pointer didn't move (not drag)
           const dx = e.clientX - pointerDownPos.x;
           const dy = e.clientY - pointerDownPos.y;

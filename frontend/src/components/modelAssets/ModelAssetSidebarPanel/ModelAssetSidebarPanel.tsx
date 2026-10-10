@@ -150,6 +150,7 @@ export function ModelAssetSidebarPanel({
       sourceMediaType: modelSource.sourceMediaType,
       viewerOrientation: modelSource.viewerOrientation,
       viewerCamera: modelSource.viewerCamera,
+        viewerTransform: modelSource.viewerTransform,
     });
   }, [onOpenModel, preferredModelFormat, setCurrentModel, setModelAssetError, setSelectedModelAsset, t]);
 

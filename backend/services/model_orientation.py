@@ -57,6 +57,21 @@ def normalize_viewer_orientation(value):
     return VIEWER_ORIENTATION_UNKNOWN
 
 
+def normalize_viewer_transform(value):
+    """校验跨客户端使用的模型默认姿态；旧模型仍使用原有默认值。"""
+    if not isinstance(value, dict):
+        return None
+    keys = ('positionX', 'positionY', 'positionZ', 'rotationX', 'rotationY', 'rotationZ', 'scale')
+    if any(isinstance(value.get(key), bool) or not isinstance(value.get(key), (int, float)) for key in keys):
+        return None
+    result = {key: float(value[key]) for key in keys}
+    if not all(math.isfinite(item) for item in result.values()):
+        return None
+    if any(abs(result[key]) > 1e6 for key in keys[:3]) or any(abs(result[key]) > 1000 for key in keys[3:6]):
+        return None
+    return result if 1e-5 <= result['scale'] <= 1e4 else None
+
+
 def normalize_source_media_type(value):
     """Return a trusted source-media classification or None."""
     normalized = str(value or "").strip().lower()

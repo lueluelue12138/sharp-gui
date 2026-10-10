@@ -1,3 +1,4 @@
+import type { ViewerTransformState } from '@/types/viewerQuickControls';
 import type { ViewerCameraHint, ViewerOrientationHint } from '@/types/modelPreview';
 
 export type GalleryModelFormat = 'ply' | 'spz' | 'splat' | 'rad';
@@ -18,6 +19,7 @@ export interface GalleryItem {
   source_media_type?: 'video' | 'image' | string | null;
   viewer_orientation?: ViewerOrientationHint | null;
   viewer_camera?: ViewerCameraHint | null;
+  viewer_transform?: ViewerTransformState | null;
   source_media_id?: string | null;
   source_name?: string | null;
   source_video_url?: string | null;

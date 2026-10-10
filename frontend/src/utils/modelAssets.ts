@@ -1,3 +1,4 @@
+import type { ViewerTransformState } from '@/types/viewerQuickControls';
 import type { ViewerModelFormat } from '@/constants/spark';
 import type {
   ModelAsset,
@@ -18,6 +19,7 @@ export interface ResolvedModelAssetSource {
   sourceMediaType: string | null;
   viewerOrientation: ViewerOrientationHint | null;
   viewerCamera?: ViewerCameraHint | null;
+  viewerTransform?: ViewerTransformState | null;
 }
 
 function getFormatPriority(preferredFormat: ModelFormat): ModelAssetFormat[] {
@@ -47,6 +49,7 @@ export function resolveModelAssetSource(
         sourceMediaType: file.source_media_type ?? asset.source_media_type ?? null,
         viewerOrientation: file.viewer_orientation ?? asset.viewer_orientation ?? null,
         viewerCamera: file.viewer_camera ?? asset.viewer_camera ?? null,
+        viewerTransform: file.viewer_transform ?? asset.viewer_transform ?? null,
       };
     }
   }
@@ -64,5 +67,6 @@ export function resolveModelAssetSource(
     sourceMediaType: defaultFile?.source_media_type ?? asset.source_media_type ?? null,
     viewerOrientation: defaultFile?.viewer_orientation ?? asset.viewer_orientation ?? null,
     viewerCamera: defaultFile?.viewer_camera ?? asset.viewer_camera ?? null,
+    viewerTransform: defaultFile?.viewer_transform ?? asset.viewer_transform ?? null,
   };
 }

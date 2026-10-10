@@ -1,3 +1,4 @@
+import type { ViewerTransformState } from '@/types/viewerQuickControls';
 import type { ViewerModelFormat } from '@/constants/spark';
 import type { GalleryItem, ModelFormat, ViewerCameraHint, ViewerOrientationHint } from '@/types';
 
@@ -26,6 +27,8 @@ function areGalleryItemsEquivalent(current: GalleryItem, next: GalleryItem): boo
     current.spz_size === next.spz_size &&
     current.source_media_type === next.source_media_type &&
     current.viewer_orientation === next.viewer_orientation &&
+    JSON.stringify(current.viewer_camera) === JSON.stringify(next.viewer_camera) &&
+    JSON.stringify(current.viewer_transform) === JSON.stringify(next.viewer_transform) &&
     current.source_media_id === next.source_media_id &&
     current.source_name === next.source_name &&
     current.source_video_url === next.source_video_url &&
@@ -118,11 +121,13 @@ export function getGalleryModelSource(
   sourceMediaType: string | null;
   viewerOrientation: ViewerOrientationHint | null;
   viewerCamera?: ViewerCameraHint | null;
+  viewerTransform?: ViewerTransformState | null;
 } {
   const previewContext = {
     sourceMediaType: item.source_media_type ?? null,
     viewerOrientation: item.viewer_orientation ?? null,
     viewerCamera: item.viewer_camera ?? null,
+    viewerTransform: item.viewer_transform ?? null,
   };
 
   if (preferredFormat === 'spz' && item.spz_url) {

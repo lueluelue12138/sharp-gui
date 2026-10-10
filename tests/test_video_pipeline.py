@@ -5,6 +5,7 @@ import io
 import json
 import shutil
 import struct
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -99,7 +100,7 @@ def video_task(tmp_path, monkeypatch):
     monkeypatch.setattr(video_reconstruction, 'build_video_process_env', lambda: {})
     monkeypatch.setattr(brush_engine, 'find_brush_executable', lambda: 'synthetic-brush')
     monkeypatch.setattr(video_geometry, 'probe_video', lambda *_args: {
-        'width': 1920, 'height': 1080, 'duration_seconds': 5.0, 'source_fps': 30,
+        'width': 1920, 'height': 1080, 'duration_seconds': 20 / 3, 'source_fps': 30,
     })
     monkeypatch.setattr(video_geometry, 'colmap_option_names', lambda _env: ('SiftExtraction', 'SiftMatching'))
     monkeypatch.setattr(model_gallery, 'generate_video_thumbnail', lambda *_args: None)
@@ -208,6 +209,88 @@ def test_sampling_caps_source_fps_and_long_video_workload():
     assert long['sampling_fps'] == pytest.approx(1 / 3)
 
 
+def test_brush_middle_preset_restores_balanced_frame_coverage_and_resolution():
+    preview = video_reconstruction.resolve_brush_quality_profile('preview', '12gb')
+    high = video_reconstruction.resolve_brush_quality_profile('high', '12gb')
+    metadata = {'width':3840, 'height':2160, 'duration_seconds':22.506333,
+                'source_fps':2028000/67519, 'source_frame_count':676}
+    preview_plan = video_geometry.frame_plan(metadata, preview)
+    high_plan = video_geometry.frame_plan(metadata, high)
+    assert high_plan['target_frames'] == 180 > preview_plan['target_frames'] == 135
+    assert high_plan['selected_frame_indices'][:10] == [0, 2, 7, 10, 15, 17, 22, 25, 30, 32]
+    assert high_plan['working_width'] == 1920 > preview_plan['working_width']
+    assert high_plan['working_height'] == 1080
+    assert high['sfm_max_resolution'] == 1600 > preview['sfm_max_resolution']
+    assert high['sfm_max_features'] == 8192 > preview['sfm_max_features']
+    assert high['max_num_iterations'] == 15000 > preview['max_num_iterations']
+    assert high['brush_growth_stop_iter'] < high['max_num_iterations']
+
+
+def test_extreme_candidate_pool_matches_high_and_keeps_initial_frames():
+    profile = video_reconstruction.resolve_brush_quality_profile('extreme', '12gb')
+    metadata = {'width': 3840, 'height': 2160, 'duration_seconds': 22.527733,
+                'source_fps': 2028000 / 67519, 'source_frame_count': 676}
+    initial = video_geometry.frame_plan(metadata, profile)
+    rescue = video_geometry.frame_plan(metadata, profile, rescue=True)
+    assert initial['target_frames'] == 270
+    assert rescue['target_frames'] == 338
+    assert initial['selected_frame_indices'][:10] == [0, 2, 4, 6, 10, 12, 14, 16, 20, 22]
+    assert set(initial['selected_frame_indices']).issubset(rescue['selected_frame_indices'])
+    assert (initial['working_width'], initial['working_height']) == (3840, 2160)
+
+
+def test_source_frame_plan_is_fixed_unique_and_rescue_preserves_initial_frames(tmp_path):
+    profile = video_reconstruction.resolve_quality_profile('preview', '12gb', engine='brush')
+    metadata = {'width': 3840, 'height': 2160, 'duration_seconds': 22.506333,
+                'source_fps': 2028000 / 67519, 'source_frame_count': 676}
+    initial = video_geometry.frame_plan(metadata, profile)
+    rescue = video_geometry.frame_plan(metadata, profile, rescue=True)
+    assert initial['selected_frame_indices'][:10] == [0, 3, 9, 13, 19, 23, 29, 33, 39, 43]
+    assert initial['target_frames'] == 135
+    assert rescue['target_frames'] == 203
+    assert set(initial['selected_frame_indices']).issubset(rescue['selected_frame_indices'])
+    assert len(set(initial['selected_frame_indices'])) == initial['target_frames']
+    assert 0 <= min(rescue['selected_frame_indices']) < max(rescue['selected_frame_indices']) < 676
+    assert initial == video_geometry.frame_plan(metadata, profile)
+    command = video_geometry.build_extract_command('synthetic.mp4', tmp_path / 'images', initial)
+    assert '-filter_script:v' in command
+    assert '-vf' not in command
+    assert command[command.index('-vsync') + 1] == 'vfr'
+    assert video_geometry.extraction_filter(initial).startswith("select='if(lt(n,")
+
+
+def test_maximum_source_frame_selection_runs_in_ffmpeg():
+    executable = shutil.which('ffmpeg')
+    if not executable:
+        pytest.skip('FFmpeg is not installed.')
+    profile = {'sampling_fps': 150, 'max_resolution': 16}
+    plan = video_geometry.frame_plan({'width': 16, 'height': 16, 'duration_seconds': 8,
+                                      'source_fps': 300, 'source_frame_count': 2400}, profile)
+    result = subprocess.run(
+        [executable, '-hide_banner', '-nostdin', '-f', 'lavfi', '-i',
+         'testsrc2=size=16x16:rate=300:duration=8',
+         '-vf', video_geometry.extraction_filter(plan), '-vsync', 'vfr', '-f', 'null', '-'],
+        capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=30,
+    )
+    assert result.returncode == 0, result.stderr[-1000:]
+    assert 'frame= 1200' in result.stderr
+
+
+@pytest.mark.parametrize('duration, source_fps, source_frames', [
+    (2, 30, 60), (10, 0, 300), (1, 1, 1), (3600, 30, 108000),
+])
+def test_rescue_source_frames_include_initial_for_short_long_and_unknown_fps_videos(
+        duration, source_fps, source_frames):
+    profile = video_reconstruction.resolve_quality_profile('preview', '12gb', engine='brush')
+    metadata = {'width': 64, 'height': 36, 'duration_seconds': duration,
+                'source_fps': source_fps, 'source_frame_count': source_frames}
+    initial = video_geometry.frame_plan(metadata, profile)
+    rescue = video_geometry.frame_plan(metadata, profile, rescue=True)
+    assert set(initial['selected_frame_indices']).issubset(rescue['selected_frame_indices'])
+    assert len(set(rescue['selected_frame_indices'])) == rescue['target_frames']
+    assert rescue['target_frames'] <= min(source_frames, 1200)
+
+
 def test_splatfacto_1080_source_uses_full_resolution_after_geometry(tmp_path):
     data = tmp_path / 'data'
     data.mkdir()
@@ -294,7 +377,7 @@ def test_geometry_rescue_uses_more_frames_and_exhaustive_matching(video_task):
     assert status == 'ok'
     assert Path(chosen).parent.name == 'colmap-rescue'
     assert report['undistortion']['applied'] is True
-    assert [attempt['extracted_frames'] for attempt in report['attempts']] == [40, 60]
+    assert [attempt['extracted_frames'] for attempt in report['attempts']] == [54, 80]
     assert report['registered_frames'] == 55
     assert report['matching_method'] == 'exhaustive'
     assert report['retried'] is True
@@ -310,11 +393,11 @@ def test_mapper_failure_can_be_rescued(video_task):
 
 
 def test_failed_rescue_keeps_usable_primary_geometry(video_task):
-    runner = SyntheticGeometry([25, 0], mapper_failures={1})
+    runner = SyntheticGeometry([34, 0], mapper_failures={1})
     status, chosen, _lines, report = run_geometry(video_task, runner)
     assert status == 'ok'
     assert Path(chosen).parent.name == 'nerfstudio-data'
-    assert report['registered_frames'] == 25
+    assert report['registered_frames'] == 34
     assert report['retried'] is True
 
 
@@ -403,7 +486,7 @@ def test_brush_pipeline_publishes_real_sh3_ply_spz_and_final_report(video_task, 
     assert task['stage'] == 'video_done'
     assert Path(task['output_path']).read_bytes() == exported[0]
     payload = gzip.decompress(Path(task['spz_path']).read_bytes())
-    assert struct.unpack('<4sIIBBBB', payload[:16]) == (b'NGSP', 3, 25, 3, 11, 0, 0)
+    assert struct.unpack('<4sIIBBBB', payload[:16]) == (b'NGSP', 3, 25, 3, 17, 0, 0)
     assert len(payload) == 16 + 65 * 25
     metadata = model_gallery.read_model_metadata(manager.paths, 'synthetic')
     assert metadata['resolved_engine'] == 'brush'
@@ -424,8 +507,12 @@ def test_brush_pipeline_publishes_real_sh3_ply_spz_and_final_report(video_task, 
 
 
 @pytest.mark.parametrize('second_has_output', [True, False])
-def test_brush_oom_retry_isolates_outputs_and_reduces_actual_budgets(video_task, monkeypatch, second_has_output):
+@pytest.mark.parametrize('quality, expected_resolution', [('preview', 1200), ('high', 1920)])
+def test_brush_oom_retry_preserves_high_resolution_and_isolates_outputs(
+    video_task, monkeypatch, second_has_output, quality, expected_resolution,
+):
     manager, task = video_task
+    task['quality'] = quality
     geometry = SyntheticGeometry([38, 0])
     brush_commands = []
     final_bytes = []
@@ -446,10 +533,10 @@ def test_brush_oom_retry_isolates_outputs_and_reduces_actual_budgets(video_task,
     assert len(brush_commands) == 2
     first, second = brush_commands
     assert first[first.index('--export-path') + 1] != second[second.index('--export-path') + 1]
-    assert second[second.index('--max-resolution') + 1] == '1440'
+    assert second[second.index('--max-resolution') + 1] == str(expected_resolution)
     assert second[second.index('--max-splats') + 1] == '1005000'
     assert second[second.index('--total-steps') + 1] == first[first.index('--total-steps') + 1]
-    assert task['details']['brush_oom_retry']['max_resolution'] == 1440
+    assert task['details']['brush_oom_retry']['max_resolution'] == expected_resolution
     if second_has_output:
         assert task['status'] == 'completed'
         assert Path(task['output_path']).read_bytes() == final_bytes[0]

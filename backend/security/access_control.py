@@ -252,6 +252,9 @@ def get_required_access_level(access_config=None):
     if method == "OPTIONS":
         return ACCESS_PUBLIC
 
+    if path.startswith('/api/model-assets/') and path.endswith('/editor') and method == 'POST':
+        return ACCESS_OWNER
+
     if path in {"/", "/api/auth/status", "/api/auth/login"}:
         return ACCESS_PUBLIC
     if path.startswith("/assets/"):

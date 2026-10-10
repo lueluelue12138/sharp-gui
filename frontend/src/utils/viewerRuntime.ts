@@ -93,5 +93,6 @@ export function getViewerModelLoadKey(
     descriptor.sourceMediaType,
     descriptor.viewerOrientation,
     descriptor.viewerCamera,
+    descriptor.viewerTransform,
   ]);
 }

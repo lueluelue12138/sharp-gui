@@ -80,6 +80,8 @@
   -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
+body:has([data-model-editor]) .mobile-menu-btn { display: none; }
+
 .mobile-menu-btn svg {
   color: var(--text-primary);
 }
@@ -106,6 +108,7 @@
 }
 
 /* Viewer container */
+.viewer-container:has([data-model-editor]) .viewer-library-actions { display: none; }
 .viewer-container {
   flex: 1;
   position: relative;

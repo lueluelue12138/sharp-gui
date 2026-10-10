@@ -20,6 +20,11 @@
     padding: 0;
 }
 
+:global(body:has([data-model-editor])) .helpBtn,
+:global(body:has([data-model-editor])) .helpPanel {
+    display: none;
+}
+
 .helpBtn:hover {
     background: rgba(255, 255, 255, 0.85);
     transform: scale(1.05);

@@ -147,11 +147,28 @@ def _spz_attribute_chunks(vertices, sh_degree, fractional_bits):
             yield encoded.tobytes()
 
 
-def ply_to_spz(ply_path, spz_path=None, fractional_bits=11):
+def _spz_position_precision(vertices):
+    """按实际坐标范围提高位置精度，仍让所有点落在 SPZ 的有符号 24 位范围内。"""
+    maximum = 0.0
+    for start in range(0, len(vertices), SPZ_CHUNK_POINTS):
+        xyz = _spz_columns(vertices[start:start + SPZ_CHUNK_POINTS], ('x', 'y', 'z'))
+        maximum = max(maximum, float(np.max(np.abs(xyz))))
+    limit = (1 << 23) - 1
+    if maximum > limit:
+        raise ValueError('PLY positions exceed the SPZ coordinate range')
+    bits = min(18, max(0, math.floor(math.log2(limit / max(maximum, 1e-10)))))
+    while bits and maximum * (1 << bits) > limit:
+        bits -= 1
+    return bits
+
+
+def ply_to_spz(ply_path, spz_path=None, fractional_bits=None):
     """将 PLY 高斯泼溅模型转换为保留 SH0–SH3 的 SPZ 格式（Niantic v3）。"""
     plydata = PlyData.read(ply_path)
     vertices = plydata['vertex'].data
     sh_degree = _ply_sh_degree(vertices)
+    if fractional_bits is None:
+        fractional_bits = _spz_position_precision(vertices)
     if not isinstance(fractional_bits, int) or not 0 <= fractional_bits <= 24:
         raise ValueError('SPZ fractional_bits must be an integer between 0 and 24')
     if spz_path is None:

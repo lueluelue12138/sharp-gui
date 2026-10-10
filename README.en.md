@@ -479,6 +479,8 @@ Brush presets:
 | Extreme | 30,000 | Adjusted to VRAM budget |
 | Custom | 1,000–80,000 | 640–3840 pixels |
 
+Preview, High and Extreme initially sample about 6 / 8 / 12 frames per second, with 1200 / 1600 / 3200 pixel camera registration caps and 4096 / 8192 / 16384 feature budgets. These correspond to OOOSplat's Fast, Balanced and High recipes. High retains a 1920 pixel training cap; Extreme retains 3840 pixels with a 12 GB budget. Denser candidate pools use about 9 / 12 / 15 frames per second and preserve the initial list. Unknown source frame counts fall back to time sampling. See the [quality validation record](docs/video-reconstruction-quality.md) for the same-video comparison and its limits.
+
 - **Long videos**: start with Custom at 600 frames / 15k / 1920 pixels / sequential matching. More frames increase geometry and training cost. Exhaustive matching is limited to 450 frames.
 - **Modes**: Auto and Environment keep the full reconstruction. Only Object crops around the subject, which may remove surrounding geometry; automatic foreground masks are not provided.
 - **VRAM**: choose the actual GPU capacity. The target laptop has 12 GB, so a 16 GB budget is inappropriate.
