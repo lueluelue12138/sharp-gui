@@ -591,7 +591,7 @@ pip install flask
 echo [OK] Python 依赖安装完成
 
 echo.
-echo 安装视频 3D 重建依赖 (Nerfstudio / Splatfacto / COLMAP)...
+echo 安装视频 3D 重建依赖 (Brush / COLMAP / FFmpeg)...
 python "%SCRIPT_DIR%tools\install_video_reconstruction.py"
 if !ERRORLEVEL! neq 0 (
     echo.

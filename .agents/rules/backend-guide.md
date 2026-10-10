@@ -188,7 +188,7 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 - 模型资产导入文件存储在 `{workspace}/model-assets/imports/`，封面缓存存储在 `{workspace}/model-assets/thumbnails/`，索引和用户编辑信息存储在 `{workspace}/.model-asset-library/index.json`
 - 这些模型资产路径必须始终由当前 `PathContext.workspace_folder` 派生；Settings 切换工作目录后需要重启服务重建 `PathContext`，不得把模型资产索引或导入目录保存在项目根的全局位置
 - 本地媒体图库 catalog、每相册索引、照片缩略图、视频 poster 和批量下载临时 ZIP 存储在 `{workspace}/.photo-gallery-cache/`；浏览器不兼容音轨按播放进度实时转码，不落盘缓存，并采用小段快速预缓冲、有界速率补给和并发限制，兼顾首播/拖动体验与资源占用
-- 视频重建抽帧、COLMAP/Brush/Nerfstudio 数据和日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
+- 视频重建抽帧、COLMAP/Brush 数据和日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
 - 输出目录同时保留 `.ply` 原始模型和自动生成的 `.spz` 紧凑模型
 - 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、实际引擎、受控源视频引用，以及资源参数、抽帧/注册统计、配准率和阶段耗时；中间目录清理后仍保留该摘要，JSON 响应不得暴露 `source_video_path`
 - 配置文件 `config.json` 位于项目根目录（`BASE_DIR`），不随 workspace 切换；证书、私钥、日志和依赖目录同样是项目根运行时/部署状态，不得通过 `/files/*` 暴露
@@ -260,15 +260,15 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 
 ## 视频 3DGS 重建服务
 
-流程位于 `backend/services/video_reconstruction.py`，Brush CLI 契约位于 `backend/services/brush_engine.py`，直接 COLMAP 抽帧/配准位于 `backend/services/video_geometry.py`，路由位于 `backend/routes/video_reconstruction.py`。默认使用 Brush，保留 Splatfacto 对照路线。当前实现约定：
+流程位于 `backend/services/video_reconstruction.py`，Brush CLI 契约位于 `backend/services/brush_engine.py`，直接 COLMAP 抽帧/配准位于 `backend/services/video_geometry.py`，路由位于 `backend/routes/video_reconstruction.py`。视频统一使用 Brush + 原生 COLMAP + FFmpeg。当前实现约定：
 
 - `POST /api/video-reconstructions` 只接受本地相册 video id；后端必须通过相册索引反查路径并校验真实路径仍在相册 root 内。
 - `POST /api/video-reconstructions/upload` 只接受单个受支持视频文件，并保存到 `.video-reconstruction/uploads/` 这类受控工作区缓存。
 - 默认输出名使用源视频文件名 stem；只在冲突时追加唯一后缀，不自动追加质量、帧数或 cleanup 标记。
 - 依赖检测使用进程级缓存：`app_factory.create_app()` 调用后台 warmup；`/api/video-reconstructions/status?refresh=1` 可触发后台重扫；普通任务创建读取缓存，检测中时返回 `video_reconstruction_dependencies_checking`，不得同步阻塞页面。
-- 健康检查区分 `required`、`brush`、`splatfacto` 依赖组和 `brush_available` / `splatfacto_available`；缺少 `ns-train` 不得使可用 Brush 被判为不可用。明确选择 Brush 且缺失时返回 `video_reconstruction_brush_unavailable`，不静默替换为旧引擎；后端 `auto` 兼容回退必须记录实际引擎，`stable` 是 Splatfacto 别名。
-- `custom_options` 共享 `frame_count`、`max_num_iterations` 和 `matching_method`；Brush 的 `max_resolution` 为 640～3840 的长边上限且不放大小图，`downscale_factor` / `cache_images` 只适用于 Splatfacto。预设由后端按引擎和显存解析，不能将旧引擎无效参数传给 Brush。
-- Brush 在训练前检查 COLMAP 配准：至少 8 个注册帧、50% 配准率和非空稀疏点云；不完整时最多补密/扩大匹配一次，不达标以 `video_reconstruction_geometry_insufficient` 失败，50%～80% 保留警告。Splatfacto 也需要训练前最低配准门槛。
+- 健康检查只包含 `required` 和 `brush` 两组；缺少 Brush 返回 `video_reconstruction_brush_unavailable`。`auto` 仅兼容为 Brush 别名，显式旧引擎请求返回非法参数，保存的旧配置统一迁移到 Brush。
+- `custom_options` 包含 `frame_count`、`max_num_iterations`、`matching_method` 和 `max_resolution`（640～3840 长边上限，不放大小图）；不再提供旧引擎的下采样或图像缓存参数。
+- Brush 在训练前检查 COLMAP 配准：至少 8 个注册帧、50% 配准率和非空稀疏点云；不完整时最多补密/扩大匹配一次，不达标以 `video_reconstruction_geometry_insufficient` 失败，50%～80% 保留警告。
 - 子进程命令必须使用列表参数，不拼接 shell 字符串；日志默认只输出关键阶段、命令名、return code 和失败摘要，完整外部工具输出只在 `SHARP_LOG_LEVEL=DEBUG` 或 verbose 模式下显示。
 - OOM、缺依赖、非法选项、输出缺失、SPZ 失败、取消等错误应转换为稳定错误码，前端用 i18n 展示，不把原始堆栈作为主 UI 文案。
 - `auto` / `environment` 模式不删点；只有显式 `object` 才尝试主体裁剪，并在任务目录保留原始 PLY。若清理会删除过多几何，必须回退原始导出并记录原因。

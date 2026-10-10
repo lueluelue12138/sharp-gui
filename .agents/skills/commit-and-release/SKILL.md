@@ -227,7 +227,7 @@ build_portable_release.bat
 - 构建 React 前端。
 - 前端构建会优先复用现有 `frontend\node_modules`，通过 Node 直接调用 TypeScript 与 Vite 入口；只有缺失或构建失败时才安装依赖，避免 npm 版本差异导致 lockfile 被改、`npm ci` 失败或 Windows `.bin` shim 权限问题。
 - 使用主 `venv` 生成 `cu128-rtx50` 完整包。
-- 使用主 `venv` 和 `.video-reconstruction-env` 生成 `cu128-rtx50-video-recon` 视频重建完整包。
+- 使用主 `venv`、`.sharp-gui-tools` 中的 Brush / COLMAP 和 FFmpeg 生成 `cu128-rtx50-video-recon` 视频重建完整包。
 - 自动准备 `.portable-venvs\cu126` 并生成 `cu126-mainstream` 完整包。
 - 生成 `.sha256.txt`。
 - 用 7-Zip 测试 ZIP 完整性。

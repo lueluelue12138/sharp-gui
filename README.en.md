@@ -127,7 +127,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 **📦 Model Asset Library** — Browse generated models and imported `.ply/.spz/.splat/.rad` assets together with filters, sorting, cursor-based incremental loading, recent models, a details panel, batch import, download, and delete. The preferred open/download format follows Settings and falls back to available files.
 
-**🎥 Video 3DGS Reconstruction** — COLMAP + Brush is the default, with Nerfstudio/Splatfacto available for comparison. Includes quality presets, reliable-alignment checks, optional subject cropping, video thumbnails, source replay and `.ply/.spz` export.
+**🎥 Video 3DGS Reconstruction** — Videos use COLMAP + Brush. Includes quality presets, reliable-alignment checks, optional subject cropping, video thumbnails, source replay and `.ply/.spz` export.
 
 **📥 Upload Into Current Album** — Add photos directly to the current album with file picker or drag-and-drop; the album refreshes automatically after upload.
 
@@ -154,7 +154,7 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | Feature                    | Description                                                                                                                                                              |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **📸 Image to 3D**         | Upload any image; Apple ML-Sharp generates a 3D Gaussian Splatting model. The 2.62 GiB model is pre-downloaded during install.                                          |
-| **🎥 Video 3DGS Reconstruction** | Create static Gaussian Splat models from album or dropped videos using COLMAP + Brush by default, with legacy Splatfacto comparisons, quality presets, task stages, thumbnails and source replay. |
+| **🎥 Video 3DGS Reconstruction** | Create static Gaussian Splat models from album or dropped videos using COLMAP + Brush, with quality presets, task stages, thumbnails and source replay. |
 | **🖼️ Modern Workflow**     | Multi-select / drag-and-drop upload, virtualized gallery, in-app original viewer, smart task queue (2s while active, 10s idle), slide-out delete, cancellable jobs.      |
 | **📦 Model Asset Library** | Browse generated and imported models together, with `.ply/.spz/.splat/.rad`, filters, sorting, details metadata, recent models, batch import, and cursor-based incremental loading. |
 | **🗂️ Local Media Gallery** | Configure multiple local/NAS folders as albums, browse and filter photos/videos together, preview and download media, convert photos to 3D, play videos, and start video reconstruction. |
@@ -295,7 +295,7 @@ Built with Apple Human Interface Guidelines for a premium feel:
 >
 > 🛠️ **Zero manual setup**: when an NVIDIA GPU is present, the install script detects your driver and installs the matching CUDA-enabled PyTorch (cu118 / cu126 / cu128).
 >
-> 🎥 **Video reconstruction environment requires a separate check**: the regular install flow and core portable bundles get the core app and image-to-3D inference running first. To generate 3D models from video, download the `cu128-rtx50-video-recon` bundle, or follow [Video Reconstruction Manual Environment Setup](#video-reconstruction-manual-environment-setup) to install the pinned Brush CLI, COLMAP and `ffmpeg/ffprobe`, with the Splatfacto environment available as an option.
+> 🎥 **Video reconstruction environment requires a separate check**: the regular install flow and core portable bundles get the core app and image-to-3D inference running first. To generate 3D models from video, download the `cu128-rtx50-video-recon` bundle, or follow [Video Reconstruction Manual Environment Setup](#video-reconstruction-manual-environment-setup) to install the pinned Brush CLI, COLMAP and `ffmpeg/ffprobe`.
 >
 > 👉 Unverified platforms should theoretically work. Report issues on [GitHub Issues](https://github.com/lueluelue12138/sharp-gui/issues).
 
@@ -423,10 +423,10 @@ Developer and maintainer details are available in the Chinese guide: [Self-updat
 
 ### Uninstall
 
-Core app dependencies are installed inside the project's `venv/` virtual environment; if video reconstruction is enabled, its separate dependencies live in `.video-reconstruction-env/`. They do not affect your system environment. To uninstall, simply delete the project folder:
+Core app dependencies are installed inside the project's `venv/` virtual environment; if video reconstruction is enabled, its separate dependencies live in `.sharp-gui-tools/`. They do not affect your system environment. To uninstall, simply delete the project folder:
 
 ```bash
-# Delete project (includes venv, .video-reconstruction-env, ml-sharp, models, etc.)
+# Delete project (includes venv, .sharp-gui-tools, ml-sharp, models, etc.)
 rm -rf sharp-gui/
 
 # (Optional) Clean model cache
@@ -463,10 +463,10 @@ rm -rf sharp-gui/
 
 ### Generate 3D Models from Video
 
-Check the selected engine in Settings > Video Reconstruction. **Brush** is the default trainer, with COLMAP camera alignment; **Splatfacto** remains available for comparison. See [Video Reconstruction Manual Environment Setup](#video-reconstruction-manual-environment-setup).
+Check dependencies in Settings > Video Reconstruction. **Brush** trains the model with COLMAP camera alignment. See [Video Reconstruction Manual Environment Setup](#video-reconstruction-manual-environment-setup).
 
 1. **Select a video** - Choose one album video or drop one video into the model view, model list or Generate New entry.
-2. **Choose engine and quality** - Brush custom settings expose frame count, iterations, an actual long-edge pixel cap and matching method. Splatfacto has separate downscale and image cache controls.
+2. **Choose quality** - Brush custom settings expose frame count, iterations, an actual long-edge pixel cap and matching method.
 3. **Reconstruct** - After extraction and alignment, training requires at least 8 registered frames and a 50% registration rate. Poor alignment triggers one retry with denser sampling or broader matching; if it still fails, recapture or split the clip. Before Brush training, images and camera intrinsics are undistorted together, and camera poses and sparse points are rotated to share a consistent up direction.
 4. **View the result** - Open the gallery model, replay the source, or download PLY/SPZ. New SPZ exports retain higher-order spherical harmonics; old SH0 files require conversion from their original PLY to restore those coefficients.
 
@@ -569,55 +569,39 @@ The system auto-creates:
 
 These workspace runtime folders are user data and are ignored by `.gitignore` by default; they should not be committed. After changing the workspace in Settings and letting the app restart, `inputs/`, `outputs/`, `model-assets/`, `.model-asset-library/`, `.photo-gallery-cache/`, and `.video-reconstruction/` all switch to the new workspace. Switching back to an old workspace restores that workspace's model assets, recent-model index, gallery cache, and task-related state.
 
-Project-root `config.json`, `cert.pem` / `key.pem`, `sharp-gui-verbose.log`, `venv/`, `.video-reconstruction-env/`, and `ml-sharp/` are deployment config, certificates, logs, or dependency folders. They do not switch with the workspace; sensitive files are never exposed through `/files/*`.
+Project-root `config.json`, `cert.pem` / `key.pem`, `sharp-gui-verbose.log`, `venv/`, `.sharp-gui-tools/`, and `ml-sharp/` are deployment config, certificates, logs, or dependency folders. They do not switch with the workspace; sensitive files are never exposed through `/files/*`.
 
 > 💡 Albums can be added from the UI and are remembered per workspace: `photo_gallery_roots_by_workspace` is keyed by the normalized workspace path, so switching workspaces shows each one's own albums and switching back restores them. When editing manually, use paths from the server machine. Windows, Linux, and macOS are supported; LAN clients browse folders on the host running Sharp GUI.
 >
 > ⚠️ Older versions stored albums in a top-level `photo_gallery_roots` array. On the first launch after upgrading, it is automatically migrated into the bucket for the current workspace — no manual action needed.
 
-### Video Reconstruction Settings
+### Video Reconstruction Configuration
 
-Settings stores the default quality, engine, actual VRAM budget and intermediate-file preference. Brush is the default; Splatfacto is selectable for comparison. Old auto / stable settings are displayed as Brush / Splatfacto after migration.
+Settings stores default quality, actual VRAM budget and the intermediate-file preference. Videos use **Brush + COLMAP + ffmpeg/ffprobe**. Saved engine preferences migrate to Brush.
 
-Diagnostics separate common video/camera tools, Brush, and optional Splatfacto. Missing `ns-train` does not block Brush; missing Brush CLI does not block an installed Splatfacto engine. Startup warms the diagnostic cache asynchronously; opening the dialog reuses it, while Refresh requests a new scan.
+Diagnostics expose `required` (decoding) and `brush` (COLMAP and Brush). Startup warms the cache asynchronously; Refresh requests a new scan. Missing Brush does not trigger another trainer.
 
-Default model format controls gallery, recent models, downloads and previews. SPZ is compact; PLY retains the raw data. Missing preferred formats fall back to an available asset format.
+The preferred model format controls previews and downloads: SPZ is compact, while PLY preserves original data. Missing formats fall back to available assets.
 
 ### Video Reconstruction Manual Environment Setup
 
-The default route is **ffmpeg/ffprobe → COLMAP → official Brush CLI v0.3.0**. The target is Windows with an RTX 5070 Ti Laptop and 12 GB VRAM. A complete local video reconstruction has been validated on that environment; quality and runtime on other footage require evaluation. Nerfstudio / PyTorch / CUDA training dependencies are only needed for the optional Splatfacto engine.
+The route is **ffmpeg/ffprobe → native COLMAP → official Brush CLI v0.3.0**. RTX 50 users can download the complete `cu128-rtx50-video-recon` bundle; core bundles do not include video tools. Video tools do not require a separate Python training environment or CUDA Toolkit.
 
-#### 1. Install the pinned Brush CLI
+#### 1. Install video tools
 
-After installing the core app, run from the project root:
-
-```powershell
-python tools/install_brush.py
-```
-
-The installer downloads and verifies the pinned official [Brush v0.3.0](https://github.com/ArthurBrussee/brush/releases/tag/v0.3.0) release at `.sharp-gui-tools/brush/v0.3.0/brush_app.exe`. Use that CLI executable. Opening the Brush editor does not by itself configure Sharp GUI background training. Older video portable bundles may contain only Splatfacto.
-
-#### 2. Prepare common video and camera tools
-
-- **COLMAP**: use the [official Windows build](https://github.com/colmap/colmap/releases), or reuse `.video-reconstruction-env/colmap/bin/colmap.exe`.
-- **ffmpeg / ffprobe**: use a [Windows build](https://www.gyan.dev/ffmpeg/builds/); both commands must be discoverable.
-- **GPU driver**: keep the NVIDIA driver working. Brush has its own GPU runtime and does not require Nerfstudio for training.
-
-Check `colmap -h`, `ffmpeg -version`, `ffprobe -version`, and Brush CLI `--help`. Installed project tool paths take precedence over the system PATH.
-
-#### 3. Optional: install the legacy Splatfacto environment
-
-Only for comparisons with the legacy engine:
+After installing the core app, run in the Windows project root:
 
 ```powershell
-python tools/install_video_reconstruction.py
+.\venv\Scripts\python.exe tools/install_video_reconstruction.py
 ```
 
-The separate `.video-reconstruction-env` installer manages PyTorch CUDA, Nerfstudio, gsplat and COLMAP. The existing reference stack is Nerfstudio 1.1.5, gsplat 1.5.3, and PyTorch 2.8.0 + CUDA 12.8 for RTX 50. Check `ns-process-data --help`, `ns-train --help`, and `ns-export --help` after installation.
+The installer places native COLMAP in `.sharp-gui-tools/colmap/` and the hash-verified official [Brush v0.3.0](https://github.com/ArthurBrussee/brush/releases/tag/v0.3.0) in `.sharp-gui-tools/brush/v0.3.0/`. Existing installations migrate only native COLMAP programs and DLLs. FFmpeg and ffprobe are supplied by `install.bat` or the complete video bundle.
 
-#### 4. Check the selected engine
+On Linux/macOS, install COLMAP and FFmpeg using your package manager, then run `python tools/install_brush.py`. A compatible GPU driver is needed. Use the Brush CLI, rather than merely opening its editor.
 
-Open Settings > Video Reconstruction and Refresh, or read:
+#### 2. Check the environment
+
+Open Settings > Video Reconstruction and refresh, or request:
 
 ```powershell
 curl.exe http://127.0.0.1:5050/api/video-reconstructions/status
@@ -625,13 +609,12 @@ curl.exe http://127.0.0.1:5050/api/video-reconstructions/status
 
 | Group | Purpose |
 | --- | --- |
-| `required` | ffmpeg / ffprobe video decoding |
-| `brush` | COLMAP + pinned Brush CLI |
-| `splatfacto` | COLMAP + optional Nerfstudio training and export |
+| `required` | ffmpeg / ffprobe decoding |
+| `brush` | Native COLMAP + pinned Brush CLI |
 
-`summary.brush_available` and `summary.splatfacto_available` report whether each complete route can run. Only the selected engine needs to be available.
+`summary.brush_available` reports complete-route readiness. High quality retains a 1920 long-edge cap / 15,000 iterations; Extreme retains 3840 / 30,000 on a 12 GB budget. Smaller inputs are never enlarged.
 
-Task files are stored under the current workspace's `.video-reconstruction/jobs/`; final PLY, SPZ and compact reports remain in `outputs/`. Disabling intermediate-file retention cleans the job directory while preserving models and their reports.
+Intermediate files live in the workspace's `.video-reconstruction/jobs/`; PLY, SPZ and reports live in `outputs/`. Disabling intermediate retention removes the task folder while retaining models and reports. The legacy video environment is no longer used, but updates still protect old installation directories and existing models.
 
 ### Enable HTTPS (Recommended)
 
@@ -765,7 +748,7 @@ frontend/
 | **i18n**         | i18next + react-i18next                                |
 | **Styling**      | CSS Modules + Apple Glass Morphism                     |
 | **Backend**      | Python 3.10+, Flask app factory + Blueprints, TaskManager |
-| **AI Engine**    | Apple ML-Sharp (PyTorch, gsplat); video reconstruction defaults to Brush + COLMAP/ffmpeg, with Nerfstudio/Splatfacto available |
+| **AI Engine**    | Apple ML-Sharp (PyTorch, gsplat); video reconstruction uses Brush + COLMAP/ffmpeg |
 | **3D Rendering** | Three.js + Spark 2.0 (WASM-accelerated Gaussian Splatting) |
 
 ### Performance Optimizations

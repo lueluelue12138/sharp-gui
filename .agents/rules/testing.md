@@ -51,7 +51,7 @@ python -m pytest -q
 视频重建目标平台为 Windows + NVIDIA RTX 5070 Ti Laptop GPU 12GB。自动化测试使用合成数据；完整流程已在用户明确提供的非敏感视频上验证，不读取其他用户媒体。合成测试不代表真实画质验证。新增或修改相关逻辑时，至少覆盖：
 
 - `GET /api/video-reconstructions/status` 首次可返回 checking 或缓存状态；Settings `?refresh=1` 触发后台重扫；普通首页、弹窗和任务创建不会重复同步扫描外部工具。
-- 缺 Nerfstudio 而 Brush/COLMAP 可用时 Brush 可创建任务；缺 Brush 而旧环境可用时仅明确的 Splatfacto 或后端兼容 auto 回退可用。显式 Brush 缺失返回固定错误码，不静默切换；前端不显示或发送另一引擎专属参数。
+- Brush/COLMAP/FFmpeg 可用时可创建视频任务；缺 Brush 时即使机器仍有旧环境也不得回退。显式旧引擎请求拒绝；保存的旧配置迁移为 Brush。
 - 抽帧/训练分辨率符合长边上限，不放大小图、不隐含二次下采样；配准不足最多补密一次，注册少于 8 帧或配准率低于 50% 时不调用训练，50%～80% 保留警告。
 - 本地相册视频创建任务：只接受 video media id，拒绝照片 id、未知 id、root 外路径和源视频缺失；响应和 `/api/tasks` 不暴露 `source_video_path`。
 - 拖入视频创建任务：单视频可入队，默认输出名为源视频同名 stem；多个视频或混合图片/视频时前端给出明确提示。
@@ -116,7 +116,7 @@ python -m pytest -q
 - 构造 dirty tracked file、pending/running/processing generation task、非 `main` source branch、并发锁和过期 target；均须稳定拒绝且不得 fetch apply target、改文件或停止服务。远程会话及伪造 `X-Forwarded-For`/`Forwarded`/`X-Real-IP` 不能调用 check/apply。
 - 注入网络/TLS/rate-limit、只读目录/磁盘不足、checkout/compile/import/frontend/health-check 失败和 updater 中断。验证错误不被误报为 up-to-date/success，mutation 后失败自动恢复 previous SHA，非终态下次启动可对账恢复且服务最终可用。
 - 启动 Settings，验证当前版本、Stable/Latest、兼容/需全包原因、确认、阶段进度、预期断线重连、成功 reload 和自动失败恢复提示；同时覆盖窄屏、键盘焦点、light/dark 与 reduced-motion。
-- 每个包至少完成 `portable-run.bat --verbose` 启动、更新后的 API/前端健康检查和一次自动失败恢复后启动。视频重建包还要沿用独立环境可迁移性 gate，并验证 `ns-train splatfacto --help`；核心包不得被误判为已包含视频重建环境。
+- 每个包至少完成 `portable-run.bat --verbose` 启动、更新后的 API/前端健康检查和一次自动失败恢复后启动。视频重建包还要通过原生工具可迁移性 gate，验证 Brush/COLMAP/FFmpeg，且不得打入旧视频 Python 环境；核心包不得被误判为已包含视频重建环境。
 - **重启健康探针的门禁配置**：先设置访问码，再手工把 `config.json` 的 `access_control.allow_localhost_bypass` 改为 `false`（无设置界面开关），重启后确认 `GET /api/updates/status` 返回 401。当前该配置会同时取消 owner 身份、使 check/apply 返回 403，因此只能验证到"探针不会把这种回应误判为服务已死"；若将来为该开关补上 UI 或调整 owner 判定，必须在该配置下完整跑通一次兼容 update，且不出现 `update_restart_failed` / `update_rollback_failed`。
 - **重启后的进程形态**：更新完成后确认 `.sharp-gui-update/restart.log` 有新实例的启动输出；原控制台窗口已随旧进程退出属预期。此时再次双击 `portable-run.bat` 应得到明确的工作区占用提示（`WorkspaceInUseError`），而不是两个实例互相清理。
 - **停止与锁**：确认更新期间旧进程通过 `os._exit(0)` 退出后，新实例仍能获取工作区锁（依赖 `msvcrt.locking` 的内核释放语义）。若后续改动过工作区锁实现，这条必须重测。

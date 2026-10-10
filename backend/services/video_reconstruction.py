@@ -11,7 +11,6 @@ import traceback
 import uuid
 from pathlib import Path
 from shutil import which
-from urllib.parse import urlparse
 
 from werkzeug.utils import secure_filename
 
@@ -27,15 +26,12 @@ VALID_RECONSTRUCTION_MODES = {"auto", "object", "environment"}
 PRESET_RECONSTRUCTION_QUALITIES = {"preview", "high", "extreme"}
 CUSTOM_RECONSTRUCTION_QUALITY = "custom"
 VALID_RECONSTRUCTION_QUALITIES = PRESET_RECONSTRUCTION_QUALITIES | {CUSTOM_RECONSTRUCTION_QUALITY}
-VALID_RECONSTRUCTION_ENGINES = {"auto", "stable", "brush", "splatfacto"}
+VALID_RECONSTRUCTION_ENGINES = {"auto", "brush"}
 VALID_VRAM_BUDGETS = {"auto", "8gb", "12gb", "16gb", "24gb"}
 VALID_MATCHING_METHODS = {"sequential", "exhaustive"}
-VALID_CACHE_IMAGE_MODES = {"gpu", "cpu"}
-VALID_DOWNSCALE_FACTORS = {1, 2, 4}
 
 ERROR_DEPENDENCY_MISSING = "video_reconstruction_dependency_missing"
 ERROR_DEPENDENCIES_CHECKING = "video_reconstruction_dependencies_checking"
-ERROR_STABLE_UNAVAILABLE = "video_reconstruction_stable_unavailable"
 ERROR_INVALID_REQUEST = "video_reconstruction_invalid_request"
 ERROR_SOURCE_UNAVAILABLE = "video_reconstruction_source_unavailable"
 ERROR_CANCELLED = "video_reconstruction_cancelled"
@@ -47,75 +43,9 @@ ERROR_GEOMETRY_INSUFFICIENT = "video_reconstruction_geometry_insufficient"
 ERROR_BRUSH_UNAVAILABLE = "video_reconstruction_brush_unavailable"
 ERROR_INVALID_VIDEO = "video_reconstruction_invalid_video"
 
-# COLMAP 特征匹配策略按质量档绑定：
-# - preview: sequential，只匹配相邻帧，最快，快速预览可接受偶尔断链；
-# - high: exhaustive，180 帧两两匹配（~1.6 万对）最大化相机注册率，避免长视频
-#   sequential 断链导致只重建前半段甚至相机过少崩溃，且无需联网下载词表；
-# - extreme: exhaustive，与高质量档保持同一匹配策略，宁可增加 COLMAP 匹配耗时，
-#   也优先保证注册完整性；词表检索在部分素材上可能配准过少，导致极致档反而
-#   只重建极少视角。
-# 自定义档由用户显式填写帧数、迭代、下采样、匹配方式和缓存位置；后端只做
-# 范围校验与危险组合限制，不再把长视频方案伪装成一个通用预设。
-QUALITY_PROFILES = {
-    "preview": {
-        "frame_count": 90,
-        "max_resolution": 1280,
-        "max_num_iterations": 7000,
-        "num_downscales": 3,
-        "downscale_factor": 4,
-        "matching_method": "sequential",
-        "train_cameras_sampling_strategy": "fps",
-        "camera_optimizer_mode": "off",
-        "num_random": 50000,
-        "densify_grad_thresh": 0.0008,
-        "cull_alpha_thresh": 0.1,
-        "use_scale_regularization": False,
-        "use_bilateral_grid": False,
-        "cache_images": "gpu",
-        "progress_weight": 0.18,
-    },
-    "high": {
-        "frame_count": 180,
-        "max_resolution": 1920,
-        "max_num_iterations": 30000,
-        "num_downscales": 2,
-        "downscale_factor": 2,
-        "matching_method": "exhaustive",
-        "train_cameras_sampling_strategy": "fps",
-        "camera_optimizer_mode": "SO3xR3",
-        "num_random": 80000,
-        "densify_grad_thresh": 0.00055,
-        "cull_alpha_thresh": 0.04,
-        "use_scale_regularization": True,
-        "use_bilateral_grid": True,
-        "cache_images": "gpu",
-        "progress_weight": 0.45,
-    },
-    "extreme": {
-        "frame_count": 360,
-        "max_resolution": 2160,
-        "max_num_iterations": 50000,
-        "num_downscales": 1,
-        "downscale_factor": 1,
-        "matching_method": "exhaustive",
-        "train_cameras_sampling_strategy": "fps",
-        "camera_optimizer_mode": "SO3xR3",
-        "num_random": 120000,
-        "densify_grad_thresh": 0.0004,
-        "cull_alpha_thresh": 0.02,
-        "use_scale_regularization": True,
-        "use_bilateral_grid": True,
-        "cache_images": "cpu",
-        "progress_weight": 0.72,
-    },
-}
-
 CUSTOM_QUALITY_DEFAULTS = {
-    "frame_count": 600,
-    "max_num_iterations": 35000,
-    "downscale_factor": 2,
-    "matching_method": "sequential",
-    "cache_images": "cpu",
+    'frame_count': 600, 'max_num_iterations': 15000,
+    'matching_method': 'sequential', 'max_resolution': 1920,
 }
 
 CUSTOM_QUALITY_LIMITS = {
@@ -124,56 +54,14 @@ CUSTOM_QUALITY_LIMITS = {
     "exhaustive_frame_count_max": 450,
 }
 
-CUSTOM_DOWNSCALE_MAX_RESOLUTION = {
-    1: 2160,
-    2: 1920,
-    4: 1280,
-}
 
 FOCUSED_CLEANUP_PROFILE = {
     "position_quantiles": (5.0, 95.0),
     "alpha_min": 0.12,
     "scale_quantile": 98.5,
     "min_keep_ratio": 0.25,
+    "object_min_keep_ratio": 0.1,
     "min_vertices": 1000,
-}
-
-# Object-mode focus crop (C1): only applied when the user explicitly picks the
-# "object" mode. Estimates the subject center/radius from the orbiting camera
-# geometry and drops splats outside that sphere, removing far-away environment
-# (walls, distant floor). auto / environment modes are never touched.
-OBJECT_FOCUS = {
-    "radius_factor": 0.55,   # subject radius ≈ median(camera-to-center distance) × factor
-    "min_cameras": 8,        # need enough orbiting views to trust the geometry
-    "min_keep_ratio": 0.1,   # if the sphere keeps less than this, abandon it (fall back to stats-only)
-}
-
-VRAM_PROFILE_LIMITS = {
-    "auto": {
-        "frame_scale": 1.0,
-        "iteration_scale": 1.0,
-        "max_resolution_cap": 1600,
-    },
-    "8gb": {
-        "frame_scale": 0.72,
-        "iteration_scale": 0.75,
-        "max_resolution_cap": 1280,
-    },
-    "12gb": {
-        "frame_scale": 1.0,
-        "iteration_scale": 1.0,
-        "max_resolution_cap": 1920,
-    },
-    "16gb": {
-        "frame_scale": 1.18,
-        "iteration_scale": 1.1,
-        "max_resolution_cap": 1920,
-    },
-    "24gb": {
-        "frame_scale": 1.35,
-        "iteration_scale": 1.2,
-        "max_resolution_cap": 2160,
-    },
 }
 
 STAGE_PROGRESS = {
@@ -199,20 +87,8 @@ OOM_PATTERNS = (
     'failed to allocate memory',
 )
 
-TRAIN_VISUALIZER_VIEWER = "viewer"
-TRAIN_VISUALIZER_FALLBACK = "tensorboard"
-
-VISER_STARTUP_FAILURE_PATTERNS = (
-    "psutil.nosuchprocess",
-    "process no longer exists",
-    "_client_autobuild",
-    "ensure_client_is_built",
-)
 
 VIDEO_RUNTIME_PROCESS_TOKENS = (
-    "ns-process-data",
-    "ns-train",
-    "ns-export",
     "colmap",
     "brush_app",
     "brush",
@@ -226,12 +102,7 @@ _DEPENDENCY_STATUS_REFRESHING = False
 
 def _local_video_reconstruction_paths():
     root = Path(__file__).resolve().parents[2]
-    local_env = root / ".video-reconstruction-env"
-    return (
-        local_env / "portable-bin",
-        local_env / "Scripts",
-        local_env / "colmap" / "bin",
-    )
+    return (root / '.sharp-gui-tools' / 'colmap' / 'bin', root / 'tools' / 'ffmpeg' / 'bin')
 
 
 def _prepend_existing_path_entries(path_value, candidates):
@@ -266,115 +137,14 @@ def ensure_local_video_reconstruction_path():
         os.environ["PATH"] = preferred_path
 
 
-def find_existing_path(candidates):
-    for candidate in candidates:
-        if candidate and os.path.exists(candidate):
-            return candidate
-    return None
-
-
-def find_cuda_home():
-    configured = os.environ.get("CUDA_HOME") or os.environ.get("CUDA_PATH")
-    candidates = [
-        configured,
-        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.8",
-        r"C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.9",
-    ]
-    return find_existing_path(candidates)
-
-
-def find_vcvars64():
-    candidates = [
-        r"C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-        r"C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Professional\VC\Auxiliary\Build\vcvars64.bat",
-        r"C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat",
-    ]
-    return find_existing_path(candidates)
-
-
-def read_vcvars_environment():
-    vcvars = find_vcvars64()
-    if not vcvars:
-        return {}
-
-    script_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            suffix=".cmd",
-            delete=False,
-            encoding="utf-8",
-            newline="\r\n",
-        ) as script:
-            script.write("@echo off\n")
-            script.write(f'call "{vcvars}" >nul\n')
-            script.write("set\n")
-            script_path = script.name
-
-        result = subprocess.run(
-            ["cmd.exe", "/d", "/c", script_path],
-            check=False,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=30,
-        )
-    except Exception:
-        return {}
-    finally:
-        if script_path:
-            try:
-                os.unlink(script_path)
-            except OSError:
-                pass
-
-    if result.returncode != 0:
-        return {}
-
-    env = {}
-    for line in result.stdout.splitlines():
-        if "=" in line:
-            key, value = line.split("=", 1)
-            env[key] = value
-    return env
-
-
 def build_video_process_env():
     ensure_local_video_reconstruction_path()
-
     process_env = os.environ.copy()
-    vc_env = read_vcvars_environment()
-    if vc_env:
-        process_env.update(vc_env)
-        for path_key in ("PATH", "Path", "path"):
-            if vc_env.get(path_key):
-                process_env["PATH"] = vc_env[path_key]
-                break
-
-    path_candidates = list(_local_video_reconstruction_paths())
-
-    cuda_home = find_cuda_home()
-    if cuda_home:
-        process_env["CUDA_HOME"] = cuda_home
-        process_env["CUDA_PATH"] = cuda_home
-        cuda_bin = os.path.join(cuda_home, "bin")
-        if os.path.exists(cuda_bin):
-            path_candidates.append(Path(cuda_bin))
-
-    process_env["PATH"] = _prepend_existing_path_entries(
-        process_env.get("PATH", ""),
-        path_candidates,
-    )
-    if os.name == "nt":
-        process_env["Path"] = process_env["PATH"]
-    process_env.setdefault("PYTHONUTF8", "1")
-    process_env.setdefault("PYTHONIOENCODING", "utf-8")
-    process_env.setdefault("TORCH_CUDA_ARCH_LIST", "12.0")
-    process_env.setdefault("TORCH_FORCE_NO_WEIGHTS_ONLY_LOAD", "1")
-    process_env.setdefault("VSLANG", "1033")
+    process_env['PATH'] = _prepend_existing_path_entries(process_env.get('PATH', ''), _local_video_reconstruction_paths())
+    if os.name == 'nt':
+        process_env['Path'] = process_env['PATH']
+    process_env.setdefault('PYTHONUTF8', '1')
+    process_env.setdefault('PYTHONIOENCODING', 'utf-8')
     return process_env
 
 
@@ -382,12 +152,11 @@ def normalize_video_reconstruction_settings(value):
     raw = value if isinstance(value, dict) else {}
     defaults = get_video_reconstruction_config(persist_missing=False)
     quality = raw.get("default_quality")
-    engine = raw.get("default_engine")
     vram_budget = raw.get("vram_budget")
 
     return {
         "default_quality": quality if quality in PRESET_RECONSTRUCTION_QUALITIES else defaults["default_quality"],
-        "default_engine": engine if engine in VALID_RECONSTRUCTION_ENGINES else defaults["default_engine"],
+        "default_engine": "brush",
         "vram_budget": vram_budget if vram_budget in VALID_VRAM_BUDGETS else defaults["vram_budget"],
         "keep_intermediate_files": bool(raw.get("keep_intermediate_files")),
     }
@@ -439,101 +208,28 @@ def coerce_custom_int(options, key, default, minimum, maximum):
     return value, None
 
 
-def normalize_custom_quality_options(value, engine='stable'):
+def normalize_custom_quality_options(value, engine='brush'):
     options = parse_custom_options_value(value)
     if options is None:
-        return None, {
-            "error": "custom_options must be an object",
-            "code": ERROR_INVALID_REQUEST,
-            "field": "custom_options",
-        }
-
-    frame_min, frame_max = CUSTOM_QUALITY_LIMITS["frame_count"]
-    frame_count, error = coerce_custom_int(
-        options,
-        "frame_count",
-        CUSTOM_QUALITY_DEFAULTS["frame_count"],
-        frame_min,
-        frame_max,
-    )
-    if error:
-        return None, error
-
-    iter_min, iter_max = CUSTOM_QUALITY_LIMITS["max_num_iterations"]
-    max_num_iterations, error = coerce_custom_int(
-        options,
-        "max_num_iterations",
-        15000 if engine in {'brush', 'auto'} else CUSTOM_QUALITY_DEFAULTS["max_num_iterations"],
-        iter_min,
-        iter_max,
-    )
-    if error:
-        return None, error
-
-    downscale_factor, error = coerce_custom_int(
-        options,
-        "downscale_factor",
-        CUSTOM_QUALITY_DEFAULTS["downscale_factor"],
-        min(VALID_DOWNSCALE_FACTORS),
-        max(VALID_DOWNSCALE_FACTORS),
-    )
-    if error:
-        return None, error
-    if downscale_factor not in VALID_DOWNSCALE_FACTORS:
-        return None, {
-            "error": "downscale_factor must be 1, 2, or 4",
-            "code": ERROR_INVALID_REQUEST,
-            "field": "custom_options.downscale_factor",
-        }
-
-    matching_method = str(options.get("matching_method", CUSTOM_QUALITY_DEFAULTS["matching_method"])).strip().lower()
-    if matching_method not in VALID_MATCHING_METHODS:
-        return None, {
-            "error": "matching_method must be sequential or exhaustive",
-            "code": ERROR_INVALID_REQUEST,
-            "field": "custom_options.matching_method",
-        }
-
-    if (
-        matching_method == "exhaustive"
-        and frame_count > CUSTOM_QUALITY_LIMITS["exhaustive_frame_count_max"]
-    ):
-        return None, {
-            "error": "exhaustive matching is limited to 450 custom frames",
-            "code": ERROR_INVALID_REQUEST,
-            "field": "custom_options.frame_count",
-        }
-
-    cache_images = str(options.get("cache_images", CUSTOM_QUALITY_DEFAULTS["cache_images"])).strip().lower()
-    if cache_images not in VALID_CACHE_IMAGE_MODES:
-        return None, {
-            "error": "cache_images must be gpu or cpu",
-            "code": ERROR_INVALID_REQUEST,
-            "field": "custom_options.cache_images",
-        }
-
-    if engine in {'brush', 'auto'}:
-        max_resolution, error = coerce_custom_int(options, 'max_resolution', 1920, 640, 3840)
+        return None, {'error': 'custom_options must be an object', 'code': ERROR_INVALID_REQUEST, 'field': 'custom_options'}
+    if engine not in VALID_RECONSTRUCTION_ENGINES:
+        return None, {'error': 'Unsupported reconstruction engine', 'code': ERROR_INVALID_REQUEST, 'field': 'engine'}
+    normalized = {}
+    for field, limits in (('frame_count', CUSTOM_QUALITY_LIMITS['frame_count']),
+                          ('max_num_iterations', CUSTOM_QUALITY_LIMITS['max_num_iterations']),
+                          ('max_resolution', (640, 3840))):
+        normalized[field], error = coerce_custom_int(options, field, CUSTOM_QUALITY_DEFAULTS[field], *limits)
         if error:
             return None, error
-        normalized = {
-            'frame_count': frame_count,
-            'max_num_iterations': max_num_iterations,
-            'matching_method': matching_method,
-            'max_resolution': max_resolution,
-        }
-        if engine == 'auto':
-            # 自动选择可能回退旧引擎；保留两种引擎各自需要的参数。
-            normalized.update(downscale_factor=downscale_factor, cache_images=cache_images)
-        return normalized, None
-
-    return {
-        "frame_count": frame_count,
-        "max_num_iterations": max_num_iterations,
-        "downscale_factor": downscale_factor,
-        "matching_method": matching_method,
-        "cache_images": cache_images,
-    }, None
+    matching = str(options.get('matching_method', CUSTOM_QUALITY_DEFAULTS['matching_method'])).strip().lower()
+    if matching not in VALID_MATCHING_METHODS:
+        return None, {'error': 'matching_method must be sequential or exhaustive', 'code': ERROR_INVALID_REQUEST,
+                      'field': 'custom_options.matching_method'}
+    if matching == 'exhaustive' and normalized['frame_count'] > CUSTOM_QUALITY_LIMITS['exhaustive_frame_count_max']:
+        return None, {'error': 'exhaustive matching is limited to 450 custom frames', 'code': ERROR_INVALID_REQUEST,
+                      'field': 'custom_options.frame_count'}
+    normalized['matching_method'] = matching
+    return normalized, None
 
 
 def validate_reconstruction_options(data):
@@ -648,36 +344,6 @@ def validate_upload_request(form_data, uploaded_file):
     }, None, 200
 
 
-def build_custom_quality_profile(custom_options, vram_budget):
-    options, error = normalize_custom_quality_options(custom_options)
-    if error:
-        options = dict(CUSTOM_QUALITY_DEFAULTS)
-
-    downscale_factor = options["downscale_factor"]
-    max_resolution = CUSTOM_DOWNSCALE_MAX_RESOLUTION[downscale_factor]
-    num_random = 120000 if downscale_factor == 1 else 90000 if options["frame_count"] >= 360 else 80000
-
-    return {
-        "frame_count": options["frame_count"],
-        "max_resolution": max_resolution,
-        "max_num_iterations": options["max_num_iterations"],
-        "num_downscales": downscale_factor_to_num_downscales(downscale_factor),
-        "downscale_factor": downscale_factor,
-        "matching_method": options["matching_method"],
-        "train_cameras_sampling_strategy": "fps",
-        "camera_optimizer_mode": "SO3xR3",
-        "num_random": num_random,
-        "densify_grad_thresh": 0.00055,
-        "cull_alpha_thresh": 0.04,
-        "use_scale_regularization": True,
-        "use_bilateral_grid": True,
-        "cache_images": options["cache_images"],
-        "progress_weight": 0.58,
-        "vram_budget": vram_budget if vram_budget in VRAM_PROFILE_LIMITS else "auto",
-        "custom_options": options,
-    }
-
-
 def resolve_brush_quality_profile(quality, vram_budget, custom_options=None):
     """固定 Brush 日程，并分别控制 SfM 与训练图像的真实长边。"""
     presets = {
@@ -733,49 +399,10 @@ def effective_vram_budget(configured):
         return configured
 
 
-def resolve_quality_profile(quality, vram_budget, custom_options=None, engine='stable'):
-    if engine == 'brush':
-        return resolve_brush_quality_profile(quality, vram_budget, custom_options)
-    if quality == CUSTOM_RECONSTRUCTION_QUALITY:
-        return build_custom_quality_profile(custom_options, vram_budget)
-
-    base = QUALITY_PROFILES.get(quality, QUALITY_PROFILES["high"])
-    limits = VRAM_PROFILE_LIMITS.get(vram_budget, VRAM_PROFILE_LIMITS["auto"])
-
-    frame_count = max(24, int(round(base["frame_count"] * limits["frame_scale"])))
-    max_iterations = max(1000, int(round(base["max_num_iterations"] * limits["iteration_scale"])))
-    max_resolution = min(base["max_resolution"], limits["max_resolution_cap"])
-    downscale_factor = resolve_downscale_factor(base["downscale_factor"], max_resolution)
-    num_downscales = max(base["num_downscales"], downscale_factor_to_num_downscales(downscale_factor))
-
-    return {
-        **base,
-        "frame_count": frame_count,
-        "max_num_iterations": max_iterations,
-        "max_resolution": max_resolution,
-        "downscale_factor": downscale_factor,
-        "num_downscales": num_downscales,
-        "vram_budget": vram_budget if vram_budget in VRAM_PROFILE_LIMITS else "auto",
-    }
-
-
-def resolve_downscale_factor(base_downscale_factor, max_resolution):
-    downscale_factor = max(1, int(base_downscale_factor))
-    if max_resolution <= 1280:
-        return max(downscale_factor, 4)
-    if max_resolution <= 1920:
-        return max(downscale_factor, 2)
-    return downscale_factor
-
-
-def downscale_factor_to_num_downscales(downscale_factor):
-    downscale_factor = max(1, int(downscale_factor))
-    num_downscales = 0
-    generated_factor = 1
-    while generated_factor < downscale_factor:
-        generated_factor *= 2
-        num_downscales += 1
-    return num_downscales
+def resolve_quality_profile(quality, vram_budget, custom_options=None, engine='brush'):
+    if engine not in VALID_RECONSTRUCTION_ENGINES:
+        raise ValueError('Unsupported reconstruction engine')
+    return resolve_brush_quality_profile(quality, vram_budget, custom_options)
 
 
 def command_version(name, args=None, timeout=5):
@@ -794,7 +421,7 @@ def command_version(name, args=None, timeout=5):
         env = os.environ.copy()
         env.setdefault("PYTHONUTF8", "1")
         env.setdefault("PYTHONIOENCODING", "utf-8")
-        # Portable Nerfstudio entrypoints are Windows batch wrappers.  A cold
+        # Windows batch entrypoints may experience a transient cold
         # first launch can occasionally return a transient non-zero status
         # while Windows is still loading/scanning the bundled Python modules.
         # Retry only these wrappers, once; native tools and persistent wrapper
@@ -834,19 +461,6 @@ def command_version(name, args=None, timeout=5):
         }
 
 
-def resolve_video_python():
-    """Return the Python executable that hosts the video reconstruction env."""
-    local_env = Path(__file__).resolve().parents[2] / ".video-reconstruction-env"
-    candidates = [
-        local_env / "Scripts" / "python.exe",
-        local_env / "bin" / "python",
-    ]
-    for candidate in candidates:
-        if candidate.exists():
-            return str(candidate)
-    return which("python") or which("python3") or "python"
-
-
 def _decorate_dependency_status(dependencies, *, checked_at, refreshing, cached):
     result = copy.deepcopy(dependencies)
     summary = result.setdefault("summary", {})
@@ -857,124 +471,49 @@ def _decorate_dependency_status(dependencies, *, checked_at, refreshing, cached)
 
 
 def _pending_dependency_status():
-    message = "Video reconstruction tools are being checked in the background."
-    return {
-        "required": {
-            "available": False,
-            "tools": [],
-            "message": message,
-        },
-        "stable": {
-            "available": False,
-            "tools": [],
-            "message": message,
-        },
-        'brush': {'available': False, 'tools': [], 'message': None},
-        'splatfacto': {'available': False, 'tools': [], 'message': None},
-        "summary": {
-            "available": False,
-            "stable_available": False,
-            'brush_available': False,
-            'splatfacto_available': False,
-            "checking": True,
-            "checked_at": None,
-            "cached": False,
-        },
-    }
+    message = 'Video reconstruction tools are being checked in the background.'
+    return {'required': {'available': False, 'tools': [], 'message': message},
+            'brush': {'available': False, 'tools': [], 'message': message},
+            'summary': {'available': False, 'brush_available': False, 'checking': True,
+                        'checked_at': None, 'cached': False}}
 
 
 def _dependency_error_status(exc):
-    message = f"Failed to check video reconstruction tools: {exc}"
-    return {
-        "required": {
-            "available": False,
-            "tools": [],
-            "message": message,
-        },
-        "stable": {
-            "available": False,
-            "tools": [],
-            "message": message,
-        },
-        'brush': {'available': False, 'tools': [], 'message': message},
-        'splatfacto': {'available': False, 'tools': [], 'message': message},
-        "summary": {
-            "available": False,
-            "stable_available": False,
-            'brush_available': False,
-            'splatfacto_available': False,
-        },
-    }
+    message = f'Failed to check video reconstruction tools: {exc}'
+    return {'required': {'available': False, 'tools': [], 'message': message},
+            'brush': {'available': False, 'tools': [], 'message': message},
+            'summary': {'available': False, 'brush_available': False}}
 
 
 def _scan_dependencies():
     ensure_local_video_reconstruction_path()
-
-    ffmpeg = command_version("ffmpeg")
-    ffprobe = command_version("ffprobe")
-
-    ns_process_data = command_version("ns-process-data", ["--help"], timeout=30)
-    ns_train = command_version("ns-train", ["--help"], timeout=30)
-    ns_export = command_version("ns-export", ["--help"], timeout=30)
-    colmap = command_version("colmap", ["-h"], timeout=10)
-    stable_tools = [ns_process_data, ns_train, ns_export, colmap]
-    for tool in stable_tools:
-        tool["category"] = "stable"
-        tool["required"] = True
-
-    required_tools = [ffmpeg, ffprobe]
-    stable_available = all(tool["available"] for tool in stable_tools)
-    required_available = all(tool["available"] for tool in required_tools)
+    required_tools = [command_version('ffmpeg'), command_version('ffprobe')]
+    for tool in required_tools:
+        tool.update(category='required', required=True)
+    colmap = command_version('colmap', ['-h'], timeout=10)
+    colmap.update(category='brush', required=True)
     brush_path = brush_engine.find_brush_executable()
     brush = command_version(brush_path, ['--help'], timeout=15) if brush_path else {
-        'name': 'brush', 'available': False, 'message': 'Install the pinned Brush CLI using tools/install_brush.py.',
+        'available': False, 'message': 'Install the pinned Brush CLI using tools/install_brush.py.',
     }
-    brush['name'] = 'brush'
-    brush['category'] = 'brush'
-    brush['required'] = True
-    brush_available = required_available and colmap['available'] and brush['available']
-    stable_group = {
-        'available': required_available and stable_available,
-        'tools': stable_tools,
-        'message': None if stable_available else 'Nerfstudio CLI tools and COLMAP are required for Splatfacto.',
-    }
-
-    return {
-        "required": {
-            "available": required_available,
-            "tools": required_tools,
-            "message": None if required_available else "ffmpeg and ffprobe are required for video decoding.",
-        },
-        'stable': stable_group,
-        'splatfacto': stable_group,
-        'brush': {
-            'available': brush_available,
-            'tools': [colmap, brush],
-            'message': None if brush_available else 'COLMAP and the pinned Brush CLI are required for the Brush route.',
-        },
-        "summary": {
-            "available": brush_available or (required_available and stable_available),
-            "stable_available": required_available and stable_available,
-            'splatfacto_available': required_available and stable_available,
-            'brush_available': brush_available,
-        },
-    }
+    brush.update(name='brush', category='brush', required=True)
+    required_available = all(tool['available'] for tool in required_tools)
+    available = required_available and colmap['available'] and brush['available']
+    return {'required': {'available': required_available, 'tools': required_tools,
+                         'message': None if required_available else 'ffmpeg and ffprobe are required for video decoding.'},
+            'brush': {'available': available, 'tools': [colmap, brush],
+                      'message': None if available else 'COLMAP and the pinned Brush CLI are required for video reconstruction.'},
+            'summary': {'available': available, 'brush_available': available}}
 
 
 def resolve_engine_strategy(engine, dependencies=None):
+    if engine not in VALID_RECONSTRUCTION_ENGINES:
+        return None, ERROR_INVALID_REQUEST
     dependencies = dependencies or check_dependencies()
-    stable_available = bool(dependencies.get('splatfacto', dependencies.get('stable', {})).get('available'))
-    brush_available = bool(dependencies.get('brush', {}).get('available'))
-
-    if engine == 'brush' or (engine == 'auto' and brush_available):
-        return ('brush', None) if brush_available else (None, ERROR_BRUSH_UNAVAILABLE)
-
-    if engine in {"auto", "stable", 'splatfacto'}:
-        if not stable_available:
-            return None, ERROR_DEPENDENCY_MISSING
-        return ('splatfacto' if engine == 'splatfacto' else 'stable'), None
-
-    return None, ERROR_INVALID_REQUEST
+    if not dependencies.get('required', {}).get('available'):
+        return None, ERROR_DEPENDENCY_MISSING
+    available = bool(dependencies.get('brush', {}).get('available'))
+    return ('brush', None) if available else (None, ERROR_BRUSH_UNAVAILABLE)
 
 
 def sanitize_output_stem(name):
@@ -1403,7 +942,6 @@ def is_task_cancelled(task_manager, task_id):
 def wait_for_process(task_manager, task_id, process, output_lines, stage=None, profile=None, last_output=None, log_file=None):
     cancelled = False
     last_reported_progress = None
-    viewer_url_logged = False
     for line in iter(process.stdout.readline, ""):
         if not line:
             break
@@ -1419,17 +957,6 @@ def wait_for_process(task_manager, task_id, process, output_lines, stage=None, p
                 log_file = None
         append_task_log(task_manager, task_id, line)
         if stage == "video_optimize":
-            if not viewer_url_logged:
-                viewer_url, viewer_port = parse_viewer_url(line)
-                if viewer_url:
-                    viewer_url_logged = True
-                    if set_task_viewer_endpoint(task_manager, task_id, viewer_url, viewer_port):
-                        port_hint = f":{viewer_port}" if viewer_port else ""
-                        runtime.log(
-                            "INFO",
-                            f"Video task {task_id} live viewer available at {viewer_url} "
-                            f"(LAN clients: open http://<this-machine-ip>{port_hint})",
-                        )
             if profile:
                 step_progress = parse_training_progress(line, profile)
                 if step_progress is not None and step_progress != last_reported_progress:
@@ -1448,99 +975,18 @@ def wait_for_process(task_manager, task_id, process, output_lines, stage=None, p
     return process.wait(), False
 
 
-TRAIN_STEP_PATTERN = re.compile(r"(\d+)\s*/\s*(\d+)")
-TRAIN_PERCENT_PATTERN = re.compile(r"\(\s*(\d+(?:\.\d+)?)\s*%\s*\)")
-VIEWER_URL_PATTERN = re.compile(r"https?://[^\s'\"\]\)]+")
-
-
 def parse_training_progress(line, profile):
-    """Map a Nerfstudio training log line into the optimize progress band.
-
-    Nerfstudio's local writer prints a periodic table whose data rows look like
-    ``2980 (9.93%)``; some setups instead emit ``step/total``. We trust the
-    percentage form first, then fall back to ``step/total`` when the denominator
-    matches the configured iteration count. Returns an integer percentage within
-    [video_optimize, video_export), or None when the line carries no progress.
-    """
-    max_iter = int(profile.get("max_num_iterations") or 0)
-    if max_iter <= 0:
+    parsed = brush_engine.parse_brush_progress(line, int(profile.get('max_num_iterations') or 0))
+    if not parsed:
         return None
-
-    ratio = None
-    if profile.get('engine') == 'brush':
-        parsed = brush_engine.parse_brush_progress(line, max_iter)
-        if parsed:
-            ratio = parsed['progress']
-    percent_matches = TRAIN_PERCENT_PATTERN.findall(line)
-    if percent_matches and ratio is None:
-        try:
-            percent = float(percent_matches[-1])
-        except ValueError:
-            percent = None
-        if percent is not None and 0.0 <= percent <= 100.0:
-            ratio = percent / 100.0
-
-    if ratio is None:
-        step = None
-        for match in TRAIN_STEP_PATTERN.finditer(line):
-            if int(match.group(2)) == max_iter:
-                step = int(match.group(1))
-        if step is not None:
-            ratio = step / max_iter
-
-    if ratio is None:
-        return None
-
-    ratio = min(1.0, max(0.0, ratio))
-    base = STAGE_PROGRESS["video_optimize"]
-    ceiling = STAGE_PROGRESS["video_export"]
-    return int(base + (ceiling - base) * ratio)
-
-
-def parse_viewer_url(line):
-    """Extract the Nerfstudio/viser live viewer URL from a training log line.
-
-    The viewer is the most reliable real-time progress source, so surface it as
-    soon as the trainer prints it. ``0.0.0.0`` is rewritten to ``localhost`` for a
-    readable, locally-openable display URL, but the listening port is returned
-    separately so the frontend can rebuild the URL against whichever host the
-    user actually reached Sharp GUI on (works for LAN clients, not just local).
-    Returns ``(display_url, port)`` or ``(None, None)``.
-    """
-    lowered = line.lower()
-    if "http://" not in lowered and "https://" not in lowered:
-        return None, None
-    for match in VIEWER_URL_PATTERN.finditer(line):
-        url = match.group(0).rstrip(".,)]'\"")
-        low = url.lower()
-        if any(token in low for token in ("localhost", "127.0.0.1", "0.0.0.0", "nerf.studio", "viewer")):
-            display_url = url.replace("0.0.0.0", "localhost")
-            try:
-                port = urlparse(url).port
-            except ValueError:
-                port = None
-            return display_url, port
-    return None, None
-
-
-def set_task_viewer_endpoint(task_manager, task_id, url, port=None):
-    with task_manager.task_lock:
-        task = task_manager.task_status.get(task_id)
-        if not task:
-            return False
-        details = task.setdefault("details", {})
-        if details.get("viewer_url") == url and details.get("viewer_port") == port:
-            return False
-        details["viewer_url"] = url
-        if port is not None:
-            details["viewer_port"] = port
-        return True
+    base, ceiling = STAGE_PROGRESS['video_optimize'], STAGE_PROGRESS['video_export']
+    return int(base + (ceiling - base) * min(1.0, max(0.0, parsed['progress'])))
 
 
 def terminate_process_tree(process):
     """Terminate the process and its children so GPU workers don't leak.
 
-    ns-train / ns-process-data can spawn child processes (and a viewer); a plain
+    Brush / COLMAP can spawn child processes; a plain
     process.terminate() only signals the parent, which on Windows leaves orphans
     holding VRAM and can OOM the next queued task. Kill the whole tree instead,
     falling back to single-process terminate/kill if the tree call fails.
@@ -1596,7 +1042,7 @@ def _log_command_heartbeat(task_id, stage, command_name, process, last_output, s
                            interval=45, quiet_threshold=40):
     """Periodically reassure the user that a quiet long-running step is alive.
 
-    Steps like ns-process-data (frame extraction + COLMAP) can run for minutes
+    Steps like COLMAP camera alignment can run for minutes
     without emitting any stdout, which looks like a freeze. When no tool output
     has arrived for a while, log a short INFO heartbeat with elapsed time until
     the process finishes.
@@ -1626,10 +1072,6 @@ def run_command(task_manager, task_id, cmd, cwd=None, stage=None, progress=None,
         process_env = brush_engine.build_brush_environment(process_env)
     command_name = Path(str(cmd[0])).name if cmd else "command"
     actual_cmd = cmd
-    if cmd and cmd[0] == 'ns-train':
-        shim = Path(__file__).resolve().parents[2] / 'tools' / 'train_splatfacto.py'
-        actual_cmd = [resolve_video_python(), str(shim), *cmd[1:]]
-
     append_task_log(task_manager, task_id, "$ " + " ".join(str(part) for part in cmd))
     runtime.log(
         "INFO",
@@ -1716,19 +1158,6 @@ def run_command(task_manager, task_id, cmd, cwd=None, stage=None, progress=None,
 def contains_oom(text):
     normalized = (text or "").lower()
     return any(pattern in normalized for pattern in OOM_PATTERNS)
-
-
-def is_viewer_startup_failure(output_lines):
-    normalized = "\n".join(str(line or "") for line in (output_lines or [])).lower()
-    return (
-        "viser" in normalized
-        and ("viewerstate" in normalized or "viserserver" in normalized or "viewer.py" in normalized)
-        and any(pattern in normalized for pattern in VISER_STARTUP_FAILURE_PATTERNS)
-    )
-
-
-def should_retry_train_without_viewer(visualizer, output_lines):
-    return visualizer == TRAIN_VISUALIZER_VIEWER and is_viewer_startup_failure(output_lines)
 
 
 def build_failure_message(return_code, output_lines):
@@ -2055,102 +1484,8 @@ def cleanup_stale_runtime_artifacts(
     return summary
 
 
-def find_exported_ply(export_dir):
-    candidates = sorted(Path(export_dir).rglob("*.ply"), key=lambda path: path.stat().st_mtime, reverse=True)
-    return str(candidates[0]) if candidates else None
-
-
 def should_apply_focused_cleanup(task):
     return task.get("mode") == "object"
-
-
-def _find_dataparser_transforms(train_dir):
-    candidates = sorted(
-        Path(train_dir).rglob("dataparser_transforms.json"),
-        key=lambda path: path.stat().st_mtime,
-        reverse=True,
-    )
-    return str(candidates[0]) if candidates else None
-
-
-def estimate_object_focus(train_dir, data_dir):
-    """Estimate subject center/radius in the exported splat's coordinate frame.
-
-    Object videos orbit a central subject, so the look-at rays of all cameras
-    converge near the subject. We intersect those rays (least squares) to locate
-    the subject, and size a sphere from the median camera distance. Camera poses
-    come from ``transforms.json`` (original COLMAP frame) and are mapped into the
-    Nerfstudio training frame via ``dataparser_transforms.json`` so they line up
-    with the exported ``.ply``. Returns ``(center_xyz, radius)`` or ``None`` when
-    it cannot be estimated safely (caller then skips the focus crop).
-    """
-    import numpy as np
-
-    try:
-        transforms_path = os.path.join(data_dir, "transforms.json")
-        with open(transforms_path, "r", encoding="utf-8") as file:
-            transforms = json.load(file)
-        frames = transforms.get("frames")
-        if not isinstance(frames, list) or len(frames) < OBJECT_FOCUS["min_cameras"]:
-            return None
-
-        dataparser_path = _find_dataparser_transforms(train_dir)
-        if not dataparser_path:
-            return None
-        with open(dataparser_path, "r", encoding="utf-8") as file:
-            dataparser = json.load(file)
-        transform = np.asarray(dataparser.get("transform"), dtype=np.float64)
-        scale = float(dataparser.get("scale", 1.0))
-        if transform.shape != (3, 4) or not np.isfinite(scale) or scale <= 0:
-            return None
-        rotation = transform[:3, :3]
-        translation = transform[:3, 3]
-
-        origins = []
-        directions = []
-        for frame in frames:
-            matrix = frame.get("transform_matrix")
-            if not isinstance(matrix, list):
-                continue
-            c2w = np.asarray(matrix, dtype=np.float64)
-            if c2w.shape != (4, 4):
-                continue
-            position = scale * (rotation @ c2w[:3, 3] + translation)
-            look = rotation @ (-c2w[:3, 2])
-            norm = np.linalg.norm(look)
-            if not np.isfinite(position).all() or not np.isfinite(norm) or norm < 1e-8:
-                continue
-            origins.append(position)
-            directions.append(look / norm)
-
-        if len(origins) < OBJECT_FOCUS["min_cameras"]:
-            return None
-        origins = np.asarray(origins)
-        directions = np.asarray(directions)
-
-        identity = np.eye(3)
-        a_matrix = np.zeros((3, 3))
-        b_vector = np.zeros(3)
-        for origin, direction in zip(origins, directions):
-            projector = identity - np.outer(direction, direction)
-            a_matrix += projector
-            b_vector += projector @ origin
-        center = np.linalg.solve(a_matrix, b_vector)
-        if not np.isfinite(center).all():
-            return None
-
-        camera_distances = np.linalg.norm(origins - center, axis=1)
-        median_distance = float(np.median(camera_distances))
-        if not np.isfinite(median_distance) or median_distance <= 0:
-            return None
-        # Sanity: the converged center should sit inside the camera cloud.
-        if np.linalg.norm(center - origins.mean(axis=0)) > 2.0 * median_distance:
-            return None
-
-        radius = median_distance * OBJECT_FOCUS["radius_factor"]
-        return center.astype(np.float64), float(radius)
-    except Exception:
-        return None
 
 
 def clean_gaussian_splat_ply(source_path, output_path, profile=None, object_focus=None):
@@ -2202,7 +1537,7 @@ def clean_gaussian_splat_ply(source_path, output_path, profile=None, object_focu
             candidate = mask & sphere_mask
             candidate_count = int(candidate.sum())
             candidate_ratio = candidate_count / input_vertices if input_vertices else 0.0
-            if candidate_count >= cleanup_profile["min_vertices"] and candidate_ratio >= OBJECT_FOCUS["min_keep_ratio"]:
+            if candidate_count >= cleanup_profile["min_vertices"] and candidate_ratio >= cleanup_profile["object_min_keep_ratio"]:
                 mask = candidate
                 object_focus_applied = True
                 object_focus_center = [float(value) for value in center]
@@ -2228,7 +1563,7 @@ def clean_gaussian_splat_ply(source_path, output_path, profile=None, object_focu
     # the surrounding environment), so relax the "removed too much" guard when it
     # actually fired.
     effective_min_keep = (
-        OBJECT_FOCUS["min_keep_ratio"] if object_focus_applied else cleanup_profile["min_keep_ratio"]
+        cleanup_profile["object_min_keep_ratio"] if object_focus_applied else cleanup_profile["min_keep_ratio"]
     )
     too_small = (
         output_vertices < cleanup_profile["min_vertices"]
@@ -2248,183 +1583,12 @@ def clean_gaussian_splat_ply(source_path, output_path, profile=None, object_focu
     return stats
 
 
-def build_process_data_command(source_video_path, data_dir, profile):
-    return [
-        "ns-process-data",
-        "video",
-        "--data",
-        source_video_path,
-        "--output-dir",
-        data_dir,
-        "--num-frames-target",
-        str(profile["frame_count"]),
-        "--num-downscales",
-        str(profile["num_downscales"]),
-        "--matching-method",
-        profile["matching_method"],
-    ]
-
-
-def run_colmap_geometry_stage(task_manager, task_id, task, job_dir, data_dir, profile):
-    """运行现有 COLMAP 几何阶段（ns-process-data）。返回 (status, code, message)。"""
-    process_cmd = build_process_data_command(task["source_video_path"], data_dir, profile)
-    return_code, output_lines, cancelled = run_command(
-        task_manager,
-        task_id,
-        process_cmd,
-        cwd=job_dir,
-        stage="video_extract_frames",
-        progress=STAGE_PROGRESS["video_extract_frames"],
-    )
-    if cancelled or is_task_cancelled(task_manager, task_id):
-        return "cancelled", None, None
-    if return_code != 0:
-        code, message = build_failure_message(return_code, output_lines)
-        return "failed", code, message
-    return "ok", None, None
-
-
-def run_geometry_stage(task_manager, task_id, task, job_dir, data_dir, profile):
-    """Run the stable COLMAP geometry stage and return (status, code, message)."""
-    details = task.setdefault("details", {})
-    details["geometry_engine"] = "colmap"
-    return run_colmap_geometry_stage(task_manager, task_id, task, job_dir, data_dir, profile)
-
-
-def build_train_command(data_dir, output_dir, profile, visualizer=TRAIN_VISUALIZER_VIEWER):
-    return [
-        "ns-train",
-        "splatfacto",
-        "--output-dir",
-        output_dir,
-        "--max-num-iterations",
-        str(profile["max_num_iterations"]),
-        "--vis",
-        visualizer,
-        "--viewer.quit-on-train-completion",
-        "True",
-        "--pipeline.datamanager.train-cameras-sampling-strategy",
-        profile["train_cameras_sampling_strategy"],
-        "--pipeline.model.camera-optimizer.mode",
-        profile["camera_optimizer_mode"],
-        "--pipeline.model.num-random",
-        str(profile["num_random"]),
-        "--pipeline.model.densify-grad-thresh",
-        str(profile["densify_grad_thresh"]),
-        "--pipeline.model.cull-alpha-thresh",
-        str(profile["cull_alpha_thresh"]),
-        "--pipeline.model.use-scale-regularization",
-        str(profile["use_scale_regularization"]),
-        "--pipeline.model.use-bilateral-grid",
-        str(profile["use_bilateral_grid"]),
-        "--pipeline.datamanager.cache-images",
-        profile["cache_images"],
-        "nerfstudio-data",
-        "--data",
-        data_dir,
-        "--downscale-factor",
-        str(profile["downscale_factor"]),
-    ]
-
-
-def build_export_command(config_path, export_dir):
-    return [
-        "ns-export",
-        "gaussian-splat",
-        "--load-config",
-        config_path,
-        "--output-dir",
-        export_dir,
-    ]
-
-
-def find_nerfstudio_config(train_dir):
-    candidates = sorted(Path(train_dir).rglob("config.yml"), key=lambda path: path.stat().st_mtime, reverse=True)
-    return str(candidates[0]) if candidates else None
-
-
-# Nerfstudio's FPS camera sampling uses fpsample bucket_fps_kdline_sampling with
-# h=3, which asserts 2**3 <= number_of_cameras. After the train/eval split the
-# usable count is even smaller, so when COLMAP only registers a handful of
-# cameras the trainer crashes with "2**h should be <= n_pts". Below this
-# conservative threshold we fall back to random sampling, which has no such
-# requirement, instead of letting the whole task fail.
-FPS_MIN_REGISTERED_FRAMES = 16
-
-
-def count_registered_frames(data_dir):
-    """Return the number of cameras COLMAP registered in transforms.json, or None."""
-    transforms_path = os.path.join(data_dir, "transforms.json")
-    try:
-        with open(transforms_path, "r", encoding="utf-8") as file:
-            data = json.load(file)
-    except (OSError, ValueError):
-        return None
-    frames = data.get("frames") if isinstance(data, dict) else None
-    return len(frames) if isinstance(frames, list) else None
-
-
-def resolve_training_profile(profile, data_dir, task_manager=None, task_id=None, task=None):
-    """Downgrade FPS camera sampling to random when too few cameras registered."""
-    try:
-        with open(os.path.join(data_dir, 'transforms.json'), encoding='utf-8') as file:
-            transforms = json.load(file)
-        long_edge = max(int(transforms.get('w') or 0), int(transforms.get('h') or 0))
-        if long_edge and not profile.get('custom_options'):
-            factor = 1
-            while long_edge / factor > profile['max_resolution']:
-                factor *= 2
-            profile = {**profile, 'downscale_factor': factor, 'effective_training_long_edge': long_edge / factor}
-    except (OSError, ValueError, TypeError):
-        pass
-    if profile.get("train_cameras_sampling_strategy") != "fps":
-        return profile
-
-    registered = count_registered_frames(data_dir)
-    if registered is None or registered >= FPS_MIN_REGISTERED_FRAMES:
-        return profile
-
-    adjusted = {**profile, "train_cameras_sampling_strategy": "random"}
-    message = (
-        f"Only {registered} cameras were registered; using random camera sampling "
-        "instead of FPS to avoid a sampling assertion. Reconstruction quality may be "
-        "limited with so few views."
-    )
-    if task_manager is not None and task_id is not None:
-        append_task_log(task_manager, task_id, message)
-    if isinstance(task, dict):
-        task.setdefault("details", {})["camera_sampling_fallback"] = {
-            "registered_frames": registered,
-            "strategy": "random",
-        }
-    return adjusted
-
-
 def add_object_mode_warning(task):
     details = task.setdefault("details", {})
     warnings = details.setdefault("warnings", [])
     warning = {
         "code": "video_reconstruction_object_foreground_degraded",
         "message": "Automatic foreground segmentation is not configured; object mode will run without masks.",
-    }
-    if warning not in warnings:
-        warnings.append(warning)
-
-
-def record_train_visualizer_fallback(task, from_visualizer, to_visualizer, reason):
-    details = task.setdefault("details", {})
-    details["train_visualizer_fallback"] = {
-        "from": from_visualizer,
-        "to": to_visualizer,
-        "reason": reason,
-    }
-    warnings = details.setdefault("warnings", [])
-    warning = {
-        "code": "video_reconstruction_viewer_disabled",
-        "message": (
-            "Nerfstudio's live viewer failed to start on this machine; "
-            "retrying training without the viewer."
-        ),
     }
     if warning not in warnings:
         warnings.append(warning)
@@ -2494,7 +1658,7 @@ def publish_video_ply(source_path, output_path):
 def run_video_reconstruction_task(task_manager, task_id, task):
     job_dir = os.path.join(task_manager.paths.video_reconstruction_jobs_folder, task_id)
     source_dir = os.path.join(job_dir, "source")
-    data_dir = os.path.join(job_dir, "nerfstudio-data")
+    data_dir = os.path.join(job_dir, "colmap-data")
     train_dir = os.path.join(job_dir, "train")
     export_dir = os.path.join(job_dir, "export")
     logs_dir = os.path.join(job_dir, "logs")
@@ -2541,30 +1705,25 @@ def run_video_reconstruction_task(task_manager, task_id, task):
                 "Automatic foreground segmentation is not configured; continuing without masks.",
             )
 
-        if engine == 'brush':
-            geometry_status, chosen_data_dir, geometry_lines, geometry_report = video_geometry.run_video_geometry(
-                task_manager, task_id, task, job_dir, data_dir, profile, run_command, build_video_process_env(),
-            )
-            task.setdefault('details', {})['geometry'] = geometry_report
-            if geometry_status == 'ok':
-                data_dir = chosen_data_dir
-                geometry_code, geometry_message = None, None
-                if geometry_report['registration_ratio'] < 0.8:
-                    task['details'].setdefault('warnings', []).append({
-                        'code': 'video_reconstruction_geometry_incomplete',
-                        'message': 'Some video views could not be registered; inspect the reconstruction report.',
-                    })
-            elif geometry_status == 'quality_failed':
-                geometry_code = ERROR_GEOMETRY_INSUFFICIENT
-                geometry_message = 'Too few video views were aligned reliably; training was stopped before spending more time.'
-            elif geometry_status == 'cancelled':
-                geometry_code, geometry_message = None, None
-            else:
-                geometry_code, geometry_message = build_failure_message(1, geometry_lines)
+        geometry_status, chosen_data_dir, geometry_lines, geometry_report = video_geometry.run_video_geometry(
+            task_manager, task_id, task, job_dir, data_dir, profile, run_command, build_video_process_env(),
+        )
+        task.setdefault('details', {})['geometry'] = geometry_report
+        if geometry_status == 'ok':
+            data_dir = chosen_data_dir
+            geometry_code, geometry_message = None, None
+            if geometry_report['registration_ratio'] < 0.8:
+                task['details'].setdefault('warnings', []).append({
+                    'code': 'video_reconstruction_geometry_incomplete',
+                    'message': 'Some video views could not be registered; inspect the reconstruction report.',
+                })
+        elif geometry_status == 'quality_failed':
+            geometry_code = ERROR_GEOMETRY_INSUFFICIENT
+            geometry_message = 'Too few video views were aligned reliably; training was stopped before spending more time.'
+        elif geometry_status == 'cancelled':
+            geometry_code, geometry_message = None, None
         else:
-            geometry_status, geometry_code, geometry_message = run_geometry_stage(
-                task_manager, task_id, task, job_dir, data_dir, profile
-            )
+            geometry_code, geometry_message = build_failure_message(1, geometry_lines)
         if geometry_status == "cancelled":
             update_task(task_manager, task_id, status="cancelled", error=None)
             cleanup_failed()
@@ -2580,155 +1739,14 @@ def run_video_reconstruction_task(task_manager, task_id, task):
             cleanup_failed()
             return
 
-        if engine == 'brush':
-            training_status, exported_ply, code, message = run_brush_training_stage(
-                task_manager, task_id, task, job_dir, data_dir, train_dir, profile,
-            )
-            if training_status != 'ok':
-                update_task(task_manager, task_id, status='cancelled' if training_status == 'cancelled' else 'failed',
-                            error=message, error_code=code)
-                cleanup_failed()
-                return
-        else:
-            registered = count_registered_frames(data_dir)
-            if registered is not None:
-                extracted = len(list((Path(data_dir) / 'images').glob('*')))
-                ratio = registered / extracted if extracted else None
-                task['details']['geometry'] = {
-                    'registered_frames': registered, 'extracted_frames': extracted,
-                    'registration_ratio': ratio,
-                }
-                if registered < video_geometry.MIN_REGISTERED_IMAGES or (ratio is not None and ratio < 0.5):
-                    update_task(task_manager, task_id, status='failed', error_code=ERROR_GEOMETRY_INSUFFICIENT,
-                                error='Too few video views were aligned reliably; training was stopped.')
-                    cleanup_failed()
-                    return
-            training_profile = resolve_training_profile(
-                profile,
-                data_dir,
-                task_manager=task_manager,
-                task_id=task_id,
-                task=task,
-            )
-            task['details']['resource_profile'] = training_profile
-            train_visualizer = TRAIN_VISUALIZER_VIEWER
-            train_cmd = build_train_command(data_dir, train_dir, training_profile, visualizer=train_visualizer)
-            return_code, output_lines, cancelled = run_command(
-                task_manager,
-                task_id,
-                train_cmd,
-                cwd=job_dir,
-                stage="video_optimize",
-                progress=STAGE_PROGRESS["video_optimize"],
-                profile=training_profile,
-            )
-            if cancelled:
-                update_task(task_manager, task_id, status="cancelled", error=None)
-                cleanup_failed()
-                return
-            if is_task_cancelled(task_manager, task_id):
-                update_task(task_manager, task_id, status="cancelled", error=None)
-                cleanup_failed()
-                return
-            if return_code != 0 and should_retry_train_without_viewer(train_visualizer, output_lines):
-                fallback_visualizer = TRAIN_VISUALIZER_FALLBACK
-                record_train_visualizer_fallback(
-                    task,
-                    train_visualizer,
-                    fallback_visualizer,
-                    "viser_startup_failed",
-                )
-                append_task_log(
-                    task_manager,
-                    task_id,
-                    (
-                        "Nerfstudio viewer failed during startup; "
-                        f"retrying ns-train with --vis {fallback_visualizer}."
-                    ),
-                )
-                runtime.log(
-                    "WARN",
-                    "Video task "
-                    f"{task_id} retrying ns-train with --vis {fallback_visualizer} "
-                    "because the Viser live viewer failed to start.",
-                )
-                shutil.rmtree(train_dir, ignore_errors=True)
-                os.makedirs(train_dir, exist_ok=True)
-                train_visualizer = fallback_visualizer
-                train_cmd = build_train_command(
-                    data_dir,
-                    train_dir,
-                    training_profile,
-                    visualizer=train_visualizer,
-                )
-                return_code, output_lines, cancelled = run_command(
-                    task_manager,
-                    task_id,
-                    train_cmd,
-                    cwd=job_dir,
-                    stage="video_optimize",
-                    progress=STAGE_PROGRESS["video_optimize"],
-                    profile=training_profile,
-                )
-                if cancelled:
-                    update_task(task_manager, task_id, status="cancelled", error=None)
-                    cleanup_failed()
-                    return
-                if is_task_cancelled(task_manager, task_id):
-                    update_task(task_manager, task_id, status="cancelled", error=None)
-                    cleanup_failed()
-                    return
-            if return_code != 0:
-                code, message = build_failure_message(return_code, output_lines)
-                update_task(task_manager, task_id, status="failed", error=message, error_code=code)
-                cleanup_failed()
-                return
-
-            config_path = find_nerfstudio_config(train_dir)
-            if not config_path:
-                update_task(
-                    task_manager,
-                    task_id,
-                    status="failed",
-                    error="Nerfstudio training finished but config.yml was not found.",
-                    error_code=ERROR_OUTPUT_MISSING,
-                )
-                cleanup_failed()
-                return
-
-            return_code, output_lines, cancelled = run_command(
-                task_manager,
-                task_id,
-                build_export_command(config_path, export_dir),
-                cwd=job_dir,
-                stage="video_export",
-                progress=STAGE_PROGRESS["video_export"],
-            )
-            if cancelled:
-                update_task(task_manager, task_id, status="cancelled", error=None)
-                cleanup_failed()
-                return
-            if is_task_cancelled(task_manager, task_id):
-                update_task(task_manager, task_id, status="cancelled", error=None)
-                cleanup_failed()
-                return
-            if return_code != 0:
-                code, message = build_failure_message(return_code, output_lines)
-                update_task(task_manager, task_id, status="failed", error=message, error_code=code)
-                cleanup_failed()
-                return
-
-            exported_ply = find_exported_ply(export_dir)
-            if not exported_ply:
-                update_task(
-                    task_manager,
-                    task_id,
-                    status="failed",
-                    error="Nerfstudio export finished but no .ply file was found.",
-                    error_code=ERROR_OUTPUT_MISSING,
-                )
-                cleanup_failed()
-                return
+        training_status, exported_ply, code, message = run_brush_training_stage(
+            task_manager, task_id, task, job_dir, data_dir, train_dir, profile,
+        )
+        if training_status != 'ok':
+            update_task(task_manager, task_id, status='cancelled' if training_status == 'cancelled' else 'failed',
+                        error=message, error_code=code)
+            cleanup_failed()
+            return
 
         output_ply = exported_ply
         if should_apply_focused_cleanup(task):
@@ -2737,7 +1755,6 @@ def run_video_reconstruction_task(task_manager, task_id, task):
             if task.get("mode") == "object":
                 object_focus = (
                     brush_engine.estimate_brush_object_focus(os.path.join(train_dir, 'dataset'))
-                    if engine == 'brush' else estimate_object_focus(train_dir, data_dir)
                 )
                 if object_focus is None:
                     append_task_log(

@@ -44,7 +44,7 @@ The video reconstruction pipeline SHALL record a normalized Y-front preview-orie
 
 #### Scenario: 用户拖入单个视频文件创建重建任务
 - **WHEN** 具备生成权限的用户在模型视图、模型列表或生成新模型入口拖入一个受支持视频文件
-- **THEN** UI SHALL 打开同一套视频生成 3D 弹窗，让用户在提交前确认模式、质量、引擎和输出名称
+- **THEN** UI SHALL 打开同一套视频生成 3D 弹窗，让用户在提交前确认模式、质量和输出名称
 - **AND** 用户提交弹窗后，系统 SHALL 将视频保存到受控工作区缓存并创建视频重建任务
 - **AND** 默认输出名称 SHALL 使用源视频同名 stem，不自动追加质量档或清理策略后缀
 - **AND** 响应 MUST NOT 暴露源视频缓存的绝对文件系统路径
@@ -295,10 +295,10 @@ The video reconstruction pipeline SHALL record a normalized Y-front preview-orie
 - **THEN** UI SHALL 用简短文案说明各质量档的资源差异，例如帧数、训练迭代、输入分辨率或预期耗时
 - **AND** UI SHALL 显示当前选择档位适合的用途，避免用户只看到抽象的“高质量/极致”
 
-#### Scenario: 设置页解释引擎策略差异
-- **WHEN** 用户查看设置页的视频重建默认引擎
-- **THEN** UI SHALL 说明 `自动` 和 `稳定` 的差异
-- **AND** UI SHALL 说明 `自动` 当前使用已验证稳定路线，并保留未来策略切换空间
+#### Scenario: 设置页诊断当前视频路线
+- **WHEN** 用户查看视频重建设置
+- **THEN** 系统 SHALL 展示默认质量、显存预算、中间文件选项和 Brush/COLMAP/FFmpeg 依赖状态
+- **AND** 不提供已移除引擎的选择或参数
 
 #### Scenario: 质量档绑定特征匹配策略
 - **WHEN** 用户选择不同质量档运行视频重建
@@ -336,7 +336,7 @@ The video reconstruction pipeline SHALL record a normalized Y-front preview-orie
 
 #### Scenario: 小屏设备打开视频重建弹窗
 - **WHEN** 视口宽度不足以横向容纳三段式选项
-- **THEN** 模式、质量和引擎选项 SHALL 自动改为可点击的单列布局
+- **THEN** 模式和质量选项 SHALL 自动改为可点击的单列布局
 - **AND** 弹窗内容 MUST NOT 横向溢出或遮挡提交按钮
 
 ### Requirement: 系统 SHALL 保持现有图片生成和视频播放行为
@@ -369,7 +369,7 @@ The video reconstruction pipeline SHALL record a normalized Y-front preview-orie
 
 #### Scenario: 应用启动后清理上次中断残留
 - **WHEN** 后端应用进程启动且 workspace 中存在上次中断留下的视频重建残留
-- **THEN** 系统 SHALL best-effort 终止命令行或工作目录明确指向当前 workspace 视频重建目录的 Nerfstudio/COLMAP 残留进程
+- **THEN** 系统 SHALL best-effort 终止命令行或工作目录明确指向当前 workspace 视频重建目录的 Brush/COLMAP 残留进程
 - **AND** 系统 SHALL 删除遗留的视频重建 job 目录
 - **AND** 系统 SHALL 删除没有完成 `.ply` 模型引用的预写 sidecar 和孤儿上传缓存
 - **AND** 系统 MUST NOT 删除已经被完成模型 sidecar 引用的上传源视频副本

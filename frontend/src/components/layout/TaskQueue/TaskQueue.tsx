@@ -55,19 +55,6 @@ const CancelIcon = () => (
     </svg>
 );
 
-// Build a viewer URL that works for both the local machine and LAN clients.
-// The backend reports the viewer's listening port; we rebuild the host from the
-// address the user actually used to reach Sharp GUI (localhost locally, the
-// reconstruction machine's LAN IP for remote clients), since the trainer's
-// viewer listens on all interfaces. Falls back to the raw URL when no port.
-function resolveViewerUrl(task: Task): string | undefined {
-    const port = task.details?.viewer_port;
-    if (port && typeof window !== 'undefined' && window.location?.hostname) {
-        return `http://${window.location.hostname}:${port}`;
-    }
-    return task.details?.viewer_url;
-}
-
 export const TaskQueue: React.FC = () => {
     const { t } = useTranslation();
     const { tasks, removeTask } = useAppStore();
@@ -157,7 +144,6 @@ export const TaskQueue: React.FC = () => {
                 const canCancel = isActiveTaskStatus(task.status);
                 const errorText = getTaskErrorText(task);
                 const stageText = getTaskStageText(task);
-                const viewerUrl = task.status === 'processing' ? resolveViewerUrl(task) : undefined;
                 const elapsedText =
                     task.status === 'processing' && task.started_at
                         ? formatElapsed(nowMs / 1000 - task.started_at)
@@ -197,18 +183,6 @@ export const TaskQueue: React.FC = () => {
                                 </div>
                             ) : null}
                             {errorText ? <div className={styles.errorText} data-tooltip={errorText}>{errorText}</div> : null}
-                            {viewerUrl ? (
-                                <a
-                                    className={styles.viewerLink}
-                                    href={viewerUrl}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    onClick={(event) => event.stopPropagation()}
-                                    data-tooltip={viewerUrl}
-                                >
-                                    {t('videoReconLiveProgress')}
-                                </a>
-                            ) : null}
                         </div>
 
                         {/* Status Text */}

@@ -105,15 +105,10 @@ exit /b 1
 
 :sharp_cmd_ok
 
-REM Optional video reconstruction environment (Nerfstudio + COLMAP)
-set "VIDEO_RECON_ENV=%SCRIPT_DIR%.video-reconstruction-env"
-if exist "%VIDEO_RECON_ENV%\Scripts\ns-train.exe" (
-    set "PATH=%PATH%;%VIDEO_RECON_ENV%\Scripts"
-    echo [Video 3D] Nerfstudio environment detected
-)
-if exist "%VIDEO_RECON_ENV%\colmap\bin\colmap.exe" (
-    set "PATH=%PATH%;%VIDEO_RECON_ENV%\colmap\bin"
-    echo [Video 3D] COLMAP environment detected
+REM Optional native COLMAP for video reconstruction
+if exist "%SCRIPT_DIR%.sharp-gui-tools\colmap\bin\colmap.exe" (
+    set "PATH=%SCRIPT_DIR%.sharp-gui-tools\colmap\bin;%PATH%"
+    echo [Video 3D] Native COLMAP detected
 )
 
 echo.

@@ -2,7 +2,6 @@ import { apiGet, apiPost, apiPostFormDataWithProgress } from '@/api/client';
 import type {
   VideoReconstructionConfig,
   VideoReconstructionCustomOptions,
-  VideoReconstructionEngine,
   VideoReconstructionRequest,
   VideoReconstructionResponse,
   VideoReconstructionStatusResponse,
@@ -11,24 +10,20 @@ import type {
 export function normalizeVideoReconstructionConfig(
   config: VideoReconstructionConfig,
 ): VideoReconstructionConfig {
-  const savedEngine = String(config.default_engine);
   return {
     ...config,
-    default_engine: savedEngine === 'splatfacto' || savedEngine === 'stable' ? 'splatfacto' : 'brush',
+    default_engine: 'brush',
   };
 }
 
 function selectCustomOptions(
-  engine: VideoReconstructionEngine,
   options: VideoReconstructionCustomOptions,
 ): VideoReconstructionCustomOptions {
   return {
     frame_count: options.frame_count,
     max_num_iterations: options.max_num_iterations,
     matching_method: options.matching_method,
-    ...(engine === 'brush'
-      ? { max_resolution: options.max_resolution }
-      : { downscale_factor: options.downscale_factor, cache_images: options.cache_images }),
+    max_resolution: options.max_resolution,
   };
 }
 
@@ -55,7 +50,7 @@ export async function createVideoReconstruction(
     {
       ...request,
       custom_options: request.quality === 'custom' && request.custom_options
-        ? selectCustomOptions(request.engine, request.custom_options)
+        ? selectCustomOptions(request.custom_options)
         : undefined,
     },
     { timeout: 300000 },
@@ -78,7 +73,7 @@ export async function createVideoReconstructionFromFile(
     formData.append('quality', options.quality);
   }
   if (options?.quality === 'custom' && options.custom_options) {
-    formData.append('custom_options', JSON.stringify(selectCustomOptions(options.engine, options.custom_options)));
+    formData.append('custom_options', JSON.stringify(selectCustomOptions(options.custom_options)));
   }
   if (options?.engine) {
     formData.append('engine', options.engine);

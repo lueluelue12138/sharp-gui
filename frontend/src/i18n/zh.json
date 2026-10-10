@@ -541,13 +541,11 @@
   "photoVideoExitFullscreen": "退出全屏",
   "photoDownloadVideo": "下载视频",
   "videoReconGenerate3d": "生成 3D",
-  "videoReconLiveProgress": "实时进度",
   "videoReconSingleVideoOnly": "选择单个视频",
   "videoReconDialogTitle": "视频生成 3D",
   "videoReconStatusLoadFailed": "加载视频重建议诊断失败。",
   "videoReconCheckingDependencies": "正在检查本机重建工具...",
   "videoReconRequiredMissing": "ffmpeg 或 ffprobe 不可用，请到设置中的视频重建区域查看诊断。",
-  "videoReconStableMissing": "旧版 Nerfstudio / Splatfacto 工具不可用，请先安装后再选择此引擎。",
   "videoReconDependenciesReady": "{{engine}} 重建路线已就绪。",
   "videoReconQueued": "视频重建任务已加入队列。",
   "videoReconCreateFailed": "创建视频重建任务失败。",
@@ -558,7 +556,6 @@
   "videoReconOutputName": "输出名称",
   "videoReconOutputPlaceholder": "模型图库中的名称",
   "videoReconAdvanced": "高级",
-  "videoReconEngineLabel": "引擎",
   "videoReconKeepIntermediate": "保留中间文件",
   "videoReconKeepIntermediateHint": "保留抽帧、相机位姿和训练文件，方便排查问题；占用更多磁盘。精简重建报告会始终保存。",
   "videoReconVramBudget": "显存预算",
@@ -570,8 +567,6 @@
   "videoReconRefreshDiagnostics": "刷新",
   "videoReconDefaultQuality": "默认质量",
   "videoReconDefaultQualityMeta": "影响帧数、分辨率、迭代与耗时",
-  "videoReconDefaultEngine": "默认引擎",
-  "videoReconDefaultEngineMeta": "推荐 Brush，可用 Splatfacto 做效果对照",
   "videoReconVramBudgetMeta": "按本机显存限制资源边界",
   "videoReconSettingsSaved": "视频重建设置已保存。",
   "videoReconSettingsUnsaved": "视频重建设置有未保存更改",
@@ -580,7 +575,7 @@
   "videoReconGuideTitle": "视频重建指南",
   "videoReconGuideBadge": "本地 3DGS 流程",
   "videoReconGuideHeroTitle": "先拍对，再调参",
-  "videoReconGuideHeroText": "视频重建会抽取图像，用 COLMAP 自动对齐相机，再默认使用 Brush 训练静态 Gaussian Splat 模型。也可以切换到旧版 Splatfacto 做效果对照。",
+  "videoReconGuideHeroText": "视频重建会抽取图像，用 COLMAP 自动对齐相机，再使用固定版本 Brush 训练静态 Gaussian Splat 模型。",
   "videoReconGuideFact": {
     "preview": "快速确认",
     "high": "常用成品",
@@ -591,7 +586,7 @@
   "videoReconGuideOverview": {
     "route": {
       "title": "重建路线",
-      "text": "ffmpeg / ffprobe 读取视频，COLMAP 对齐相机，Brush 训练 PLY 模型；Splatfacto 保留为独立引擎。自动和环境模式保留完整结果，物品模式才裁剪主体。"
+      "text": "ffmpeg / ffprobe 读取视频，COLMAP 对齐相机，Brush 训练 PLY 模型。自动和环境模式保留完整结果，物品模式才裁剪主体。"
     },
     "sampling": {
       "title": "取帧方式",
@@ -649,13 +644,9 @@
       "title": "COLMAP 匹配",
       "text": "顺序匹配适合长走拍；完整匹配更稳但会随帧数快速变慢，所以高帧数会被限制。"
     },
-    "cache": {
-      "title": "图像缓存",
-      "text": "仅 Splatfacto：GPU 缓存可能更快，CPU 缓存更省显存。Brush 自行管理图像加载。"
-    },
     "resolution": {
       "title": "输入分辨率",
-      "text": "Brush 使用真实长边像素上限，不放大小尺寸输入；Splatfacto 单独提供下采样控制。"
+      "text": "Brush 使用真实长边像素上限，不放大小尺寸输入。"
     }
   },
   "videoReconGuideDependencyTitle": "环境依赖",
@@ -669,13 +660,9 @@
       "title": "COLMAP",
       "text": "负责特征匹配和相机位姿估计；这一步失败通常和素材重叠、模糊或纹理不足有关。"
     },
-    "nerfstudio": {
-      "title": "Nerfstudio / Splatfacto",
-      "text": "可选依赖：仅旧版 Splatfacto 引擎需要，同时依赖 PyTorch / CUDA 和 gsplat。"
-    },
     "gpu": {
       "title": "GPU 与驱动",
-      "text": "目标环境为 Windows + RTX 5070 Ti Laptop 12 GB。Brush 使用自己的 GPU 运行时，Splatfacto 使用 CUDA / PyTorch。"
+      "text": "建议使用 NVIDIA 显卡及最新兼容驱动。Brush 使用自己的 GPU 运行时；无需安装额外 Python 视频训练环境。"
     },
     "storage": {
       "title": "磁盘空间",
@@ -689,10 +676,10 @@
   "videoReconGuideSetupTitle": "配置指南",
   "videoReconGuideSetupText": "依赖要求确认后，可以按 README 手动配置，也可以让本机 AI Agent 代劳。",
   "videoReconGuideInstallTitle": "安装方式参考 README",
-  "videoReconGuideInstallText": "README 包含固定版本 Brush CLI、COLMAP 和 ffmpeg/ffprobe 的安装方式。可选的 Splatfacto 引擎还需要 Nerfstudio、CUDA 和 PyTorch 独立环境。",
+  "videoReconGuideInstallText": "README 包含固定版本 Brush CLI、原生 COLMAP 和 ffmpeg/ffprobe 的安装方式。",
   "videoReconGuideAgentTitle": "也可以交给 AI Agent 配置",
   "videoReconGuideAgentText": "适合不想逐步排查 PATH、CUDA、Python 和外部命令的情况；把下面这句话交给本机 AI coding agent 即可。",
-  "videoReconGuideAgentPrompt": "请先了解当前 Sharp GUI 的视频重建流程，检查系统、GPU/驱动和本机工具路径。按 README 安装固定版本 Brush CLI、COLMAP 和 ffmpeg/ffprobe；只有需要旧版引擎时才安装 Nerfstudio/Splatfacto 独立环境。不要修改无关业务代码。刷新诊断 API，分别检查所选引擎，并使用合成素材验证。",
+  "videoReconGuideAgentPrompt": "请先了解当前 Sharp GUI 的视频重建流程，检查系统、GPU/驱动和本机工具路径。按 README 安装固定版本 Brush CLI、原生 COLMAP 和 ffmpeg/ffprobe。不要修改无关业务代码。刷新诊断 API，并使用合成素材验证。",
   "videoReconGuideReadReadme": "打开中文 README",
   "videoReconGuideReadReadmeEn": "English README",
   "videoReconDependencyAvailable": "可用",
@@ -714,40 +701,14 @@
     "extreme": "极致",
     "custom": "自定义"
   },
-  "videoReconQualityMeta": {
-    "preview": "90 帧 / 7k",
-    "high": "180 帧 / 30k",
-    "extreme": "360 帧 / 50k",
-    "custom": "手动调参"
-  },
-  "videoReconQualityHint": {
-    "preview": "用于快速确认相机路径和主体清理效果，输入细节和 splat 数量较少。",
-    "high": "当前推荐：2x 输入分辨率、focused 清理，这段 4K 视频约 50 分钟级。",
-    "extreme": "提高帧数和训练预算，适合长时间离线追求上限，显存和耗时压力更大。",
-    "custom": "当预设不适合当前视频时使用。可以有意识地提高覆盖、细节或稳定性，同时承担耗时和显存代价。"
-  },
   "videoReconCustomTitle": "自定义重建参数",
   "videoReconCustomHint": "这些参数只作用于本次任务，不会保存为全局默认值。",
   "videoReconCustomFrameCount": "目标帧数",
   "videoReconCustomFrameCountHint": "帧数越多，越能覆盖长路径；但几何阶段和训练都会更久。",
   "videoReconCustomIterations": "训练迭代",
   "videoReconCustomIterationsHint": "迭代越多，可能细化更多细节；但每一步都会增加训练时间。",
-  "videoReconCustomDownscale": "输入下采样",
-  "videoReconCustomDownscaleHint": "仅 Splatfacto：下采样越低，保留的输入细节越多。Brush 不使用此参数。",
   "videoReconCustomMatching": "COLMAP 匹配",
   "videoReconCustomMatchingHint": "顺序匹配适合长时间走拍；完整匹配更稳，但帧数高时增长很快。",
-  "videoReconCustomCacheImages": "图像缓存",
-  "videoReconCustomCacheImagesHint": "仅 Splatfacto：GPU 缓存可能更快，CPU 缓存更省显存。Brush 自行管理图像加载。",
-  "videoReconDownscale": {
-    "1": "1x",
-    "2": "2x",
-    "4": "4x"
-  },
-  "videoReconDownscaleMeta": {
-    "1": "细节最多",
-    "2": "均衡",
-    "4": "更省显存"
-  },
   "videoReconMatching": {
     "sequential": "顺序",
     "exhaustive": "完整"
@@ -756,14 +717,6 @@
     "sequential": "长视频",
     "exhaustive": "更稳"
   },
-  "videoReconCacheImages": {
-    "gpu": "GPU",
-    "cpu": "CPU"
-  },
-  "videoReconCacheImagesMeta": {
-    "gpu": "更快",
-    "cpu": "省显存"
-  },
   "videoReconCustomValidation": {
     "frameCount": "目标帧数必须在 24 到 1200 之间。",
     "iterations": "训练迭代必须在 1k 到 80k 之间。",
@@ -771,16 +724,7 @@
     "maxResolution": "图像长边上限必须是 640 到 3840 之间的整数。"
   },
   "videoReconEngine": {
-    "brush": "Brush",
-    "splatfacto": "Splatfacto"
-  },
-  "videoReconEngineMeta": {
-    "brush": "推荐",
-    "splatfacto": "旧版对照"
-  },
-  "videoReconEngineHint": {
-    "brush": "先用 COLMAP 对齐相机，再用固定版本 Brush CLI 训练；不需要 Nerfstudio 训练环境。",
-    "splatfacto": "保留现有 COLMAP + Nerfstudio 引擎，方便对照重建效果；参数和环境与 Brush 分开。"
+    "brush": "Brush"
   },
   "videoReconVram": {
     "auto": "自动",
@@ -791,18 +735,15 @@
   },
   "videoReconDependency": {
     "required": "视频解码工具",
-    "brush": "Brush 训练",
-    "splatfacto": "Splatfacto（可选）"
+    "brush": "Brush 训练"
   },
   "videoReconDependencyHint": {
     "required": "ffmpeg / ffprobe 读取视频信息并抽帧。",
-    "brush": "COLMAP 和固定版本 Brush CLI 负责相机对齐、训练和导出。缺少 Nerfstudio 不会阻止 Brush。",
-    "splatfacto": "选择旧版引擎时需要 COLMAP 和 Nerfstudio / Splatfacto。"
+    "brush": "COLMAP 和固定版本 Brush CLI 负责相机对齐、训练和导出。"
   },
   "videoReconError": {
     "video_reconstruction_dependency_missing": "缺少视频重建必需依赖。",
     "video_reconstruction_dependencies_checking": "本机重建工具仍在后台检测中，请稍后再试。",
-    "video_reconstruction_stable_unavailable": "稳定 Nerfstudio / Splatfacto 路线不可用。",
     "video_reconstruction_invalid_request": "视频重建请求包含非法选项。",
     "video_reconstruction_source_unavailable": "源视频不可用，或已不在配置的相册中。",
     "video_reconstruction_cancelled": "视频重建已取消。",
@@ -988,12 +929,6 @@
       "high": "15k / 1920 像素",
       "extreme": "30k / 按显存",
       "custom": "手动调参"
-    },
-    "splatfacto": {
-      "preview": "7k / 预览",
-      "high": "30k / 细节",
-      "extreme": "50k / 按显存",
-      "custom": "手动调参"
     }
   },
   "videoReconQualityHintByEngine": {
@@ -1002,12 +937,6 @@
       "high": "约 8 帧/秒、15,000 次迭代、1920 像素训练长边；使用更完整的帧覆盖和配准特征预算，保留细节。",
       "extreme": "30,000 次迭代，分辨率按显存预算设置。更高参数会增加耗时和内存，无法补足缺失的视角。",
       "custom": "为这段视频指定帧数、迭代、真实长边上限和 COLMAP 匹配方式。"
-    },
-    "splatfacto": {
-      "preview": "用较低训练预算检查旧版引擎的相机覆盖和模型结果。",
-      "high": "使用旧版高质量参数，便于和 Brush 做效果对照；耗时取决于场景和输入大小。",
-      "extreme": "提高旧版引擎的帧数和训练步数；请在设置中选择实际显存预算。",
-      "custom": "为旧版引擎指定帧数、迭代、下采样、匹配方式和图像缓存。"
     }
   },
   "videoReconModeHint": {

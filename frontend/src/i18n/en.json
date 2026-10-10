@@ -541,13 +541,11 @@
   "photoVideoExitFullscreen": "Exit fullscreen",
   "photoDownloadVideo": "Download video",
   "videoReconGenerate3d": "Generate 3D",
-  "videoReconLiveProgress": "Live progress",
   "videoReconSingleVideoOnly": "Select one video",
   "videoReconDialogTitle": "Video to 3D",
   "videoReconStatusLoadFailed": "Failed to load video reconstruction diagnostics.",
   "videoReconCheckingDependencies": "Checking local reconstruction tools...",
   "videoReconRequiredMissing": "ffmpeg or ffprobe is unavailable. Check Settings > Video Reconstruction.",
-  "videoReconStableMissing": "The legacy Nerfstudio / Splatfacto tools are unavailable. Install them to use this engine.",
   "videoReconDependenciesReady": "{{engine}} is ready for reconstruction.",
   "videoReconQueued": "Video reconstruction task queued.",
   "videoReconCreateFailed": "Failed to create video reconstruction task.",
@@ -558,7 +556,6 @@
   "videoReconOutputName": "Output name",
   "videoReconOutputPlaceholder": "Model name in the output gallery",
   "videoReconAdvanced": "Advanced",
-  "videoReconEngineLabel": "Engine",
   "videoReconKeepIntermediate": "Keep intermediate files",
   "videoReconKeepIntermediateHint": "Keep frames, camera poses and training files for troubleshooting. Uses more disk space; a compact reconstruction report is always saved.",
   "videoReconVramBudget": "VRAM budget",
@@ -570,8 +567,6 @@
   "videoReconRefreshDiagnostics": "Refresh",
   "videoReconDefaultQuality": "Default quality",
   "videoReconDefaultQualityMeta": "Frames, resolution, iterations and runtime",
-  "videoReconDefaultEngine": "Default engine",
-  "videoReconDefaultEngineMeta": "Brush is recommended; Splatfacto is available for comparison",
   "videoReconVramBudgetMeta": "Resource guard for the local GPU",
   "videoReconSettingsSaved": "Video reconstruction settings saved.",
   "videoReconSettingsUnsaved": "Unsaved video reconstruction changes",
@@ -580,7 +575,7 @@
   "videoReconGuideTitle": "Video Reconstruction Guide",
   "videoReconGuideBadge": "Local 3DGS route",
   "videoReconGuideHeroTitle": "Shoot well, then tune",
-  "videoReconGuideHeroText": "Video reconstruction extracts frames, estimates camera poses with COLMAP, then trains a static Gaussian Splat model with Brush by default. You can select the legacy Splatfacto engine for comparison.",
+  "videoReconGuideHeroText": "Video reconstruction extracts frames, aligns cameras with COLMAP, and trains a static Gaussian Splat model using the pinned Brush CLI.",
   "videoReconGuideFact": {
     "preview": "Quick check",
     "high": "Common final",
@@ -591,7 +586,7 @@
   "videoReconGuideOverview": {
     "route": {
       "title": "Reconstruction route",
-      "text": "ffmpeg / ffprobe decode the video, COLMAP aligns cameras, and Brush trains PLY models. Splatfacto remains available as a separate engine. Auto and Environment keep all points; Object applies a subject crop."
+      "text": "ffmpeg / ffprobe decode the video, COLMAP aligns cameras, and Brush trains PLY models. Auto and Environment keep all points; Object applies a subject crop."
     },
     "sampling": {
       "title": "Frame sampling",
@@ -649,13 +644,9 @@
       "title": "COLMAP matching",
       "text": "Sequential is designed for long walk-throughs. Exhaustive is more robust but slows down quickly as frame count grows."
     },
-    "cache": {
-      "title": "Image cache",
-      "text": "Splatfacto only: GPU cache can be faster; CPU cache saves VRAM. Brush manages its own image loading."
-    },
     "resolution": {
       "title": "Input resolution",
-      "text": "Brush uses an actual long-edge pixel cap and does not enlarge smaller inputs. Splatfacto exposes its own downscale control."
+      "text": "Brush uses an actual long-edge pixel cap and does not enlarge smaller inputs."
     }
   },
   "videoReconGuideDependencyTitle": "Environment dependencies",
@@ -669,13 +660,9 @@
       "title": "COLMAP",
       "text": "Handles feature matching and camera pose estimation. Failures here often point to poor overlap, blur or low texture."
     },
-    "nerfstudio": {
-      "title": "Nerfstudio / Splatfacto",
-      "text": "Optional: needed only for the legacy Splatfacto engine, with PyTorch / CUDA and gsplat."
-    },
     "gpu": {
       "title": "GPU and drivers",
-      "text": "The target environment is Windows with an RTX 5070 Ti Laptop and 12 GB VRAM. Brush uses its own GPU runtime; Splatfacto uses CUDA / PyTorch."
+      "text": "An NVIDIA GPU and compatible driver are recommended. Brush provides its own GPU runtime; no additional Python video training environment is needed."
     },
     "storage": {
       "title": "Disk space",
@@ -689,10 +676,10 @@
   "videoReconGuideSetupTitle": "Setup guide",
   "videoReconGuideSetupText": "Once the requirements are clear, configure it manually from the README or let a local AI agent handle it.",
   "videoReconGuideInstallTitle": "Installation is covered in the README",
-  "videoReconGuideInstallText": "The README covers the pinned Brush CLI, COLMAP and ffmpeg/ffprobe. Nerfstudio, CUDA and PyTorch are needed for the optional Splatfacto engine.",
+  "videoReconGuideInstallText": "The README explains how to install the pinned Brush CLI, native COLMAP, and ffmpeg/ffprobe.",
   "videoReconGuideAgentTitle": "You can also ask an AI agent",
   "videoReconGuideAgentText": "Useful when you do not want to debug PATH, CUDA, Python and external commands step by step. Give this prompt to a local AI coding agent.",
-  "videoReconGuideAgentPrompt": "First understand the current Sharp GUI video reconstruction flow. Check the OS, GPU/driver and local tool paths. Follow the README to install the pinned Brush CLI, COLMAP and ffmpeg/ffprobe; install the separate Nerfstudio/Splatfacto environment only if the legacy engine is needed. Do not change unrelated application code. Refresh the diagnostics API and verify each selected engine separately using synthetic data.",
+  "videoReconGuideAgentPrompt": "Inspect the Sharp GUI video reconstruction pipeline, system, GPU/driver and local tool paths. Install the pinned Brush CLI, native COLMAP and ffmpeg/ffprobe according to the README. Avoid unrelated code changes. Refresh the diagnostic API and verify using synthetic footage.",
   "videoReconGuideReadReadme": "Open Chinese README",
   "videoReconGuideReadReadmeEn": "English README",
   "videoReconDependencyAvailable": "Available",
@@ -714,40 +701,14 @@
     "extreme": "Extreme",
     "custom": "Custom"
   },
-  "videoReconQualityMeta": {
-    "preview": "90 frames / 7k",
-    "high": "180 frames / 30k",
-    "extreme": "360 frames / 50k",
-    "custom": "Tune parameters"
-  },
-  "videoReconQualityHint": {
-    "preview": "Fast sanity check for camera path and subject cleanup. Uses fewer splats and lower input detail.",
-    "high": "Recommended for final-looking results on this machine: 2x input scale, focused cleanup and about 50 minutes for this 4K clip.",
-    "extreme": "Pushes frame count and training budget for long offline runs. Use when time and VRAM are less constrained.",
-    "custom": "Use when a preset does not fit the clip. Increase coverage, detail, or safety deliberately and watch the runtime and VRAM tradeoffs."
-  },
   "videoReconCustomTitle": "Custom reconstruction parameters",
   "videoReconCustomHint": "These values are applied directly to this task and are not saved as global defaults.",
   "videoReconCustomFrameCount": "Target frames",
   "videoReconCustomFrameCountHint": "More frames cover longer paths, but geometry and training take longer.",
   "videoReconCustomIterations": "Training iterations",
   "videoReconCustomIterationsHint": "More iterations can refine detail, but each extra step costs time.",
-  "videoReconCustomDownscale": "Input downscale",
-  "videoReconCustomDownscaleHint": "Splatfacto only: lower downscale preserves more input detail. This option is not used by Brush.",
   "videoReconCustomMatching": "COLMAP matching",
   "videoReconCustomMatchingHint": "Sequential scales to long walk-throughs. Exhaustive is more robust for fewer frames but grows quickly.",
-  "videoReconCustomCacheImages": "Image cache",
-  "videoReconCustomCacheImagesHint": "Splatfacto only: GPU cache can be faster; CPU cache saves VRAM. Brush manages its own image loading.",
-  "videoReconDownscale": {
-    "1": "1x",
-    "2": "2x",
-    "4": "4x"
-  },
-  "videoReconDownscaleMeta": {
-    "1": "Most detail",
-    "2": "Balanced",
-    "4": "Lower VRAM"
-  },
   "videoReconMatching": {
     "sequential": "Sequential",
     "exhaustive": "Exhaustive"
@@ -756,14 +717,6 @@
     "sequential": "Long clips",
     "exhaustive": "More robust"
   },
-  "videoReconCacheImages": {
-    "gpu": "GPU",
-    "cpu": "CPU"
-  },
-  "videoReconCacheImagesMeta": {
-    "gpu": "Faster",
-    "cpu": "Saves VRAM"
-  },
   "videoReconCustomValidation": {
     "frameCount": "Target frames must be between 24 and 1200.",
     "iterations": "Training iterations must be between 1k and 80k.",
@@ -771,16 +724,7 @@
     "maxResolution": "The long-edge cap must be an integer from 640 to 3840 pixels."
   },
   "videoReconEngine": {
-    "brush": "Brush",
-    "splatfacto": "Splatfacto"
-  },
-  "videoReconEngineMeta": {
-    "brush": "Recommended",
-    "splatfacto": "Legacy comparison"
-  },
-  "videoReconEngineHint": {
-    "brush": "COLMAP aligns cameras, then the pinned Brush CLI trains the model. No Nerfstudio training environment is required.",
-    "splatfacto": "Use the existing COLMAP + Nerfstudio engine to compare reconstruction results. Its parameters and environment are separate from Brush."
+    "brush": "Brush"
   },
   "videoReconVram": {
     "auto": "Auto",
@@ -791,18 +735,15 @@
   },
   "videoReconDependency": {
     "required": "Video decoding tools",
-    "brush": "Brush training",
-    "splatfacto": "Splatfacto (optional)"
+    "brush": "Brush training"
   },
   "videoReconDependencyHint": {
     "required": "ffmpeg / ffprobe read video metadata and extract frames.",
-    "brush": "COLMAP and the pinned Brush CLI align cameras, train and export. Missing Nerfstudio does not block Brush.",
-    "splatfacto": "COLMAP and Nerfstudio / Splatfacto are required when the legacy engine is selected."
+    "brush": "COLMAP and the pinned Brush CLI handle camera alignment, training and export."
   },
   "videoReconError": {
     "video_reconstruction_dependency_missing": "Required video reconstruction dependencies are missing.",
     "video_reconstruction_dependencies_checking": "Local reconstruction tools are still being checked. Please try again in a moment.",
-    "video_reconstruction_stable_unavailable": "The stable Nerfstudio / Splatfacto route is unavailable.",
     "video_reconstruction_invalid_request": "The video reconstruction request contains invalid options.",
     "video_reconstruction_source_unavailable": "The source video is unavailable or no longer in the configured album.",
     "video_reconstruction_cancelled": "Video reconstruction was cancelled.",
@@ -988,12 +929,6 @@
       "high": "15k / 1920 px",
       "extreme": "30k / VRAM budget",
       "custom": "Manual settings"
-    },
-    "splatfacto": {
-      "preview": "7k / preview",
-      "high": "30k / detail",
-      "extreme": "50k / VRAM budget",
-      "custom": "Manual settings"
     }
   },
   "videoReconQualityHintByEngine": {
@@ -1002,12 +937,6 @@
       "high": "About 8 frames per second, 15,000 iterations and a 1920 px training cap. More frame coverage and camera features preserve detail.",
       "extreme": "30,000 iterations; resolution follows the VRAM budget. Higher settings use more time and memory, and cannot fix missing camera coverage.",
       "custom": "Set frame count, iterations, the actual long-edge cap and COLMAP matching for this video."
-    },
-    "splatfacto": {
-      "preview": "Use the legacy engine with a smaller training budget to check coverage.",
-      "high": "Use the legacy high-quality profile for a comparison with Brush. Runtime depends on the scene and input size.",
-      "extreme": "More training steps and frames for the legacy engine. Choose the actual GPU memory budget in Settings.",
-      "custom": "Set frame count, iterations, downscale, matching and image cache for the legacy engine."
     }
   },
   "videoReconModeHint": {

@@ -18,7 +18,6 @@ from backend.config import get_default_video_reconstruction_config
 from backend.paths import build_path_context
 from backend.services import brush_engine, model_assets, model_gallery, video_geometry, video_reconstruction
 from backend.services.task_queue import TaskManager
-from tools import train_splatfacto
 
 
 def write_colmap_model(data_dir, registered, extracted=None):
@@ -153,21 +152,19 @@ class SyntheticGeometry:
 def run_geometry(video_task, runner):
     manager, task = video_task
     job = Path(manager.paths.video_reconstruction_jobs_folder) / task['id']
-    data = job / 'nerfstudio-data'
+    data = job / 'colmap-data'
     profile = video_reconstruction.resolve_quality_profile('high', '12gb', engine='brush')
     return video_geometry.run_video_geometry(manager, task['id'], task, str(job), str(data), profile, runner, {})
 
 
-def test_default_engine_is_brush_and_auto_prefers_available_brush():
+def test_default_engine_is_brush_and_auto_never_falls_back():
     assert get_default_video_reconstruction_config()['default_engine'] == 'brush'
-    available = {'brush': {'available': True}, 'splatfacto': {'available': True}}
+    available = {'required': {'available': True}, 'brush': {'available': True}}
     assert video_reconstruction.resolve_engine_strategy('auto', available) == ('brush', None)
-    assert video_reconstruction.resolve_engine_strategy('splatfacto', available) == ('splatfacto', None)
-    unavailable = {'brush': {'available': False}, 'splatfacto': {'available': True}}
-    assert video_reconstruction.resolve_engine_strategy('auto', unavailable) == ('stable', None)
-    assert video_reconstruction.resolve_engine_strategy('brush', unavailable) == (
-        None, video_reconstruction.ERROR_BRUSH_UNAVAILABLE,
-    )
+    unavailable = {'required': {'available': True}, 'brush': {'available': False}, 'splatfacto': {'available': True}}
+    assert video_reconstruction.resolve_engine_strategy('auto', unavailable) == (None, video_reconstruction.ERROR_BRUSH_UNAVAILABLE)
+    for engine in ('stable', 'splatfacto'):
+        assert video_reconstruction.resolve_engine_strategy(engine, available) == (None, video_reconstruction.ERROR_INVALID_REQUEST)
 
 
 @pytest.mark.parametrize('configured, expected', [('auto', '12gb'), ('24gb', '12gb'), ('8gb', '8gb')])
@@ -291,15 +288,6 @@ def test_rescue_source_frames_include_initial_for_short_long_and_unknown_fps_vid
     assert rescue['target_frames'] <= min(source_frames, 1200)
 
 
-def test_splatfacto_1080_source_uses_full_resolution_after_geometry(tmp_path):
-    data = tmp_path / 'data'
-    data.mkdir()
-    (data / 'transforms.json').write_text(json.dumps({'w': 1920, 'h': 1080, 'frames': [{}] * 20}))
-    profile = video_reconstruction.resolve_quality_profile('high', '12gb', engine='splatfacto')
-    adjusted = video_reconstruction.resolve_training_profile(profile, str(data))
-    assert adjusted['downscale_factor'] == 1
-    command = video_reconstruction.build_train_command(str(data), str(tmp_path / 'train'), adjusted)
-    assert command[command.index('--downscale-factor') + 1] == '1'
 
 
 def test_auto_custom_request_retains_brush_resolution(monkeypatch):
@@ -396,7 +384,7 @@ def test_failed_rescue_keeps_usable_primary_geometry(video_task):
     runner = SyntheticGeometry([34, 0], mapper_failures={1})
     status, chosen, _lines, report = run_geometry(video_task, runner)
     assert status == 'ok'
-    assert Path(chosen).parent.name == 'nerfstudio-data'
+    assert Path(chosen).parent.name == 'colmap-data'
     assert report['registered_frames'] == 34
     assert report['retried'] is True
 
@@ -430,28 +418,14 @@ def test_geometry_cancellation_never_falls_back_to_training(video_task, cancel_a
         assert len(runner.commands) == 1
 
 
-@pytest.mark.parametrize('engine', ['brush', 'splatfacto'])
-def test_low_registration_stops_before_any_training(video_task, monkeypatch, engine):
+def test_low_registration_stops_before_any_training(video_task, monkeypatch):
     manager, task = video_task
-    task['engine'] = task['resolved_engine'] = engine
     runner = SyntheticGeometry([7, 7])
-    commands = []
-    def fake_command(*args, **kwargs):
-        command = args[2]
-        commands.append(command)
-        if command[0] == 'ns-process-data':
-            data = Path(command[command.index('--output-dir') + 1])
-            (data / 'images').mkdir(parents=True, exist_ok=True)
-            for index in range(20):
-                (data / 'images' / f'{index:06d}.jpg').write_bytes(b'synthetic')
-            (data / 'transforms.json').write_text(json.dumps({'w': 1920, 'h': 1080, 'frames': [{}] * 7}))
-            return 0, [], False
-        return runner(*args, **kwargs)
-    monkeypatch.setattr(video_reconstruction, 'run_command', fake_command)
+    monkeypatch.setattr(video_reconstruction, 'run_command', runner)
     video_reconstruction.run_video_reconstruction_task(manager, task['id'], task)
     assert task['status'] == 'failed'
     assert task['error_code'] == video_reconstruction.ERROR_GEOMETRY_INSUFFICIENT
-    assert all(command[0] not in ('ns-train', 'synthetic-brush') for command in commands)
+    assert all(command[0] != 'synthetic-brush' for command in runner.commands)
     assert not Path(task['output_path']).exists()
     assert not Path(task['spz_path']).exists()
 
@@ -565,64 +539,10 @@ def test_brush_cancellation_after_export_does_not_publish(video_task, monkeypatc
     assert not Path(task['spz_path']).exists()
 
 
-def test_splatfacto_reset_patch_is_idempotent_and_skips_correct_versions():
-    resets = []
-    originals = []
-    class BrokenStrategy:
-        reset_every = 3000
-        refine_stop_iter = 7000
-        prune_opa = 0.005
-
-        def step_post_backward(self, params, optimizers, state, step, info, packed=False):
-            originals.append((step, packed))
-            if step % self.reset_every == 0 & step > 0:
-                resets.append({'legacy': True})
-
-    assert train_splatfacto.patch_opacity_reset(BrokenStrategy, lambda **kwargs: resets.append(kwargs)) is True
-    assert train_splatfacto.patch_opacity_reset(BrokenStrategy, lambda **kwargs: pytest.fail('重复 reset')) is False
-    strategy = BrokenStrategy()
-    for step in (0, 2999, 3000, 6000, 7000, 9000):
-        strategy.step_post_backward({}, {}, {}, step, {}, packed=True)
-    assert len(resets) == 2
-    assert all(reset['value'] == 0.01 for reset in resets)
-    assert originals == [(step, True) for step in (0, 2999, 3000, 6000, 7000, 9000)]
-
-    class CorrectStrategy:
-        def step_post_backward(self, params, optimizers, state, step, info, packed=False):
-            if step > 0 and step % 3000 == 0:
-                resets.append({'correct': True})
-
-    original = CorrectStrategy.step_post_backward
-    assert train_splatfacto.patch_opacity_reset(CorrectStrategy, lambda **_kwargs: None) is False
-    assert CorrectStrategy.step_post_backward is original
 
 
-@pytest.mark.parametrize('steps, downscales', [(6000, 1), (15000, 0), (48000, 0)])
-def test_splatfacto_schedules_follow_total_steps(steps, downscales):
-    schedulers = [SimpleNamespace(max_steps=30000), SimpleNamespace(max_steps=50000)]
-    config = SimpleNamespace(pipeline=SimpleNamespace(model=SimpleNamespace()), optimizers={
-        'means': {'scheduler': schedulers[0]}, 'camera': {'scheduler': schedulers[1]},
-        'colors': {'scheduler': None},
-    })
-    train_splatfacto.configure_schedule(config, steps)
-    assert config.pipeline.model.stop_split_at == round(steps * 0.8)
-    assert config.pipeline.model.num_downscales == downscales
-    assert all(scheduler.max_steps == steps for scheduler in schedulers)
 
 
-def test_ns_train_executes_compatibility_wrapper(video_task, monkeypatch):
-    manager, task = video_task
-    actual = []
-    process = SimpleNamespace(poll=lambda: 0)
-    monkeypatch.setattr(video_reconstruction, 'resolve_video_python', lambda: 'video-python')
-    monkeypatch.setattr(video_reconstruction.subprocess, 'Popen', lambda command, **_kwargs:
-                        actual.append(command) or process)
-    monkeypatch.setattr(video_reconstruction, 'wait_for_process', lambda *_args, **_kwargs: (0, False))
-    command = ['ns-train', 'splatfacto', '--max-num-iterations', '6000']
-    assert video_reconstruction.run_command(manager, task['id'], command) == (0, [], False)
-    assert actual[0][0] == 'video-python'
-    assert Path(actual[0][1]).name == 'train_splatfacto.py'
-    assert actual[0][2:] == command[1:]
 
 
 @pytest.mark.parametrize('failure_at', ['write', 'flush'])

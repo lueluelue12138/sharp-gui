@@ -32,13 +32,12 @@ const OVERVIEW_ITEMS = [
 ] as const;
 
 const SHOOTING_TIPS = ['path', 'overlap', 'light', 'blur', 'long'] as const;
-const PARAMETER_ITEMS = ['frames', 'iterations', 'resolution', 'matching', 'cache'] as const;
+const PARAMETER_ITEMS = ['frames', 'iterations', 'resolution', 'matching'] as const;
 
 const DEPENDENCY_ITEMS = [
   { key: 'ffmpeg', Icon: Camera },
   { key: 'colmap', Icon: Route },
   { key: 'brush', Icon: Layers3 },
-  { key: 'nerfstudio', Icon: Layers3 },
   { key: 'gpu', Icon: Cpu },
   { key: 'storage', Icon: HardDrive },
 ] as const;

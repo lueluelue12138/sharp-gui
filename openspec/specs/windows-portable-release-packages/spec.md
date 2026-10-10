@@ -22,7 +22,7 @@ Windows Release MUST 提供 Windows x64 GPU 完整便携 ZIP 包的外部下载�
 - **WHEN** 用户使用 RTX 50 系列 GPU 且需要本地视频 3DGS 重建能力
 - **THEN** Release 必须在该包可用时链接到 `cu128-rtx50-video-recon` 完整便携 ZIP
 - **AND** 包元数据必须声明该包面向 RTX 50 / CUDA 12.8 视频重建路线
-- **AND** Release 说明 MUST 将该包标记为包含 Nerfstudio/Splatfacto、COLMAP 和 ffmpeg/ffprobe 的视频重建增强包
+- **AND** Release 说明 MUST 将该包标记为包含 固定版本 Brush、原生 COLMAP 和 ffmpeg/ffprobe 的视频重建增强包
 
 #### Scenario: 非 RTX 50 NVIDIA 用户下载主流核心包
 
@@ -80,8 +80,8 @@ Windows 便携启动器 MUST 使用包内运行时路径启动 Sharp GUI，使�
 #### Scenario: 用户启动已解压的视频重建增强包
 
 - **WHEN** 用户在解压后的 `cu128-rtx50-video-recon` 包目录运行 `portable-run.bat`
-- **THEN** 启动器必须优先把包内 `.video-reconstruction-env\Scripts`、`.video-reconstruction-env\colmap\bin` 和包内 `ffmpeg/ffprobe` 目录加入 `PATH`
-- **AND** 后端依赖诊断 SHALL 能发现包内 `ns-process-data`、`ns-train`、`ns-export`、`colmap`、`ffmpeg` 和 `ffprobe`
+- **THEN** 启动器必须优先把包内 `.sharp-gui-tools\colmap\bin` 和包内 `ffmpeg/ffprobe` 目录加入 `PATH`
+- **AND** 后端依赖诊断 SHALL 能发现包内 `brush_app`、`colmap`、`ffmpeg` 和 `ffprobe`
 
 #### Scenario: 必须提供包内 Sharp CLI
 
@@ -91,23 +91,23 @@ Windows 便携启动器 MUST 使用包内运行时路径启动 Sharp GUI，使�
 
 ### Requirement: 视频重建增强包必须包含可迁移运行时
 
-Windows 视频重建增强便携包 MUST 包含以包目录相对路径工作的 Nerfstudio/Splatfacto、gsplat、COLMAP 和 ffmpeg/ffprobe 运行时，并避免要求目标机器复用打包机路径。
+Windows 视频重建增强便携包 MUST 包含以包目录相对路径工作的 固定版本 Brush、原生 COLMAP 和 ffmpeg/ffprobe 运行时，并避免要求目标机器复用打包机路径。
 
 #### Scenario: 包目录移动到另一个位置
 
 - **WHEN** 用户把解压后的 `cu128-rtx50-video-recon` 包目录移动到另一个 Windows 路径或另一个 Windows 用户目录
-- **THEN** `ns-process-data`、`ns-train`、`ns-export`、`colmap`、`ffmpeg` 和 `ffprobe` MUST 仍通过包内相对路径解析
+- **THEN** `brush_app`、`colmap`、`ffmpeg` 和 `ffprobe` MUST 仍通过包内相对路径解析
 - **AND** 启动和诊断 MUST NOT 要求 `C:\workspace\sharp-gui` 或打包机用户目录存在
 
 #### Scenario: 视频重建命令快速校验
 
 - **WHEN** 打包流程校验 `cu128-rtx50-video-recon` 包
 - **THEN** 校验 MUST 确认包内 CUDA PyTorch 可导入并能执行基础 CUDA kernel
-- **AND** 校验 MUST 确认 `ns-process-data --help`、`ns-train --help`、`ns-export --help`、`colmap -h`、`ffmpeg -version` 和 `ffprobe -version` 可执行
+- **AND** 校验 MUST 确认 `brush_app --help`、`colmap -h`、`ffmpeg -version` 和 `ffprobe -version` 可执行
 
 #### Scenario: 目标机器缺少系统级视频工具
 
-- **WHEN** 目标机器 PATH 中没有系统级 Nerfstudio、COLMAP 或 ffmpeg
+- **WHEN** 目标机器 PATH 中没有系统级 Brush、COLMAP 或 ffmpeg
 - **THEN** 视频重建增强包 MUST 仍能通过包内路径通过依赖诊断
 - **AND** 系统 MUST NOT 要求用户运行在线安装脚本后才获得视频重建命令
 
@@ -204,3 +204,13 @@ Portable package notes and bilingual project documentation SHALL identify the fu
 #### Scenario: Maintainer publishes a portable release
 - **WHEN** a bootstrap-or-later portable ZIP is released through external storage
 - **THEN** its release documentation SHALL record the bundled Git provenance and preserve the existing package ZIP SHA256 guidance
+
+### Requirement: 新视频包排除已停用视频环境
+
+完整视频便携包 MUST NOT 包含 `.video-reconstruction-env`、Nerfstudio 或 `ns-*` 入口。主图片推理所需的 PyTorch / gsplat MUST 保留。
+
+#### Scenario: 构建当前视频增强包
+
+- **WHEN** 维护者构建完整视频便携包
+- **THEN** 包内 SHALL 只提供当前视频路线的 Brush、原生 COLMAP 和 FFmpeg 工具
+- **AND** 不包含旧视频虚拟环境或训练入口，但保留主图片推理的依赖

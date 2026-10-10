@@ -132,9 +132,8 @@ def normalize_video_reconstruction_config(current_config):
     if default_quality not in {"preview", "high", "extreme"}:
         default_quality = defaults["default_quality"]
 
-    default_engine = raw.get("default_engine")
-    if default_engine not in {"auto", "stable", "brush", "splatfacto"}:
-        default_engine = defaults["default_engine"]
+    # 已保存的旧引擎选择统一迁移到当前视频路线。
+    default_engine = "brush"
 
     vram_budget = raw.get("vram_budget")
     if not isinstance(vram_budget, str) or not vram_budget.strip():

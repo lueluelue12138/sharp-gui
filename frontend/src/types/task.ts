@@ -20,9 +20,7 @@ export interface Task {
     frame_count?: number;
     max_num_iterations?: number;
     max_resolution?: number;
-    downscale_factor?: number;
     matching_method?: string;
-    cache_images?: string;
   };
   engine?: string;
   resolved_engine?: string;
@@ -35,8 +33,6 @@ export interface Task {
       code: string;
       message: string;
     }>;
-    viewer_url?: string;
-    viewer_port?: number;
   };
 }
 

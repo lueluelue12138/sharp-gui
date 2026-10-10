@@ -26,7 +26,6 @@ import type {
     PhotoGalleryCacheStats,
     VideoReconstructionConfig,
     VideoReconstructionDependencies,
-    VideoReconstructionEngine,
     VideoReconstructionPresetQuality,
     VideoReconstructionVramBudget,
 } from '@/types';
@@ -395,7 +394,7 @@ export const Settings: React.FC = () => {
     };
 
     const renderDependencyGroup = (
-        groupKey: 'required' | 'brush' | 'splatfacto',
+        groupKey: 'required' | 'brush',
         group?: VideoReconstructionDependencies['required'],
     ) => {
         const checking = Boolean(videoDependencies?.summary.checking && !group?.tools.length);
@@ -834,36 +833,6 @@ export const Settings: React.FC = () => {
 
                             <div>
                                 <label className={styles.labelRow}>
-                                    <span>{t('videoReconDefaultEngine')}</span>
-                                    <small>{t('videoReconDefaultEngineMeta')}</small>
-                                </label>
-                                <div className={styles.segmentedControl}>
-                                    {(['brush', 'splatfacto'] as VideoReconstructionEngine[]).map((engine) => {
-                                        const engineDisabled = !isLocalAccess;
-                                        return (
-                                            <button
-                                                key={engine}
-                                                type="button"
-                                                className={[
-                                                    styles.segmentBtn,
-                                                    styles.segmentBtnStack,
-                                                    videoConfig.default_engine === engine ? styles.segmentActive : '',
-                                                    engineDisabled ? styles.segmentDisabled : '',
-                                                ].filter(Boolean).join(' ')}
-                                                disabled={engineDisabled}
-                                                onClick={() => updateVideoConfig({ default_engine: engine })}
-                                            >
-                                                <span>{t(`videoReconEngine.${engine}`)}</span>
-                                                <small>{t(`videoReconEngineMeta.${engine}`)}</small>
-                                            </button>
-                                        );
-                                    })}
-                                </div>
-                                <p className={styles.optionHint}>{t(`videoReconEngineHint.${videoConfig.default_engine}`)}</p>
-                            </div>
-
-                            <div>
-                                <label className={styles.labelRow}>
                                     <span>{t('videoReconVramBudget')}</span>
                                     <small>{t('videoReconVramBudgetMeta')}</small>
                                 </label>
@@ -899,7 +868,6 @@ export const Settings: React.FC = () => {
                         <div className={styles.dependencyList}>
                             {renderDependencyGroup('required', videoDependencies?.required)}
                             {renderDependencyGroup('brush', videoDependencies?.brush)}
-                            {renderDependencyGroup('splatfacto', videoDependencies?.splatfacto)}
                         </div>
 
                         <div className={styles.dependencyFooter}>

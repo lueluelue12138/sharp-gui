@@ -3,18 +3,15 @@ import type { Task } from '@/types/task';
 export type VideoReconstructionMode = 'auto' | 'object' | 'environment';
 export type VideoReconstructionPresetQuality = 'preview' | 'high' | 'extreme';
 export type VideoReconstructionQuality = VideoReconstructionPresetQuality | 'custom';
-export type VideoReconstructionEngine = 'brush' | 'splatfacto';
+export type VideoReconstructionEngine = 'brush';
 export type VideoReconstructionVramBudget = 'auto' | '8gb' | '12gb' | '16gb' | '24gb';
 export type VideoReconstructionMatchingMethod = 'sequential' | 'exhaustive';
-export type VideoReconstructionCacheImages = 'gpu' | 'cpu';
 
 export interface VideoReconstructionCustomOptions {
   frame_count: number;
   max_num_iterations: number;
   matching_method: VideoReconstructionMatchingMethod;
-  max_resolution?: number;
-  downscale_factor?: 1 | 2 | 4;
-  cache_images?: VideoReconstructionCacheImages;
+  max_resolution: number;
 }
 
 export interface VideoReconstructionConfig {
@@ -26,7 +23,7 @@ export interface VideoReconstructionConfig {
 
 export interface VideoReconstructionToolStatus {
   name: string;
-  category: 'required' | 'stable' | string;
+  category: 'required' | 'brush';
   required: boolean;
   available: boolean;
   version?: string | null;
@@ -42,13 +39,9 @@ export interface VideoReconstructionDependencyGroup {
 export interface VideoReconstructionDependencies {
   required: VideoReconstructionDependencyGroup;
   brush: VideoReconstructionDependencyGroup;
-  splatfacto: VideoReconstructionDependencyGroup;
-  stable?: VideoReconstructionDependencyGroup;
   summary: {
     available: boolean;
     brush_available: boolean;
-    splatfacto_available: boolean;
-    stable_available?: boolean;
     checking?: boolean;
     checked_at?: number | null;
     cached?: boolean;

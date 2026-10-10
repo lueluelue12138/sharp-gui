@@ -4,6 +4,7 @@ import threading
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
+from pathlib import Path
 
 import pytest
 from PIL import Image
@@ -52,8 +53,8 @@ def test_video_command_version_retries_transient_portable_batch_failure(monkeypa
             self.stdout = stdout
             self.stderr = stderr
 
-    results = iter((Result(15, stderr="transient"), Result(0, stdout="usage: ns-process-data")))
-    monkeypatch.setattr(video_reconstruction, "which", lambda _name: r"C:\portable\ns-process-data.cmd")
+    results = iter((Result(15, stderr="transient"), Result(0, stdout="usage: colmap")))
+    monkeypatch.setattr(video_reconstruction, "which", lambda _name: r"C:\portable\colmap.cmd")
     monkeypatch.setattr(
         video_reconstruction.subprocess,
         "run",
@@ -61,11 +62,11 @@ def test_video_command_version_retries_transient_portable_batch_failure(monkeypa
     )
     monkeypatch.setattr(video_reconstruction.time, "sleep", lambda _seconds: None)
 
-    status = video_reconstruction.command_version("ns-process-data", ["--help"], timeout=30)
+    status = video_reconstruction.command_version("colmap", ["--help"], timeout=30)
 
     assert len(calls) == 2
     assert status["available"] is True
-    assert status["version"] == "usage: ns-process-data"
+    assert status["version"] == "usage: colmap"
     assert status["message"] is None
 
 
@@ -170,32 +171,15 @@ def test_video_reconstruction_config_and_paths_are_normalized(workspace):
     assert video_config["default_quality"] == "extreme"
 
 
-def test_video_process_env_prioritizes_portable_wrappers(tmp_path, monkeypatch):
-    video_env = tmp_path / ".video-reconstruction-env"
-    portable_bin = video_env / "portable-bin"
-    scripts_dir = video_env / "Scripts"
-    colmap_bin = video_env / "colmap" / "bin"
-    for path in (portable_bin, scripts_dir, colmap_bin):
-        path.mkdir(parents=True, exist_ok=True)
-
-    monkeypatch.setattr(
-        video_reconstruction,
-        "_local_video_reconstruction_paths",
-        lambda: (portable_bin, scripts_dir, colmap_bin),
-    )
-    monkeypatch.setattr(video_reconstruction, "read_vcvars_environment", lambda: {})
-    monkeypatch.setattr(video_reconstruction, "find_cuda_home", lambda: None)
-    monkeypatch.setenv(
-        "PATH",
-        os.pathsep.join((str(scripts_dir), "system-bin", str(portable_bin))),
-    )
-
+def test_video_process_env_prioritizes_native_tools(tmp_path, monkeypatch):
+    colmap_bin = tmp_path / '.sharp-gui-tools' / 'colmap' / 'bin'
+    ffmpeg_bin = tmp_path / 'tools' / 'ffmpeg' / 'bin'
+    for path in (colmap_bin, ffmpeg_bin):
+        path.mkdir(parents=True)
+    monkeypatch.setattr(video_reconstruction, '_local_video_reconstruction_paths', lambda: (colmap_bin, ffmpeg_bin))
+    monkeypatch.setenv('PATH', os.pathsep.join((str(ffmpeg_bin), 'system-bin', str(colmap_bin))))
     process_env = video_reconstruction.build_video_process_env()
-    path_parts = process_env["PATH"].split(os.pathsep)
-
-    assert path_parts[:3] == [str(portable_bin), str(scripts_dir), str(colmap_bin)]
-    assert path_parts.count(str(portable_bin)) == 1
-    assert path_parts.count(str(scripts_dir)) == 1
+    assert process_env['PATH'].split(os.pathsep) == [str(colmap_bin), str(ffmpeg_bin), 'system-bin']
 
 
 def test_model_asset_library_state_is_scoped_to_workspace(tmp_path):
@@ -736,74 +720,24 @@ def test_video_reconstruction_output_name_is_safe_and_unique(workspace):
     assert chinese_stem
 
 
-def test_video_reconstruction_quality_profile_uses_vram_budget():
-    default_profile = video_reconstruction.resolve_quality_profile("high", "12gb")
-    low_vram_profile = video_reconstruction.resolve_quality_profile("high", "8gb")
-    large_vram_profile = video_reconstruction.resolve_quality_profile("extreme", "24gb")
-    custom_profile = video_reconstruction.resolve_quality_profile("custom", "8gb", {
-        "frame_count": 720,
-        "max_num_iterations": 42000,
-        "downscale_factor": 2,
-        "matching_method": "sequential",
-        "cache_images": "cpu",
-    })
-
-    assert default_profile["frame_count"] == 180
-    assert default_profile["max_num_iterations"] == 30000
-    assert default_profile["downscale_factor"] == 2
-    assert low_vram_profile["frame_count"] < default_profile["frame_count"]
-    assert low_vram_profile["max_num_iterations"] < default_profile["max_num_iterations"]
-    assert low_vram_profile["max_resolution"] == 1280
-    assert low_vram_profile["downscale_factor"] == 4
-    assert large_vram_profile["frame_count"] > video_reconstruction.QUALITY_PROFILES["extreme"]["frame_count"]
-    assert large_vram_profile["max_resolution"] == 2160
-    assert large_vram_profile["downscale_factor"] == 1
-    assert custom_profile["frame_count"] == 720
-    assert custom_profile["max_num_iterations"] == 42000
-    assert custom_profile["downscale_factor"] == 2
-    assert custom_profile["matching_method"] == "sequential"
-    assert custom_profile["cache_images"] == "cpu"
+def test_video_reconstruction_quality_profile_preserves_detail_with_12gb():
+    high = video_reconstruction.resolve_quality_profile('high', '12gb')
+    extreme = video_reconstruction.resolve_quality_profile('extreme', '12gb')
+    assert (high['max_resolution'], high['max_num_iterations']) == (1920, 15000)
+    assert (extreme['max_resolution'], extreme['max_num_iterations']) == (3840, 30000)
+    small = video_reconstruction.resolve_quality_profile('extreme', '8gb')
+    assert small['max_resolution'] == 1920
+    assert small['brush_max_splats'] < extreme['brush_max_splats']
 
 
-def test_video_reconstruction_commands_use_quality_profile():
-    profile = video_reconstruction.resolve_quality_profile("high", "12gb")
-    custom_profile = video_reconstruction.resolve_quality_profile("custom", "12gb", {
-        "frame_count": 600,
-        "max_num_iterations": 35000,
-        "downscale_factor": 2,
-        "matching_method": "sequential",
-        "cache_images": "cpu",
-    })
-
-    process_cmd = video_reconstruction.build_process_data_command("clip.mp4", "data", profile)
-    train_cmd = video_reconstruction.build_train_command("data", "train", profile)
-    custom_process_cmd = video_reconstruction.build_process_data_command("clip.mp4", "data", custom_profile)
-    custom_train_cmd = video_reconstruction.build_train_command("data", "train", custom_profile)
-
-    assert process_cmd[process_cmd.index("--num-frames-target") + 1] == "180"
-    assert process_cmd[process_cmd.index("--num-downscales") + 1] == "2"
-    assert process_cmd[process_cmd.index("--matching-method") + 1] == "exhaustive"
-    assert train_cmd[train_cmd.index("--vis") + 1] == "viewer"
-    assert train_cmd[train_cmd.index("--downscale-factor") + 1] == "2"
-    assert train_cmd[train_cmd.index("--pipeline.datamanager.train-cameras-sampling-strategy") + 1] == "fps"
-    assert train_cmd[train_cmd.index("--pipeline.model.camera-optimizer.mode") + 1] == "SO3xR3"
-    assert train_cmd[train_cmd.index("--pipeline.model.num-random") + 1] == "80000"
-    assert train_cmd[-4:] == ["--data", "data", "--downscale-factor", "2"]
-    assert custom_process_cmd[custom_process_cmd.index("--num-frames-target") + 1] == "600"
-    assert custom_process_cmd[custom_process_cmd.index("--num-downscales") + 1] == "1"
-    assert custom_process_cmd[custom_process_cmd.index("--matching-method") + 1] == "sequential"
-    assert custom_train_cmd[custom_train_cmd.index("--max-num-iterations") + 1] == "35000"
-    assert custom_train_cmd[custom_train_cmd.index("--pipeline.datamanager.cache-images") + 1] == "cpu"
-    assert custom_train_cmd[-4:] == ["--data", "data", "--downscale-factor", "2"]
 
 
 def test_video_reconstruction_custom_options_are_validated():
     valid, error = video_reconstruction.normalize_custom_quality_options({
         "frame_count": "600",
         "max_num_iterations": "35000",
-        "downscale_factor": "2",
+        "max_resolution": "1920",
         "matching_method": "sequential",
-        "cache_images": "cpu",
     })
     assert error is None
     assert valid["frame_count"] == 600
@@ -811,25 +745,13 @@ def test_video_reconstruction_custom_options_are_validated():
     invalid, error = video_reconstruction.normalize_custom_quality_options({
         "frame_count": 600,
         "max_num_iterations": 35000,
-        "downscale_factor": 2,
+        "max_resolution": 1920,
         "matching_method": "exhaustive",
-        "cache_images": "cpu",
     })
     assert invalid is None
     assert error["field"] == "custom_options.frame_count"
 
 
-def test_video_reconstruction_train_command_can_disable_viewer():
-    profile = video_reconstruction.resolve_quality_profile("high", "12gb")
-
-    train_cmd = video_reconstruction.build_train_command(
-        "data",
-        "train",
-        profile,
-        visualizer="tensorboard",
-    )
-
-    assert train_cmd[train_cmd.index("--vis") + 1] == "tensorboard"
 
 
 def test_video_reconstruction_focused_cleanup_removes_outliers(tmp_path):
@@ -940,7 +862,7 @@ def test_video_task_public_serialization_hides_source_paths(workspace):
         "mode": "auto",
         "quality": "high",
         "engine": "auto",
-        "resolved_engine": "stable",
+        "resolved_engine": "brush",
         "output_name": "clip",
         "output_path": str(workspace / "outputs" / "clip.ply"),
         "spz_path": str(workspace / "outputs" / "clip.spz"),
@@ -1673,7 +1595,7 @@ def make_video_task(paths, workspace, **overrides):
         "mode": "auto",
         "quality": "preview",
         "engine": "auto",
-        "resolved_engine": "stable",
+        "resolved_engine": "brush",
         "output_name": "clip",
         "output_path": os.path.join(paths.output_folder, "clip.ply"),
         "spz_path": os.path.join(paths.output_folder, "clip.spz"),
@@ -1702,10 +1624,10 @@ def test_video_task_creation_writes_source_metadata(config_file, workspace, monk
     save_photo_index(paths, {"photos": {meta["id"]: meta}})
     monkeypatch.setattr("backend.services.video_reconstruction.check_dependencies", lambda: {
         "required": {"available": True, "tools": [], "message": None},
-        "stable": {"available": True, "tools": [], "message": None},
+        "brush": {"available": True, "tools": [], "message": None},
         "summary": {
             "available": True,
-            "stable_available": True,
+            "brush_available": True,
         },
     })
 
@@ -1786,20 +1708,15 @@ def test_video_reconstruction_service_success_and_spz_failure(workspace, monkeyp
             f.write(b"jpg")
         return thumb_path
 
-    def fake_run_command(_manager, _task_id, cmd, **_kwargs):
-        if cmd[0] == "ns-train":
-            train_dir = cmd[cmd.index("--output-dir") + 1]
-            os.makedirs(train_dir, exist_ok=True)
-            with open(os.path.join(train_dir, "config.yml"), "w", encoding="utf-8") as f:
-                f.write("config")
-        if cmd[0] == "ns-export":
-            export_dir = cmd[-1]
-            os.makedirs(export_dir, exist_ok=True)
-            with open(os.path.join(export_dir, "model.ply"), "wb") as f:
-                f.write(b"ply")
-        return 0, [], False
-
-    monkeypatch.setattr("backend.services.video_reconstruction.run_command", fake_run_command)
+    def fake_training(*args):
+        exported = Path(args[5]) / 'model.ply'
+        exported.write_bytes(b'ply')
+        return 'ok', str(exported), None, None
+    monkeypatch.setattr(video_reconstruction.video_geometry, 'run_video_geometry',
+                        lambda *args: ('ok', args[5], [], {'registration_ratio': 1.0}))
+    monkeypatch.setattr(video_reconstruction, 'run_brush_training_stage', fake_training)
+    monkeypatch.setattr(video_reconstruction, 'publish_video_ply',
+                        lambda source, dest: Path(dest).write_bytes(Path(source).read_bytes()))
     monkeypatch.setattr(
         "backend.services.model_gallery.generate_video_thumbnail",
         fake_generate_video_thumbnail,
@@ -1822,75 +1739,6 @@ def test_video_reconstruction_service_success_and_spz_failure(workspace, monkeyp
     assert not os.path.exists(os.path.join(paths.video_reconstruction_jobs_folder, task["id"]))
 
 
-def test_video_reconstruction_retries_viewer_failure_with_tensorboard(workspace, monkeypatch):
-    paths = build_path_context({"workspace_folder": str(workspace)})
-
-    def fake_spz_converter(_source_path, spz_path):
-        with open(spz_path, "wb") as f:
-            f.write(b"spz")
-
-    task_manager = TaskManager(paths=paths, spz_converter=fake_spz_converter)
-    task = make_video_task(paths, workspace, mode="environment")
-    task_manager.task_status[task["id"]] = task
-    visualizers = []
-
-    def fake_generate_video_thumbnail(paths_arg, _source_path, item_id):
-        thumb_path = model_gallery.get_thumbnail_path(paths_arg, item_id)
-        os.makedirs(os.path.dirname(thumb_path), exist_ok=True)
-        with open(thumb_path, "wb") as f:
-            f.write(b"jpg")
-        return thumb_path
-
-    def fake_run_command(_manager, _task_id, cmd, **_kwargs):
-        if cmd[0] == "ns-train":
-            visualizer = cmd[cmd.index("--vis") + 1]
-            train_dir = cmd[cmd.index("--output-dir") + 1]
-            visualizers.append(visualizer)
-            stale_marker = os.path.join(train_dir, "partial-viewer-start")
-            if visualizer == "viewer":
-                os.makedirs(train_dir, exist_ok=True)
-                with open(stale_marker, "w", encoding="utf-8") as f:
-                    f.write("partial")
-                return 1, [
-                    "File \"nerfstudio\\viewer\\viewer.py\", line 114, in __init__\n",
-                    "self.viser_server = viser.ViserServer(host=config.websocket_host, port=websocket_port)\n",
-                    "File \"viser\\_client_autobuild.py\", line 41, in ensure_client_is_built\n",
-                    "psutil.NoSuchProcess: process no longer exists (pid=34908)\n",
-                ], False
-            assert visualizer == "tensorboard"
-            assert not os.path.exists(stale_marker)
-            os.makedirs(train_dir, exist_ok=True)
-            with open(os.path.join(train_dir, "config.yml"), "w", encoding="utf-8") as f:
-                f.write("config")
-        if cmd[0] == "ns-export":
-            export_dir = cmd[-1]
-            os.makedirs(export_dir, exist_ok=True)
-            with open(os.path.join(export_dir, "model.ply"), "wb") as f:
-                f.write(b"ply")
-        return 0, [], False
-
-    monkeypatch.setattr("backend.services.video_reconstruction.run_command", fake_run_command)
-    monkeypatch.setattr(
-        "backend.services.model_gallery.generate_video_thumbnail",
-        fake_generate_video_thumbnail,
-    )
-
-    video_reconstruction.run_video_reconstruction_task(task_manager, task["id"], task)
-    public_task = task_manager.list_tasks()[0][0]
-
-    assert visualizers == ["viewer", "tensorboard"]
-    assert public_task["status"] == "completed"
-    assert task["details"]["train_visualizer_fallback"] == {
-        "from": "viewer",
-        "to": "tensorboard",
-        "reason": "viser_startup_failed",
-    }
-    assert any(
-        warning["code"] == "video_reconstruction_viewer_disabled"
-        for warning in public_task["details"]["warnings"]
-    )
-    assert os.path.exists(task["output_path"])
-    assert os.path.exists(task["spz_path"])
 
 
 def test_video_reconstruction_service_oom_failure_keeps_no_output(workspace, monkeypatch):
@@ -1900,8 +1748,8 @@ def test_video_reconstruction_service_oom_failure_keeps_no_output(workspace, mon
     task_manager.task_status[task["id"]] = task
 
     monkeypatch.setattr(
-        "backend.services.video_reconstruction.run_command",
-        lambda *_args, **_kwargs: (1, ["RuntimeError: CUDA out of memory\n"], False),
+        "backend.services.video_reconstruction.video_geometry.run_video_geometry",
+        lambda *_args, **_kwargs: ('failed', None, ['CUDA out of memory'], {}),
     )
 
     video_reconstruction.run_video_reconstruction_task(task_manager, task["id"], task)
@@ -1940,8 +1788,8 @@ def test_video_reconstruction_failure_cleans_uploaded_source_and_prepared_assets
         f.write(b"partial")
 
     monkeypatch.setattr(
-        "backend.services.video_reconstruction.run_command",
-        lambda *_args, **_kwargs: (1, ["RuntimeError: CUDA out of memory\n"], False),
+        "backend.services.video_reconstruction.video_geometry.run_video_geometry",
+        lambda *_args, **_kwargs: ('failed', None, ['CUDA out of memory'], {}),
     )
 
     video_reconstruction.run_video_reconstruction_task(task_manager, task["id"], task)
@@ -1969,9 +1817,9 @@ def test_video_reconstruction_service_cancel_cleans_job_and_uploaded_source(work
 
     def fake_cancel(_manager, _task_id, *_args, **_kwargs):
         task_manager.task_status[task["id"]]["status"] = "cancelled"
-        return 143, ["terminated\n"], False
+        return 'cancelled', None, [], {}
 
-    monkeypatch.setattr("backend.services.video_reconstruction.run_command", fake_cancel)
+    monkeypatch.setattr("backend.services.video_reconstruction.video_geometry.run_video_geometry", fake_cancel)
 
     video_reconstruction.run_video_reconstruction_task(task_manager, task["id"], task)
     public_task = task_manager.list_tasks()[0][0]
@@ -2047,7 +1895,7 @@ def test_video_reconstruction_process_matcher_requires_tool_and_workspace(worksp
         paths.video_reconstruction_folder,
     )
     assert video_reconstruction.process_info_matches_video_runtime(
-        {"name": "python.exe", "cmdline": ["python", "ns-train", "--output-dir", job_db], "cwd": None},
+        {"name": "python.exe", "cmdline": ["brush_app", "--export-path", job_db], "cwd": None},
         paths.video_reconstruction_folder,
     )
     assert not video_reconstruction.process_info_matches_video_runtime(
@@ -2076,17 +1924,6 @@ def test_build_failure_message_detects_oom_text():
     assert "generic failure line" in plain_message
 
 
-def test_viewer_startup_failure_triggers_tensorboard_retry():
-    output_lines = [
-        "File \"nerfstudio\\viewer\\viewer.py\", line 114, in __init__\n",
-        "self.viser_server = viser.ViserServer(host=config.websocket_host, port=websocket_port)\n",
-        "File \"viser\\_client_autobuild.py\", line 41, in ensure_client_is_built\n",
-        "psutil.NoSuchProcess: process no longer exists (pid=34908)\n",
-    ]
-
-    assert video_reconstruction.is_viewer_startup_failure(output_lines) is True
-    assert video_reconstruction.should_retry_train_without_viewer("viewer", output_lines) is True
-    assert video_reconstruction.should_retry_train_without_viewer("tensorboard", output_lines) is False
 
 
 def test_contains_oom_matches_known_patterns():
@@ -2095,43 +1932,16 @@ def test_contains_oom_matches_known_patterns():
     assert video_reconstruction.contains_oom("training finished cleanly") is False
 
 
-def test_resolve_engine_strategy_covers_fallbacks():
-    stable_only = {
-        "stable": {"available": True},
-    }
-    none_available = {
-        "stable": {"available": False},
-    }
-
-    assert video_reconstruction.resolve_engine_strategy("auto", stable_only) == ("stable", None)
-    assert video_reconstruction.resolve_engine_strategy("stable", stable_only) == ("stable", None)
-    assert video_reconstruction.resolve_engine_strategy("unsupported", stable_only) == (
-        None,
-        video_reconstruction.ERROR_INVALID_REQUEST,
-    )
-    assert video_reconstruction.resolve_engine_strategy("auto", none_available) == (
-        None,
-        video_reconstruction.ERROR_DEPENDENCY_MISSING,
-    )
+def test_resolve_engine_strategy_requires_brush_and_decoding_tools():
+    for deps, code in (({'required': {'available': False}, 'brush': {'available': True}}, video_reconstruction.ERROR_DEPENDENCY_MISSING),
+                       ({'required': {'available': True}, 'brush': {'available': False}}, video_reconstruction.ERROR_BRUSH_UNAVAILABLE)):
+        assert video_reconstruction.resolve_engine_strategy('auto', deps) == (None, code)
 
 
-def test_parse_training_progress_maps_steps_into_optimize_band():
-    profile = {"max_num_iterations": 30000}
-    base = video_reconstruction.STAGE_PROGRESS["video_optimize"]
-    ceiling = video_reconstruction.STAGE_PROGRESS["video_export"]
-
-    midpoint = video_reconstruction.parse_training_progress("Step 15000 / 30000 ...", profile)
-    percent_row = video_reconstruction.parse_training_progress("2980 (50.00%)", profile)
-    near_end = video_reconstruction.parse_training_progress("progress 30000/30000 done", profile)
-    unrelated = video_reconstruction.parse_training_progress("loaded 5/10 images", profile)
-    no_match = video_reconstruction.parse_training_progress("starting trainer", profile)
-
-    assert midpoint == int(base + (ceiling - base) * 0.5)
-    assert percent_row == int(base + (ceiling - base) * 0.5)
-    assert near_end == ceiling
-    assert base < midpoint < ceiling
-    assert unrelated is None
-    assert no_match is None
+def test_parse_training_progress_maps_brush_steps_into_optimize_band():
+    profile = video_reconstruction.resolve_quality_profile('high', '12gb')
+    assert video_reconstruction.parse_training_progress('7500/15000 Steps', profile) == 72
+    assert video_reconstruction.parse_training_progress('unrelated output', profile) is None
 
 
 def test_delete_uploaded_source_video_protects_album_originals(workspace):
@@ -2172,115 +1982,14 @@ def test_delete_uploaded_source_video_protects_album_originals(workspace):
     assert not os.path.exists(upload_dir)
 
 
-def test_parse_viewer_url_extracts_local_viewer():
-    assert video_reconstruction.parse_viewer_url("│   HTTP   │ http://0.0.0.0:7007 │") == (
-        "http://localhost:7007",
-        7007,
-    )
-    assert video_reconstruction.parse_viewer_url(
-        "Viewer running locally at: http://localhost:7007"
-    ) == ("http://localhost:7007", 7007)
-    display_url, port = video_reconstruction.parse_viewer_url(
-        "https://viewer.nerf.studio/?websocket_url=ws://localhost:7007"
-    )
-    assert display_url.startswith("https://viewer.nerf.studio")
-    assert video_reconstruction.parse_viewer_url("loss=0.123 step done") == (None, None)
 
 
-def test_resolve_training_profile_falls_back_to_random_when_few_cameras(tmp_path):
-    data_dir = tmp_path / "nerfstudio-data"
-    data_dir.mkdir()
-    fps_profile = {"train_cameras_sampling_strategy": "fps"}
-
-    # Too few registered cameras -> random sampling to avoid FPS assertion.
-    (data_dir / "transforms.json").write_text(
-        json.dumps({"frames": [{} for _ in range(5)]}),
-        encoding="utf-8",
-    )
-    task = {"details": {}}
-    few = video_reconstruction.resolve_training_profile(fps_profile, str(data_dir), task=task)
-    assert few["train_cameras_sampling_strategy"] == "random"
-    assert task["details"]["camera_sampling_fallback"]["registered_frames"] == 5
-
-    # Enough cameras -> keep FPS unchanged.
-    (data_dir / "transforms.json").write_text(
-        json.dumps({"frames": [{} for _ in range(40)]}),
-        encoding="utf-8",
-    )
-    plenty = video_reconstruction.resolve_training_profile(fps_profile, str(data_dir))
-    assert plenty["train_cameras_sampling_strategy"] == "fps"
-
-    # Missing transforms.json -> leave profile as-is (don't guess).
-    missing = video_reconstruction.resolve_training_profile(fps_profile, str(tmp_path / "nope"))
-    assert missing["train_cameras_sampling_strategy"] == "fps"
 
 
-def test_quality_profiles_bind_matching_method_per_tier():
-    assert video_reconstruction.resolve_quality_profile("preview", "12gb")["matching_method"] == "sequential"
-    assert video_reconstruction.resolve_quality_profile("high", "12gb")["matching_method"] == "exhaustive"
-    assert video_reconstruction.resolve_quality_profile("extreme", "24gb")["matching_method"] == "exhaustive"
-    assert video_reconstruction.resolve_quality_profile(
-        "custom",
-        "12gb",
-        {"matching_method": "sequential"},
-    )["matching_method"] == "sequential"
 
 
-def test_estimate_object_focus_from_orbit_geometry(tmp_path):
-    import math
-
-    import numpy as np
-
-    data_dir = tmp_path / "nerfstudio-data"
-    train_dir = tmp_path / "train"
-    data_dir.mkdir()
-    (train_dir / "run").mkdir(parents=True)
-
-    # 12 cameras orbiting the origin at radius 4, all looking inward (-Z is look-at).
-    frames = []
-    for i in range(12):
-        angle = 2 * math.pi * i / 12
-        cam = np.array([4.0 * math.cos(angle), 0.0, 4.0 * math.sin(angle)])
-        forward = -cam / np.linalg.norm(cam)  # look toward origin
-        z_axis = -forward                      # OpenGL camera +Z points back
-        up = np.array([0.0, 1.0, 0.0])
-        x_axis = np.cross(up, z_axis)
-        x_axis /= np.linalg.norm(x_axis)
-        y_axis = np.cross(z_axis, x_axis)
-        c2w = np.eye(4)
-        c2w[:3, 0] = x_axis
-        c2w[:3, 1] = y_axis
-        c2w[:3, 2] = z_axis
-        c2w[:3, 3] = cam
-        frames.append({"transform_matrix": c2w.tolist()})
-    (data_dir / "transforms.json").write_text(json.dumps({"frames": frames}), encoding="utf-8")
-
-    # Identity dataparser transform (no reorientation) with unit scale.
-    (train_dir / "run" / "dataparser_transforms.json").write_text(
-        json.dumps({"transform": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], "scale": 1.0}),
-        encoding="utf-8",
-    )
-
-    result = video_reconstruction.estimate_object_focus(str(train_dir), str(data_dir))
-
-    assert result is not None
-    center, radius = result
-    assert np.allclose(center, [0.0, 0.0, 0.0], atol=1e-6)
-    assert radius == 4.0 * video_reconstruction.OBJECT_FOCUS["radius_factor"]
 
 
-def test_estimate_object_focus_returns_none_without_dataparser(tmp_path):
-    data_dir = tmp_path / "nerfstudio-data"
-    train_dir = tmp_path / "train"
-    data_dir.mkdir()
-    train_dir.mkdir()
-    (data_dir / "transforms.json").write_text(
-        json.dumps({"frames": [{"transform_matrix": [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]}] * 12}),
-        encoding="utf-8",
-    )
-
-    # No dataparser_transforms.json -> cannot align coordinates -> skip safely.
-    assert video_reconstruction.estimate_object_focus(str(train_dir), str(data_dir)) is None
 
 
 def test_object_focus_crop_keeps_only_subject(tmp_path):

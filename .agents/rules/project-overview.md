@@ -24,13 +24,13 @@ Sharp GUI 采用 **前后端分离 + 双前端模式** 架构：
 │  ┌────────┴───────────────────────────────────┐  │
 │  │  TaskManager (queue.Queue + threading.Lock) │  │
 │  │  → image_sharp: sharp predict               │  │
-│  │  → video_3dgs: COLMAP + Brush / Splatfacto  │  │
+│  │  → video_3dgs: COLMAP + Brush  │  │
 │  └────────────────────────────────────────────┘  │
 └───────────────────────────────────────────────────┘
             │ subprocess
 ┌───────────┴───────────────────────────────────────┐
 │  AI / reconstruction engines                       │
-│  Apple ml-sharp；Brush；Splatfacto；COLMAP          │
+│  Apple ml-sharp；Brush；COLMAP          │
 └───────────────────────────────────────────────────┘
 ```
 
@@ -151,7 +151,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `cert.pem` / `key.pem` | 本地 HTTPS 证书与私钥 | 私钥敏感，不得服务、提交或打包进共享示例 |
 | `sharp-gui-verbose.log` / `*.log` | 本地诊断日志 | 可能包含路径和错误上下文，默认忽略 |
 | `venv/` | 主程序 Python 虚拟环境 | 依赖目录，不是用户 workspace 状态 |
-| `.video-reconstruction-env/` | Splatfacto 独立 Python 环境及可复用 COLMAP | Brush 不依赖其中的 Nerfstudio；不跟 workspace 切换 |
+| `.sharp-gui-tools/colmap/` | 原生 COLMAP 程序、DLL 和插件 | 不依赖视频 Python 虚拟环境；不跟 workspace 切换 |
 | `ml-sharp/` | Apple ML-Sharp 引擎目录 | 上游依赖目录，不要修改内部文件 |
 | `update-manifest.json` | 更新协议、portable runtime revision、默认分支、最低 Git 与受支持包目标 | **受 Git 跟踪**；每个可更新目标必须包含，不得加入 `.gitignore` |
 | `.sharp-gui-update/` | 原子 `state.json`、最近检查目标、操作锁和有界诊断 | 安装级状态；不随 workspace 切换，代码更新/失败恢复期间保留，空闲时删除会丢失检查与操作记录 |
@@ -211,7 +211,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | ml-sharp (sharp CLI) | AI 推理引擎 |
 | ffmpeg / ffprobe | 视频重建抽帧、元数据、poster 和源视频缩略图 |
 | Brush CLI v0.3.0 | 默认视频 3DGS 训练引擎；固定官方二进制与哈希，由 `tools/install_brush.py` 安装 |
-| Nerfstudio / Splatfacto / gsplat | 可切换的旧视频重建路线，用于对照 |
+| 原生 COLMAP / FFmpeg / Brush | 当前唯一视频重建路线；主 ml-sharp 的 gsplat 仍用于图片推理 |
 | COLMAP | 两种视频路线的相机位姿与稀疏几何估计 |
 | pytest | 后端开发/重构验证（仅开发依赖，见 `requirements-dev.txt`） |
 
@@ -296,13 +296,13 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
   → outputs/ + 重建诊断 sidecar + 模型图库 + Spark Viewer
 ```
 
-`splatfacto` 保留 `ns-process-data` / `ns-train splatfacto` / `ns-export` 路线。当前只接入视频，不提供多图片任务入口。固定 Brush 安装目录为 `.sharp-gui-tools/brush/v0.3.0/`，旧安装缺少该目录时必须显示缺依赖；显式选择 Brush 不静默切换引擎。
+当前只接入视频，不提供多图片任务入口。固定 Brush 安装目录为 `.sharp-gui-tools/brush/v0.3.0/`，原生 COLMAP 位于 `.sharp-gui-tools/colmap/`；缺依赖时显示诊断。
 
 开发约束：
 
 - 默认输出名使用源视频同名 stem；只有冲突时追加 `-2`、`-3` 等唯一后缀，不把质量档、帧数或 cleanup 作为用户可见后缀。
 - `auto` / `environment` 模式保留原始导出几何；只有显式 `object` 才进行主体裁剪，并保留任务中的原始 PLY。
-- 默认引擎为 `brush`，前端提供 `brush` / `splatfacto`。后端兼容旧 `auto`（优先 Brush，缺失时可用 Splatfacto 并记录实际引擎）及 `stable`（Splatfacto 别名）。
+- 视频统一使用 `brush`，后端 `auto` 仅作为 Brush 别名。旧配置自动迁移，显式 `stable` / `splatfacto` 请求拒绝。
 - Brush 的训练分辨率表示长边上限，不放大小图；依显存约束选档，不得再用隐含二次下采样降低实际训练像素。
 - 相机配准至少需要 8 帧、50% 配准率和非空稀疏点云；Brush 配准不完整时最多补密一次，仍不达标必须在训练前失败，50%～80% 应保留明确警告。
 - 重建摘要保存在输出 sidecar，记录资源参数、抽帧/注册帧数、配准率、阶段耗时和实际引擎；即使中间 jobs 被清理仍能用于诊断。

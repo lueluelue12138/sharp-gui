@@ -367,10 +367,6 @@ class TaskManager:
             safe_details = {}
             if isinstance(details.get("warnings"), list):
                 safe_details["warnings"] = details["warnings"]
-            if isinstance(details.get("viewer_url"), str):
-                safe_details["viewer_url"] = details["viewer_url"]
-            if isinstance(details.get("viewer_port"), int):
-                safe_details["viewer_port"] = details["viewer_port"]
             public["details"] = safe_details
 
         return {key: value for key, value in public.items() if value is not None}

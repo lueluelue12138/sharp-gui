@@ -17,7 +17,6 @@ import { ChevronDownIcon, SparklesIcon } from '@/components/common/Icons';
 import { Modal } from '@/components/common/Modal';
 
 import type {
-  VideoReconstructionCacheImages,
   VideoReconstructionCustomOptions,
   VideoReconstructionEngine,
   VideoReconstructionMatchingMethod,
@@ -31,17 +30,12 @@ const MAX_OUTPUT_NAME_LENGTH = 120;
 
 const MODE_OPTIONS: VideoReconstructionMode[] = ['auto', 'object', 'environment'];
 const QUALITY_OPTIONS: VideoReconstructionQuality[] = ['preview', 'high', 'extreme', 'custom'];
-const ENGINE_OPTIONS: VideoReconstructionEngine[] = ['brush', 'splatfacto'];
-const DOWNSCALE_OPTIONS = [1, 2, 4] as const;
 const MATCHING_OPTIONS: VideoReconstructionMatchingMethod[] = ['sequential', 'exhaustive'];
-const CACHE_OPTIONS: VideoReconstructionCacheImages[] = ['gpu', 'cpu'];
 const DEFAULT_CUSTOM_OPTIONS: Required<VideoReconstructionCustomOptions> = {
   frame_count: 600,
   max_num_iterations: 15000,
   max_resolution: 1920,
-  downscale_factor: 2,
   matching_method: 'sequential',
-  cache_images: 'cpu',
 };
 
 function deriveOutputName(filename: string): string {
@@ -84,7 +78,7 @@ export function VideoReconstructionDialog() {
   );
   const [mode, setMode] = useState<VideoReconstructionMode>('auto');
   const [quality, setQuality] = useState<VideoReconstructionQuality>('high');
-  const [engine, setEngine] = useState<VideoReconstructionEngine>('brush');
+  const engine: VideoReconstructionEngine = 'brush';
   const [customOptions, setCustomOptions] = useState<Required<VideoReconstructionCustomOptions>>(DEFAULT_CUSTOM_OPTIONS);
   const [outputName, setOutputName] = useState('');
   const [keepIntermediateFiles, setKeepIntermediateFiles] = useState(false);
@@ -101,10 +95,9 @@ export function VideoReconstructionDialog() {
 
     setMode('auto');
     setQuality(config.default_quality);
-    setEngine(config.default_engine);
     setCustomOptions({
       ...DEFAULT_CUSTOM_OPTIONS,
-      max_num_iterations: config.default_engine === 'brush' ? 15000 : 35000,
+      max_num_iterations: 15000,
     });
     setOutputName(deriveOutputName(targetName));
     setKeepIntermediateFiles(config.keep_intermediate_files);
@@ -169,7 +162,7 @@ export function VideoReconstructionDialog() {
     if (customOptions.max_num_iterations < 1000 || customOptions.max_num_iterations > 80000) {
       return t('videoReconCustomValidation.iterations');
     }
-    if (engine === 'brush' && (!Number.isInteger(customOptions.max_resolution)
+    if ((!Number.isInteger(customOptions.max_resolution)
       || customOptions.max_resolution < 640 || customOptions.max_resolution > 3840)) {
       return t('videoReconCustomValidation.maxResolution');
     }
@@ -177,11 +170,9 @@ export function VideoReconstructionDialog() {
       return t('videoReconCustomValidation.exhaustiveFrames');
     }
     return null;
-  }, [customOptions, engine, quality, t]);
+  }, [customOptions, quality, t]);
 
-  const engineAvailable = Boolean(engine === 'brush'
-    ? dependencies?.summary.brush_available
-    : dependencies?.summary.splatfacto_available);
+  const engineAvailable = Boolean(dependencies?.summary.brush_available);
   const dependenciesChecking = Boolean(dependencies?.summary.checking) || statusLoading;
   const canSubmit = (target?.media_type === 'video' || Boolean(fileTarget))
     && !submitting
@@ -201,12 +192,12 @@ export function VideoReconstructionDialog() {
     if (!dependencies.required.available) {
       return t('videoReconRequiredMissing');
     }
-    const tools = engine === 'brush' ? dependencies.brush.tools : dependencies.splatfacto.tools;
+    const tools = dependencies.brush.tools;
     if (tools.some((tool) => tool.name === 'colmap' && !tool.available)) {
       return t('videoReconColmapMissing');
     }
     if (!engineAvailable) {
-      return t(engine === 'brush' ? 'videoReconBrushMissing' : 'videoReconStableMissing');
+      return t('videoReconBrushMissing');
     }
     return t('videoReconDependenciesReady', { engine: t(`videoReconEngine.${engine}`) });
   }, [dependencies, engine, engineAvailable, statusLoading, t]);
@@ -227,9 +218,7 @@ export function VideoReconstructionDialog() {
           frame_count: customOptions.frame_count,
           max_num_iterations: customOptions.max_num_iterations,
           matching_method: customOptions.matching_method,
-          ...(engine === 'brush'
-            ? { max_resolution: customOptions.max_resolution }
-            : { downscale_factor: customOptions.downscale_factor, cache_images: customOptions.cache_images }),
+          max_resolution: customOptions.max_resolution,
         } : undefined,
         engine,
         output_name: outputName.trim(),
@@ -291,31 +280,6 @@ export function VideoReconstructionDialog() {
             <span>{dependencyMessage}</span>
           </div>
         </div>
-
-        <fieldset className={styles.fieldset} disabled={submitting}>
-          <label className={styles.label}>{t('videoReconEngineLabel')}</label>
-          <div className={styles.segmented}>
-            {ENGINE_OPTIONS.map((option) => (
-              <button
-                key={option}
-                className={[styles.segmentBtn, engine === option ? styles.segmentActive : ''].filter(Boolean).join(' ')}
-                onClick={() => {
-                  if (engine === option) return;
-                  setEngine(option);
-                  setCustomOptions({
-                    ...DEFAULT_CUSTOM_OPTIONS,
-                    max_num_iterations: option === 'brush' ? 15000 : 35000,
-                  });
-                }}
-                type="button"
-              >
-                <span>{t(`videoReconEngine.${option}`)}</span>
-                <small>{t(`videoReconEngineMeta.${option}`)}</small>
-              </button>
-            ))}
-          </div>
-          <p className={styles.parameterHint}>{t(`videoReconEngineHint.${engine}`)}</p>
-        </fieldset>
 
         <fieldset className={styles.fieldset} disabled={submitting}>
           <label className={styles.label}>{t('videoReconModeLabel')}</label>
@@ -396,7 +360,6 @@ export function VideoReconstructionDialog() {
               </label>
             </div>
 
-            {engine === 'brush' ? (
               <label className={styles.numberField}>
                 <span>{t('videoReconCustomMaxResolution')}</span>
                 <input
@@ -411,28 +374,6 @@ export function VideoReconstructionDialog() {
                 />
                 <small>{t('videoReconCustomMaxResolutionHint')}</small>
               </label>
-            ) : (
-            <fieldset className={styles.fieldset} disabled={submitting}>
-              <label className={styles.label}>{t('videoReconCustomDownscale')}</label>
-              <div className={styles.segmented}>
-                {DOWNSCALE_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    className={[
-                      styles.segmentBtn,
-                      customOptions.downscale_factor === option ? styles.segmentActive : '',
-                    ].filter(Boolean).join(' ')}
-                    onClick={() => updateCustomOption('downscale_factor', option)}
-                    type="button"
-                  >
-                    <span>{t(`videoReconDownscale.${option}`)}</span>
-                    <small>{t(`videoReconDownscaleMeta.${option}`)}</small>
-                  </button>
-                ))}
-              </div>
-              <p className={styles.parameterHint}>{t('videoReconCustomDownscaleHint')}</p>
-            </fieldset>
-            )}
 
             <fieldset className={styles.fieldset} disabled={submitting}>
               <label className={styles.label}>{t('videoReconCustomMatching')}</label>
@@ -455,28 +396,6 @@ export function VideoReconstructionDialog() {
               <p className={styles.parameterHint}>{t('videoReconCustomMatchingHint')}</p>
             </fieldset>
 
-            {engine === 'splatfacto' ? (
-            <fieldset className={styles.fieldset} disabled={submitting}>
-              <label className={styles.label}>{t('videoReconCustomCacheImages')}</label>
-              <div className={styles.segmented}>
-                {CACHE_OPTIONS.map((option) => (
-                  <button
-                    key={option}
-                    className={[
-                      styles.segmentBtn,
-                      customOptions.cache_images === option ? styles.segmentActive : '',
-                    ].filter(Boolean).join(' ')}
-                    onClick={() => updateCustomOption('cache_images', option)}
-                    type="button"
-                  >
-                    <span>{t(`videoReconCacheImages.${option}`)}</span>
-                    <small>{t(`videoReconCacheImagesMeta.${option}`)}</small>
-                  </button>
-                ))}
-              </div>
-              <p className={styles.parameterHint}>{t('videoReconCustomCacheImagesHint')}</p>
-            </fieldset>
-            ) : null}
 
             {customValidationMessage ? (
               <div className={[styles.message, styles.warning].join(' ')}>
