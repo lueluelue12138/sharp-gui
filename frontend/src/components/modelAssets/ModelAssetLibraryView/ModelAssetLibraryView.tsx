@@ -27,7 +27,7 @@ import { ModelAssetToolbar } from '@/components/modelAssets/ModelAssetToolbar';
 import type { ModelAssetToolbarMode } from '@/components/modelAssets/ModelAssetToolbar';
 import { useModelAssetCoverQueue } from '@/hooks/useModelAssetCoverQueue';
 import { useAppStore } from '@/store';
-import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
+import { canEditModelAsset, localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import type {
   GalleryItem,
   ModelAsset,
@@ -66,6 +66,7 @@ export function ModelAssetLibraryView({
   onImportFiles,
 }: ModelAssetLibraryViewProps) {
   const { t } = useTranslation();
+  const canEditAssets = useAppStore((state) => state.isOwnerAccess);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const gridScrollRef = useRef<HTMLDivElement | null>(null);
   const workbenchRef = useRef<HTMLDivElement | null>(null);
@@ -572,7 +573,7 @@ export function ModelAssetLibraryView({
     };
   }, [dropActive]);
 
-  const handleOpen = useCallback((asset: ModelAsset) => {
+  const handleOpen = useCallback((asset: ModelAsset, openEditor = false) => {
     const modelSource = resolveModelAssetSource(asset, preferredModelFormat);
     if (!modelSource.url || !modelSource.format) {
       setModelAssetError(t('modelAssetOpenUnavailable'));
@@ -589,9 +590,18 @@ export function ModelAssetLibraryView({
       sourceMediaType: modelSource.sourceMediaType,
       viewerOrientation: modelSource.viewerOrientation,
       viewerCamera: modelSource.viewerCamera,
-        viewerTransform: modelSource.viewerTransform,
-    });
+      viewerTransform: modelSource.viewerTransform,
+    }, { openEditor });
   }, [preferredModelFormat, setCurrentModel, setModelAssetError, t]);
+
+  const handleEdit = useCallback((asset: ModelAsset) => {
+    if (!canEditAssets) return;
+    if (!canEditModelAsset(asset)) {
+      setModelAssetError(t(asset.available ? 'modelAssetEditUnsupported' : 'modelAssetOpenUnavailable'));
+      return;
+    }
+    handleOpen(asset, true);
+  }, [canEditAssets, handleOpen, setModelAssetError, t]);
 
   const handlePreview = useCallback((asset: ModelAsset) => {
     if (!asset.image_url && !asset.source_video_url) {
@@ -963,6 +973,8 @@ export function ModelAssetLibraryView({
           onSelect={handleSelectAsset}
           onToggleChecked={(asset) => toggleSelectedModelAsset(asset.id)}
           onOpen={handleOpen}
+          onEdit={handleEdit}
+          canEdit={canEditAssets}
           onShowDetails={handleShowDetails}
           onPreview={handlePreview}
           onDownload={handleDownload}
@@ -986,6 +998,8 @@ export function ModelAssetLibraryView({
             canDelete={canDeleteAssets}
             preferredFormat={preferredModelFormat}
             onOpen={handleOpen}
+            onEdit={handleEdit}
+            canEdit={canEditAssets}
             onPreviewSource={handlePreview}
             onDownload={handleDownload}
             onExport={handleExport}

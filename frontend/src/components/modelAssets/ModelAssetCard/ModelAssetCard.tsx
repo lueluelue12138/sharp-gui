@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { Pencil } from 'lucide-react';
 
 import {
   CheckIcon,
@@ -10,7 +11,7 @@ import {
   InfoIcon,
 } from '@/components/common/Icons';
 import { useGalleryThumbnail } from '@/hooks/useGalleryThumbnail';
-import { formatDate, formatFileSize, resolveModelAssetSource } from '@/utils';
+import { canEditModelAsset, formatDate, formatFileSize, resolveModelAssetSource } from '@/utils';
 import type { ModelAsset, ModelFormat } from '@/types';
 
 import styles from './ModelAssetCard.module.css';
@@ -25,6 +26,8 @@ interface ModelAssetCardProps {
   onSelect: (asset: ModelAsset) => void;
   onToggleChecked: (asset: ModelAsset) => void;
   onOpen: (asset: ModelAsset) => void;
+  onEdit: (asset: ModelAsset) => void;
+  canEdit: boolean;
   onShowDetails: (asset: ModelAsset) => void;
   onPreview: (asset: ModelAsset) => void;
   onDownload: (asset: ModelAsset) => void;
@@ -54,6 +57,8 @@ export function ModelAssetCard({
   onSelect,
   onToggleChecked,
   onOpen,
+  onEdit,
+  canEdit,
   onShowDetails,
   onPreview,
   onDownload,
@@ -122,12 +127,16 @@ export function ModelAssetCard({
         unavailable ? styles.unavailable : '',
       ].filter(Boolean).join(' ')}
       role="listitem"
+      onClick={(event) => {
+        if (event.target instanceof Element && !event.target.closest('button')) handleSelect();
+      }}
     >
       <button
         className={styles.mainAction}
         type="button"
         aria-pressed={selectionMode ? isChecked : isSelected}
         aria-label={asset.name}
+        data-tooltip={`${asset.name} · ${formatLabel} · ${metaText}`}
         onClick={handleSelect}
       />
       <div className={styles.thumbArea}>
@@ -153,7 +162,7 @@ export function ModelAssetCard({
           </div>
         ) : null}
 
-        <span className={styles.formatBadge}>{formatLabel}</span>
+        <span className={styles.formatBadge} data-tooltip={asset.formats.join(', ').toUpperCase()}>{formatLabel}</span>
 
         {isChecked ? (
           <span className={styles.checkBadge} aria-hidden="true">
@@ -162,6 +171,19 @@ export function ModelAssetCard({
         ) : null}
 
         <div className={styles.quickActions}>
+          {canEdit ? (
+            <button
+              className={styles.actionButton}
+              type="button"
+              aria-label={t('modelAssetEditModel')}
+              data-tooltip={t(canEditModelAsset(asset) ? 'modelAssetEditModel'
+                : unavailable ? 'modelAssetOpenUnavailable' : 'modelAssetEditUnsupported')}
+              disabled={!canEditModelAsset(asset)}
+              onClick={(event) => handleActionClick(event, onEdit)}
+            >
+              <Pencil size={15} />
+            </button>
+          ) : null}
           {hasPreview ? (
             <button
               className={styles.actionButton}

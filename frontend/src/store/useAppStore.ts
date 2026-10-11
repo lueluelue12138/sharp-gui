@@ -418,6 +418,7 @@ interface AppState {
   // Gallery
   galleryItems: GalleryItem[];
   currentModelDescriptor: CurrentModelDescriptor | null;
+  pendingModelEditorId: string | null;
   currentModelReloadToken: number;
   currentModelId: string | null;
   currentModelUrl: string | null;
@@ -532,7 +533,8 @@ interface AppState {
 
   setGalleryItems: (items: GalleryItem[]) => void;
   removeGalleryItem: (id: string) => void;
-  setCurrentModel: (descriptor: CurrentModelDescriptor | null) => void;
+  setCurrentModel: (descriptor: CurrentModelDescriptor | null, options?: { openEditor?: boolean }) => void;
+  clearModelEditorRequest: () => void;
   requestCurrentModelReload: () => void;
   setPreviewImage: (item: GalleryItem | null) => void;
   setModelAssets: (response: ModelAssetListResponse, append?: boolean) => void;
@@ -644,6 +646,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   galleryItems: [],
   currentModelDescriptor: null,
+  pendingModelEditorId: null,
   currentModelReloadToken: 0,
   currentModelId: null,
   currentModelUrl: null,
@@ -882,7 +885,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       previewImage,
     };
   }),
-  setCurrentModel: (descriptor) => set((state) => {
+  setCurrentModel: (descriptor, options) => set((state) => {
     const normalizedDescriptor = descriptor
       ? {
           ...descriptor,
@@ -906,6 +909,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     return {
       currentModelDescriptor: normalizedDescriptor,
+      pendingModelEditorId: options?.openEditor && normalizedDescriptor?.source !== 'temporary' ? id : null,
       currentModelId: id,
       currentModelUrl: normalizedDescriptor?.url ?? null,
       currentModelFormat: normalizedDescriptor?.format ?? null,
@@ -920,6 +924,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       isLodEnabled: resolved.quality.lodEnabled,
     };
   }),
+  clearModelEditorRequest: () => set({ pendingModelEditorId: null }),
   requestCurrentModelReload: () => set((state) => (
     state.currentModelDescriptor
       ? {

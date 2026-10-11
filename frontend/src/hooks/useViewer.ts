@@ -447,7 +447,7 @@ export const useViewer = (
   }, []);
 
   // ── Reset Camera (defined early so child hooks can reference it) ────
-  const resetCamera = useCallback(() => {
+  const resetCamera = useCallback((animated = true) => {
     const ctx = viewerRef.current;
     if (!ctx) return;
 
@@ -560,6 +560,15 @@ export const useViewer = (
 
     const startTime = performance.now();
     const duration = DEFAULT_CAMERA_CONFIG.resetAnimationDuration;
+
+    if (!animated) {
+      c.object.position.copy(targetPos);
+      c.target.copy(targetLookAt);
+      c.object.up.copy(targetUp);
+      c.update();
+      setDebugInfo(getViewerDebugInfo(activeCtx));
+      return;
+    }
 
     function animate() {
       if (!isCurrentReset()) return;
@@ -1168,7 +1177,11 @@ export const useViewer = (
 
         // Apply limits and reset camera after model loads
         applyLimits();
-        resetCamera();
+        const navigationState = useAppStore.getState();
+        const opensEditor = navigationState.pendingModelEditorId !== null
+          && navigationState.pendingModelEditorId === navigationState.currentModelId;
+        // Establish the full initial view before the editor takes over the controls.
+        resetCamera(!opensEditor);
       } catch (error) {
         if (isCurrentLoad()) {
           console.error('[Viewer] Error loading model:', error);

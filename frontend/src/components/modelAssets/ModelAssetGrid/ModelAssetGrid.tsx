@@ -20,6 +20,8 @@ interface ModelAssetGridProps {
   onSelect: (asset: ModelAsset) => void;
   onToggleChecked: (asset: ModelAsset) => void;
   onOpen: (asset: ModelAsset) => void;
+  onEdit: (asset: ModelAsset) => void;
+  canEdit: boolean;
   onShowDetails: (asset: ModelAsset) => void;
   onPreview: (asset: ModelAsset) => void;
   onDownload: (asset: ModelAsset) => void;
@@ -42,6 +44,8 @@ export function ModelAssetGrid({
   onSelect,
   onToggleChecked,
   onOpen,
+  onEdit,
+  canEdit,
   onShowDetails,
   onPreview,
   onDownload,
@@ -82,6 +86,8 @@ export function ModelAssetGrid({
             onSelect={onSelect}
             onToggleChecked={onToggleChecked}
             onOpen={onOpen}
+            onEdit={onEdit}
+            canEdit={canEdit}
             onShowDetails={onShowDetails}
             onPreview={onPreview}
             onDownload={onDownload}

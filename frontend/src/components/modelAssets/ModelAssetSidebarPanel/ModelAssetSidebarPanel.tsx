@@ -228,6 +228,9 @@ export function ModelAssetSidebarPanel({
             return (
               <div
                 key={asset.id}
+                onClick={(event) => {
+                  if (event.target instanceof Element && !event.target.closest('button')) handleOpen(asset);
+                }}
                 className={[
                   styles.recentItem,
                   currentModelId === asset.id
@@ -239,6 +242,7 @@ export function ModelAssetSidebarPanel({
                   className={styles.recentMainButton}
                   type="button"
                   aria-label={asset.name}
+                  data-tooltip={`${asset.name} · ${format} · ${formatFileSize(modelSource.size)}`}
                   onClick={() => handleOpen(asset)}
                 />
                 <span className={styles.thumb}>
@@ -249,8 +253,10 @@ export function ModelAssetSidebarPanel({
                   )}
                 </span>
                 <span className={styles.itemText}>
-                  <strong>{asset.name}</strong>
-                  <small>{format} - {formatFileSize(modelSource.size)}</small>
+                  <strong data-tooltip={asset.name}>{asset.name}</strong>
+                  <small data-tooltip={`${format} · ${formatFileSize(modelSource.size)}`}>
+                    {format} - {formatFileSize(modelSource.size)}
+                  </small>
                 </span>
                 <span className={styles.itemActions}>
                   {hasSourcePreview ? (

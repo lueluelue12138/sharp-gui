@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
+import { Pencil } from 'lucide-react';
 
 import { Button } from '@/components/common/Button';
 import {
@@ -12,7 +13,7 @@ import {
   ResetIcon,
   ShareIcon,
 } from '@/components/common/Icons';
-import { formatDate, formatFileSize, resolveModelAssetSource } from '@/utils';
+import { canEditModelAsset, formatDate, formatFileSize, resolveModelAssetSource } from '@/utils';
 import type { ModelAsset, ModelAssetProfileInput, ModelFormat } from '@/types';
 
 import styles from './ModelAssetDetailsPanel.module.css';
@@ -22,8 +23,10 @@ interface ModelAssetDetailsPanelProps {
   saving: boolean;
   canWrite: boolean;
   canDelete: boolean;
+  canEdit: boolean;
   preferredFormat: ModelFormat;
   onOpen: (asset: ModelAsset) => void;
+  onEdit: (asset: ModelAsset) => void;
   onPreviewSource: (asset: ModelAsset) => void;
   onDownload: (asset: ModelAsset) => void;
   onExport: (asset: ModelAsset) => void;
@@ -65,8 +68,10 @@ export function ModelAssetDetailsPanel({
   saving,
   canWrite,
   canDelete,
+  canEdit,
   preferredFormat,
   onOpen,
+  onEdit,
   onPreviewSource,
   onDownload,
   onExport,
@@ -274,31 +279,46 @@ export function ModelAssetDetailsPanel({
         ) : (
           <>
             <div className={styles.titleRow}>
-              <h2>{asset.name}</h2>
+              <h2 data-tooltip={asset.name}>{asset.name}</h2>
               {canWrite ? (
                 <button
                   className={styles.editButton}
                   type="button"
                   onClick={() => setIsEditing(true)}
                   aria-label={t('edit')}
+                  data-tooltip={t('modelAssetEditProfile')}
                 >
                   {t('edit')}
                 </button>
               ) : null}
             </div>
             <div className={styles.summary}>
-              <span>{primaryFormat}</span>
-              <span>{formatFileSize(displaySize)}</span>
+              <span data-tooltip={asset.formats.join(', ').toUpperCase()}>{primaryFormat}</span>
+              <span data-tooltip={formatFileSize(displaySize)}>{formatFileSize(displaySize)}</span>
               <span>{t(`modelAssetSource${asset.source_type[0].toUpperCase()}${asset.source_type.slice(1)}`)}</span>
             </div>
           </>
         )}
       </div>
 
-      <div className={styles.actions}>
+      <div className={[styles.actions, canEdit ? styles.actionsWithEditor : ''].join(' ')}>
         <Button size="sm" variant="secondary" icon={<FormatIcon />} disabled={!asset.available} onClick={() => onOpen(asset)}>
           {t('open')}
         </Button>
+        {canEdit ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            icon={<Pencil size={16} />}
+            aria-label={t('modelAssetEditModel')}
+            data-tooltip={t(canEditModelAsset(asset) ? 'modelAssetEditModel'
+              : asset.available ? 'modelAssetEditUnsupported' : 'modelAssetOpenUnavailable')}
+            disabled={!canEditModelAsset(asset)}
+            onClick={() => onEdit(asset)}
+          >
+            {t('edit')}
+          </Button>
+        ) : null}
         <Button size="sm" variant="secondary" icon={<DownloadIcon />} disabled={!asset.available} onClick={() => onDownload(asset)}>
           {t('download')}
         </Button>
@@ -362,7 +382,7 @@ export function ModelAssetDetailsPanel({
             {fields.map(([label, value]) => (
               <div key={label} className={styles.fieldRow}>
                 <dt>{label}</dt>
-                <dd>{value}</dd>
+                <dd data-tooltip={value}>{value}</dd>
               </div>
             ))}
           </dl>
@@ -371,7 +391,9 @@ export function ModelAssetDetailsPanel({
             {metadataEntries.length > 0 ? metadataEntries.map(([key, value]) => (
               <div key={key} className={styles.fieldRow}>
                 <dt>{key}</dt>
-                <dd>{formatFieldValue(value, t('modelAssetUnknown'))}</dd>
+                <dd data-tooltip={formatFieldValue(value, t('modelAssetUnknown'))}>
+                  {formatFieldValue(value, t('modelAssetUnknown'))}
+                </dd>
               </div>
             )) : (
               <div className={styles.metadataEmpty}>{t('modelAssetNoMetadata')}</div>

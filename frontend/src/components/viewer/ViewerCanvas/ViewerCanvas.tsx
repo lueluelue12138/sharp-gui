@@ -34,6 +34,8 @@ const ViewerInstance: React.FC = () => {
   const currentModelSource = useAppStore((state) => state.currentModelSource);
   const isOwnerAccess = useAppStore((state) => state.isOwnerAccess);
   const isLoading = useAppStore((state) => state.isLoading);
+  const pendingModelEditorId = useAppStore((state) => state.pendingModelEditorId);
+  const clearModelEditorRequest = useAppStore((state) => state.clearModelEditorRequest);
   const containerRef = useRef<HTMLDivElement>(null);
   const viewerDefaultRevealEffect = useAppStore((state) => state.viewerDefaultRevealEffect);
   const [activeEffect, setActiveEffect] = useState<RevealEffectId>(
@@ -44,10 +46,24 @@ const ViewerInstance: React.FC = () => {
     revealEffect: editorOpen ? 'none' : activeEffect,
     replayToken,
   });
+  const { viewerRef, toggleGyro, xr: { isInXR } } = viewerHook;
 
   useEffect(() => {
     setActiveEffect(resolveRevealEffectPreference(viewerDefaultRevealEffect));
   }, [viewerDefaultRevealEffect]);
+
+  useEffect(() => {
+    if (!pendingModelEditorId || pendingModelEditorId !== currentModelId) return;
+    if (!isOwnerAccess || currentModelSource === 'temporary') {
+      clearModelEditorRequest();
+      return;
+    }
+    if (isLoading || !viewerRef.current?.splatMesh || isInXR) return;
+    if (useAppStore.getState().isGyroEnabled) toggleGyro();
+    clearModelEditorRequest();
+    setEditorOpen(true);
+  }, [clearModelEditorRequest, currentModelId, currentModelSource, isInXR, isLoading, isOwnerAccess,
+    pendingModelEditorId, toggleGyro, viewerRef]);
 
   return (
     <>
