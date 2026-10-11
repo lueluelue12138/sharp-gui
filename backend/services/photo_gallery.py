@@ -811,7 +811,7 @@ def apply_cached_video_metadata(meta, existing_meta, stat):
 
 def update_index_meta(paths, meta):
     album_id = meta.get("album_id") or parse_media_id(meta.get("id"))
-    if not album_id:
+    if not album_id or album_id == 'model-sources':
         return
     with get_album_lock(album_id):
         index_data = load_album_index(paths, album_id) or {
@@ -874,6 +874,9 @@ def photo_meta_from_path(album, full_path, existing_meta=None, root_path=None):
             "bitrate": None,
         })
         apply_cached_video_metadata(meta, existing_meta, stat)
+
+    if is_same_source_version(existing_meta, stat) and existing_meta.get('model_source_hash'):
+        meta['model_source_hash'] = existing_meta['model_source_hash']
 
     return meta
 
@@ -1205,6 +1208,9 @@ def ensure_video_poster(paths, video_id):
 def resolve_media_path(paths, media_id, expected_type=None, allow_stale=False):
     """根据媒体 ID 解析真实路径，并验证仍在配置目录内。"""
     album_id = parse_media_id(media_id)
+    if album_id == 'model-sources':
+        from backend.services import model_sources
+        return model_sources.resolve_source_media(paths, media_id, expected_type)
     if not album_id:
         return None
 
@@ -1245,6 +1251,7 @@ def resolve_media_path(paths, media_id, expected_type=None, allow_stale=False):
         meta.get("mtime") != stat.st_mtime or meta.get("size") != stat.st_size
     ):
         current_meta["width"] = None
+        current_meta.pop('model_source_hash', None)
         current_meta["height"] = None
         if media_type == MEDIA_TYPE_VIDEO:
             current_meta["duration"] = None
@@ -1438,7 +1445,8 @@ def list_photo_album_responses(paths):
     # 每次列表请求只折算一次 catalog（迁移在首次调用时一次性完成并归档旧索引），
     # 各相册仅从 catalog 读取摘要，避免对每个相册重复重建式读取索引。
     catalog = build_catalog_from_legacy_index(paths)
-    return [
+    from backend.services import model_sources
+    return [model_sources.system_album(paths)] + [
         build_photo_album_response(paths, album, catalog)
         for album in normalize_photo_album_roots()
     ]
@@ -1581,6 +1589,9 @@ def list_album_photos(
     media_type_value=MEDIA_TYPE_ALL,
     snapshot_token=None,
 ):
+    if album_id == 'model-sources':
+        from backend.services import model_sources
+        return model_sources.list_source_media(paths, sort, cursor_value, limit_value, media_type_value, snapshot_token), 200
     album = find_photo_album(album_id)
     if not album:
         return {"error": "Album not found"}, 404
@@ -1962,9 +1973,11 @@ def convert_photos_to_models(paths, task_manager, photo_ids):
                 input_path,
                 filename,
                 display_filename=meta.get("name") or os.path.basename(full_path),
+                source_media_id=photo_id,
+                source_meta=meta,
             )
             created_tasks.append(task_info)
-            print(f"📥 Photo conversion task added: {filename} (ID: {task_info['id']})")
+            print(f"[INFO] Photo conversion task added: {filename} (ID: {task_info['id']})")
         except Exception as exc:
             failed.append({"id": photo_id, "error": str(exc)})
 

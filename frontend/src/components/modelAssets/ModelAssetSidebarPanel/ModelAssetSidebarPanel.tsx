@@ -73,7 +73,7 @@ export function ModelAssetSidebarPanel({
     setRecentLoading(true);
     try {
       const response = await fetchModelAssets({
-        sort: 'modified_desc',
+        sort: 'created_desc',
         cursor,
         limit: RECENT_ASSET_PAGE_SIZE,
       });

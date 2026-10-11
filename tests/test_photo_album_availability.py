@@ -42,7 +42,7 @@ def test_missing_indexed_album_keeps_record_but_cannot_browse_or_upload(indexed_
 
     response = client.get('/api/photo-albums')
     assert response.status_code == 200
-    summary = response.get_json()['albums'][0]
+    summary = response.get_json()['albums'][1]
     assert summary['id'] == album['id']
     assert summary['available'] is False
     assert summary['code'] == 'photo_album_path_missing'
@@ -66,7 +66,7 @@ def test_missing_indexed_album_keeps_record_but_cannot_browse_or_upload(indexed_
     assert config_file.read_bytes() == config_before
 
     moved.rename(root)
-    assert client.get('/api/photo-albums').get_json()['albums'][0]['available'] is True
+    assert client.get('/api/photo-albums').get_json()['albums'][1]['available'] is True
     recovered = client.get(f"/api/photo-albums/{album['id']}/photos").get_json()
     assert [item['id'] for item in recovered['items']] == [media_id]
 
@@ -83,7 +83,7 @@ def test_restart_with_offline_album_still_starts_application(indexed_album):
         assert client.get('/api/settings').status_code == 200
         assert client.get('/api/tasks').status_code == 200
         assert client.get('/api/model-assets').status_code == 200
-        summary = client.get('/api/photo-albums').get_json()['albums'][0]
+        summary = client.get('/api/photo-albums').get_json()['albums'][1]
         assert summary['id'] == album['id']
         assert summary['available'] is False
     finally:
@@ -114,8 +114,8 @@ def test_missing_legacy_paths_and_realpath_errors_do_not_break_boot(config_file,
     app = create_app()
     response = app.test_client().get('/api/photo-albums')
     assert response.status_code == 200
-    assert response.get_json()['albums'][0]['available'] is False
-    assert response.get_json()['albums'][0]['code'] == 'photo_album_path_missing'
+    assert response.get_json()['albums'][1]['available'] is False
+    assert response.get_json()['albums'][1]['code'] == 'photo_album_path_missing'
 
 
 @pytest.mark.parametrize('failure', [PermissionError('Denied'), OSError('Device not ready')])
@@ -131,7 +131,7 @@ def test_unreadable_album_is_a_local_error_and_preserves_index(indexed_album, mo
     monkeypatch.setattr(os, 'scandir', unreadable_scandir)
     expected_code = 'photo_album_permission_denied' if isinstance(failure, PermissionError) else 'photo_album_unavailable'
     client = app.test_client()
-    assert client.get('/api/photo-albums').get_json()['albums'][0]['code'] == expected_code
+    assert client.get('/api/photo-albums').get_json()['albums'][1]['code'] == expected_code
     assert client.get(f"/api/photo-albums/{album['id']}/photos").get_json()['items'] == []
     assert len(photo_gallery.load_album_index(paths, album['id'])['media']) == 1
 
@@ -151,7 +151,7 @@ def test_unmounted_directory_still_exists_but_storage_changed(indexed_album, mon
 
     monkeypatch.setattr(os, 'stat', changed_device)
     client = app.test_client()
-    assert client.get('/api/photo-albums').get_json()['albums'][0]['code'] == 'photo_album_storage_changed'
+    assert client.get('/api/photo-albums').get_json()['albums'][1]['code'] == 'photo_album_storage_changed'
     assert client.get(f"/api/photo-albums/{album['id']}/photos").get_json()['available'] is False
     assert len(photo_gallery.load_album_index(paths, album['id'])['media']) == 1
 
@@ -175,7 +175,7 @@ def test_directory_replaced_by_file_is_unavailable(indexed_album):
     app, _, _, root, _ = indexed_album
     root.rename(root.with_name('moved-away'))
     root.write_text('Not an album', encoding='utf-8')
-    summary = app.test_client().get('/api/photo-albums').get_json()['albums'][0]
+    summary = app.test_client().get('/api/photo-albums').get_json()['albums'][1]
     assert summary['code'] == 'photo_album_path_missing'
 
 
@@ -184,7 +184,7 @@ def test_all_media_moved_out_of_existing_directory_is_unavailable(indexed_album)
     (root / 'photo.jpg').rename(root.parent / 'moved-photo.jpg')
     assert root.is_dir()
     client = app.test_client()
-    summary = client.get('/api/photo-albums').get_json()['albums'][0]
+    summary = client.get('/api/photo-albums').get_json()['albums'][1]
     assert summary['available'] is False
     assert summary['code'] == 'photo_album_media_missing'
     assert summary['photo_count'] == 1
@@ -192,6 +192,6 @@ def test_all_media_moved_out_of_existing_directory_is_unavailable(indexed_album)
     assert len(photo_gallery.load_album_index(paths, album['id'])['media']) == 1
     # 显式扫描后用户确认当前空目录，正常显示真正的空相册。
     assert client.post(f"/api/photo-albums/{album['id']}/scan").get_json()['success'] is True
-    summary = client.get('/api/photo-albums').get_json()['albums'][0]
+    summary = client.get('/api/photo-albums').get_json()['albums'][1]
     assert summary['available'] is True
     assert summary['photo_count'] == 0

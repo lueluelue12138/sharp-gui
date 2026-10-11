@@ -598,10 +598,17 @@ def build_video_task(paths, request_data):
         meta.get("name") or os.path.basename(full_path),
     )
 
+    from backend.services import model_sources
+    source_identity = model_sources.capture_source(full_path, meta.get('name'), 'video', meta)
+    model_sources.remember_album_source(paths, request_data['video_id'], model_sources.media_version(meta), source_identity['id'])
     task_payload = {
         "kind": TASK_KIND_VIDEO_3DGS,
         "filename": f"{output_name}.ply",
-        "source_media_id": request_data["video_id"],
+        "source_media_id": (meta.get('source_media_id') if request_data['video_id'].startswith('model-sources_')
+                            else request_data['video_id']),
+        "source_identity": source_identity,
+        "source_id": source_identity['id'],
+        "source_media_version": model_sources.media_version(meta),
         "source_name": meta.get("name") or os.path.basename(full_path),
         "source_video_path": full_path,
         "mode": request_data["mode"],
@@ -667,10 +674,16 @@ def build_uploaded_video_task(paths, request_data, uploaded_file):
     )
     source_video_path = save_uploaded_source_video(paths, uploaded_file)
 
+    from backend.services import model_sources
+    source_identity = model_sources.capture_source(source_video_path, source_name, 'video')
+
     task_payload = {
         "kind": TASK_KIND_VIDEO_3DGS,
         "filename": f"{output_name}.ply",
         "source_media_id": None,
+        "source_identity": source_identity,
+        "source_id": source_identity['id'],
+        "source_media_version": model_sources.media_version(source_identity),
         "source_name": source_name,
         "source_video_path": source_video_path,
         "source_mime_type": photo_gallery.get_video_mime_type(source_name),
@@ -785,6 +798,8 @@ def build_video_model_metadata(task):
         "viewer_orientation": VIEWER_ORIENTATION_Y_FRONT,
         'viewer_camera': details.get('viewer_camera'),
         "source_media_id": task.get("source_media_id"),
+        "source_identity": task.get('source_identity'),
+        "source_media_version": task.get('source_media_version'),
         "source_name": task.get("source_name"),
         "source_video_path": task.get("source_video_path"),
         "source_mime_type": task.get("source_mime_type"),

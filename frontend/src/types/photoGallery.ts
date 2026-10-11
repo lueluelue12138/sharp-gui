@@ -12,6 +12,7 @@ export interface PhotoMediaCounts {
 }
 
 export interface PhotoAlbum {
+  system?: 'model-sources';
   id: string;
   name: string;
   cover_thumb_url: string | null;
@@ -30,6 +31,9 @@ export interface PhotoAlbum {
 }
 
 export interface PhotoItem {
+  source_id?: string;
+  source_available?: boolean | null;
+  model_link?: import('@/types/modelSources').ModelSourceLink;
   id: string;
   album_id: string;
   name: string;

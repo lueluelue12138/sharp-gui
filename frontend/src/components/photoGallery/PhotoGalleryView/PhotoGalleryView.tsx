@@ -64,6 +64,9 @@ function getTouchDistance(touches: TouchList) {
 
 export function PhotoGalleryView() {
   const { t } = useTranslation();
+  const sourceRevision = useAppStore((state) => state.modelSourceRevision);
+  const sourceServerRevision = useAppStore((state) => state.modelSourceServerRevision);
+  const sourceRepairing = useAppStore((state) => state.modelSourceRepairing);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const photoRequestRef = useRef(0);
   const hasCustomGridColumns = useRef(false);
@@ -78,7 +81,7 @@ export function PhotoGalleryView() {
     loadPhotos: (cursor: string | null, append: boolean) => void;
     photoNextCursor: string | null;
   } | null>(null);
-  const [sort, setSort] = useState('mtime_desc');
+  const [sort, setSort] = useState(() => useAppStore.getState().photoGallerySort);
   const [gridColumns, setGridColumns] = useState(getDefaultGridColumns);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -173,7 +176,7 @@ export function PhotoGalleryView() {
     () => selectedItems.filter((photo) => photo.media_type === 'video'),
     [selectedItems],
   );
-  const canUploadPhotos = currentAlbumAvailable && (
+  const canUploadPhotos = currentAlbumAvailable && !currentAlbum?.system && (
     isLocalAccess || Boolean(authStatus?.access_control_enabled)
   );
 
@@ -317,6 +320,7 @@ export function PhotoGalleryView() {
         response.media_counts,
         response.snapshot ?? null,
       );
+      useAppStore.setState({ photoQueryKey: `${albumId}|${sort}|${photoMediaType}` });
       if (response.error) {
         setError(t(getPhotoAlbumErrorKey(response.code)));
       }
@@ -349,8 +353,42 @@ export function PhotoGalleryView() {
   }, [isLoading, isLoadingMore, loadPhotos, photoNextCursor]);
 
   useEffect(() => {
+    const state = useAppStore.getState();
+    if (state.photoQueryKey === `${currentPhotoAlbumId}|${sort}|${photoMediaType}` && !currentAlbumIsIndexing) {
+      const frame = requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = state.photoScrollTop; });
+      return () => cancelAnimationFrame(frame);
+    }
     void loadPhotos(null, false);
-  }, [currentAlbumIsIndexing, loadPhotos]);
+  }, [currentAlbumIsIndexing, currentPhotoAlbumId, loadPhotos, photoMediaType, sort]);
+
+  useEffect(() => {
+    if (!currentAlbum?.system || sourceRepairing) return;
+    const initial = useAppStore.getState();
+    if (initial.photoQueryKey !== `${currentPhotoAlbumId}|${sort}|${photoMediaType}`) return;
+    let disposed = false;
+    const request = ++photoRequestRef.current;
+    const refreshSources = async () => {
+      const targetCount = Math.max(60, initial.photoItems.length);
+      const items: PhotoItem[] = [];
+      let cursor: string | null = null;
+      let snapshot: string | null = null;
+      do {
+        const response = await fetchPhotoAlbumPhotos(currentAlbum.id, cursor, 120, sort, photoMediaType, snapshot);
+        if (disposed || request !== photoRequestRef.current) return;
+        items.push(...response.items);
+        cursor = response.next_cursor;
+        snapshot = response.snapshot ?? null;
+        if (!cursor || items.length >= targetCount) {
+          setPhotoItems(items, cursor, response.total, false, response.media_counts, snapshot);
+          break;
+        }
+      } while (cursor);
+    };
+    void refreshSources().catch(() => { /* Preserve loaded media on a transient network failure. */ }).finally(() => {
+      if (!disposed && request === photoRequestRef.current) { setIsLoading(false); setIsLoadingMore(false); }
+    });
+    return () => { disposed = true; };
+  }, [currentAlbum?.id, currentAlbum?.system, currentPhotoAlbumId, photoMediaType, setPhotoItems, sort, sourceRepairing, sourceRevision, sourceServerRevision]);
 
   useEffect(() => {
     if (!currentAlbum || !['needs_index', 'indexing', 'scanning'].includes(currentAlbum.scan_status)) {
@@ -378,6 +416,7 @@ export function PhotoGalleryView() {
       }
 
       const scrollTop = el.scrollTop;
+      useAppStore.setState({ photoScrollTop: scrollTop });
       setShowBackToTop((current) => {
         const nextVisible = scrollTop >= BACK_TO_TOP_VISIBLE_SCROLL_TOP;
         return current === nextVisible ? current : nextVisible;
@@ -459,7 +498,7 @@ export function PhotoGalleryView() {
 
   const handleRefresh = useCallback(async () => {
     try {
-      if (currentAlbum && isLocalAccess) {
+      if (currentAlbum && isLocalAccess && !currentAlbum.system) {
         await rescanPhotoAlbum(currentAlbum.id);
       }
       await refreshAlbums();
@@ -526,6 +565,7 @@ export function PhotoGalleryView() {
   }, [currentAlbum, isUploadingPhotos, loadPhotos, refreshAlbums, t]);
 
   const handleSortChange = useCallback((nextSort: string) => {
+    useAppStore.setState({ photoGallerySort: nextSort, photoScrollTop: 0 });
     setSort(nextSort);
     scrollRef.current?.scrollTo({ top: 0 });
   }, []);
@@ -720,6 +760,7 @@ export function PhotoGalleryView() {
         />
 
         {!albumUnavailable && error ? <div className={styles.error}>{error}</div> : null}
+        {sourceRepairing ? <div className={styles.sourceNotice} role="status">{t('sourceRepairing')}</div> : null}
         {!error && currentAlbumIsIndexing ? (
           <div className={styles.error}>
             {currentAlbum?.scan_status === 'needs_index'

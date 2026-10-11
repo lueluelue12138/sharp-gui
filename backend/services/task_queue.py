@@ -88,7 +88,9 @@ class TaskManager:
                 f"Task {task_id} failed to save image metadata status {generation_status}: {exc}",
             )
 
-    def enqueue_file(self, input_path, filename, display_filename=None):
+    def enqueue_file(self, input_path, filename, display_filename=None, source_media_id=None, source_meta=None):
+        from backend.services import model_sources
+
         if self.thumbnail_generator:
             self.thumbnail_generator(input_path, filename)
 
@@ -96,6 +98,13 @@ class TaskManager:
         resolved_display_filename = display_filename or filename
         model_id = os.path.splitext(filename)[0]
         self._write_image_metadata(model_id, resolved_display_filename, "pending")
+        metadata = model_gallery.read_model_metadata(self.paths, model_id)
+        identity = model_sources.capture_source(input_path, resolved_display_filename, 'image', source_meta)
+        metadata.update({'source_identity': identity, 'source_media_id': source_media_id,
+                         'source_media_version': model_sources.media_version(source_meta or identity)})
+        model_gallery.write_model_metadata(self.paths, model_id, metadata)
+        if source_media_id:
+            model_sources.remember_album_source(self.paths, source_media_id, metadata['source_media_version'], identity['id'])
         task_info = {
             "id": task_id,
             "kind": TASK_KIND_IMAGE_SHARP,
@@ -103,6 +112,9 @@ class TaskManager:
             "filename": resolved_display_filename,
             "input_filename": filename,
             "model_id": model_id,
+            "source_id": identity['id'],
+            "source_media_id": source_media_id,
+            "source_media_version": metadata['source_media_version'],
             "input_path": input_path,
             "output_folder": self.paths.output_folder,
             "created_at": time.time(),
@@ -344,6 +356,9 @@ class TaskManager:
         }
 
         optional_keys = (
+            "source_id",
+            "source_media_version",
+            "model_id",
             "kind",
             "source_media_id",
             "source_name",

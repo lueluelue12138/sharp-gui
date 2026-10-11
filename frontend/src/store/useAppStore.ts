@@ -31,6 +31,7 @@ import type {
   ModelFormat,
   PhotoAlbum,
   PhotoItem,
+  ModelSourceLink,
   PhotoMediaCounts,
   PhotoMediaType,
   Task,
@@ -449,6 +450,17 @@ interface AppState {
   modelAssetError: string | null;
 
   // Photo Gallery
+  modelSourceLinks: Record<string, ModelSourceLink>;
+  modelSourceRepairing: boolean;
+  modelSourceRevision: number;
+  modelSourceServerRevision: string | null;
+  sourceModelTarget: PhotoItem | null;
+  modelReturnToPhotos: boolean;
+  photoQueryKey: string | null;
+  photoScrollTop: number;
+  photoGallerySort: string;
+  setSourceModelTarget: (item: PhotoItem | null) => void;
+  invalidateModelSources: () => void;
   activeView: AppView;
   photoAlbums: PhotoAlbum[];
   photoAlbumsLoaded: boolean;
@@ -663,7 +675,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   modelAssetSource: 'all',
   modelAssetFormat: 'all',
   modelAssetTag: null,
-  modelAssetSort: 'modified_desc',
+  modelAssetSort: 'created_desc',
   modelAssetDensity: 'comfortable',
   modelAssetBatchSize: DEFAULT_MODEL_ASSET_BATCH_SIZE,
   modelAssetCacheReady: false,
@@ -681,6 +693,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   photoAlbumsLoaded: false,
   photoAlbumsLoading: false,
   currentPhotoAlbumId: null,
+  modelSourceLinks: {},
+  modelSourceRepairing: false,
+  modelSourceRevision: 0,
+  modelSourceServerRevision: null,
+  sourceModelTarget: null,
+  modelReturnToPhotos: false,
+  photoQueryKey: null,
+  photoScrollTop: 0,
+  photoGallerySort: 'mtime_desc',
+  setSourceModelTarget: (item) => set({ sourceModelTarget: item }),
+  invalidateModelSources: () => set((state) => ({ modelSourceRevision: state.modelSourceRevision + 1 })),
   photoItems: [],
   photoNextCursor: null,
   photoSnapshot: null,
@@ -1055,6 +1078,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return {
       modelAssets: nextItems,
       modelAssetMutationVersion: state.modelAssetMutationVersion + 1,
+      modelSourceRevision: state.modelSourceRevision + 1,
       modelAssetCacheReady: items.some((item) => {
         const current = state.modelAssets.find((asset) => asset.id === item.id);
         return !current || current.default_open_url !== item.default_open_url;
@@ -1070,6 +1094,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return {
       modelAssets: nextItems,
       modelAssetTotal: Math.max(0, state.modelAssetTotal - 1),
+      modelSourceRevision: state.modelSourceRevision + 1,
       modelAssetMutationVersion: state.modelAssetMutationVersion + 1,
       selectedModelAssetId: state.selectedModelAssetId === id
         ? nextItems[0]?.id ?? null
@@ -1102,7 +1127,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setModelAssetImporting: (importing) => set({ modelAssetImporting: importing }),
   setModelAssetEditing: (editing) => set({ modelAssetEditing: editing }),
 
-  setActiveView: (view) => set({ activeView: view }),
+  setActiveView: (view) => set({ activeView: view, modelReturnToPhotos: false }),
   setPhotoAlbums: (albums) => set((state) => {
     const currentExists = state.currentPhotoAlbumId
       ? albums.some((album) => album.id === state.currentPhotoAlbumId)
@@ -1118,6 +1143,8 @@ export const useAppStore = create<AppState>((set, get) => ({
       photoAlbumsLoaded: true,
       photoAlbumsLoading: false,
       currentPhotoAlbumId,
+      photoQueryKey: keepCurrentItems ? state.photoQueryKey : null,
+      photoScrollTop: keepCurrentItems ? state.photoScrollTop : 0,
       photoItems: keepCurrentItems ? state.photoItems : [],
       photoNextCursor: keepCurrentItems ? state.photoNextCursor : null,
       photoSnapshot: keepCurrentItems ? state.photoSnapshot : null,
@@ -1143,6 +1170,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     return {
       currentPhotoAlbumId: albumId,
+      photoQueryKey: null,
+      photoScrollTop: 0,
       photoItems: [],
       photoNextCursor: null,
       photoSnapshot: null,
@@ -1160,6 +1189,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     return {
       photoMediaType: mediaType,
+      photoQueryKey: null,
+      photoScrollTop: 0,
       photoItems: [],
       photoNextCursor: null,
       photoSnapshot: null,
@@ -1189,6 +1220,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     };
   }),
   clearPhotoItems: () => set({
+    photoQueryKey: null,
     photoItems: [],
     photoNextCursor: null,
     photoSnapshot: null,

@@ -68,6 +68,7 @@ export const useTaskQueue = () => {
             // backend refreshes the durable asset catalog before publishing
             // the completed state, so this stays a warm catalog read.
             if (shouldRefreshGallery) {
+                useAppStore.getState().invalidateModelSources();
                 const modelAssets = await fetchModelAssets({
                     source: modelAssetSource,
                     format: modelAssetFormat,

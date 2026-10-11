@@ -5,6 +5,7 @@ export * from './task';
 export * from './viewer';
 export * from './viewerQuickControls';
 export * from './photoGallery';
+export * from './modelSources';
 export * from './auth';
 export * from './videoReconstruction';
 export * from './update';

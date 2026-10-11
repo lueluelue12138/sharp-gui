@@ -371,6 +371,7 @@ def save_edited_model(paths, asset_id, payload):
         # 来源及重建报告是谱系资料；点数、坐标、相机等结果属性必须由本次编辑重新生成。
         metadata = {key: copy.deepcopy(source_metadata[key]) for key in (
             'source_media_type', 'source_media_id', 'source_name', 'source_video_path', 'source_mime_type',
+            'source_identity', 'source_media_version',
             'mode', 'quality', 'custom_options', 'engine', 'resolved_engine', 'reconstruction',
         ) if key in source_metadata}
         metadata.update({'generator': 'model_editor', 'display_name': name,

@@ -1423,9 +1423,10 @@ def test_album_list_migrates_once_and_avoids_legacy_rebuild(config_file, workspa
 
     # 首次列表触发一次性迁移：折算 catalog 并归档旧索引
     albums = list_photo_album_responses(paths)
-    assert len(albums) == 1
-    assert albums[0]["media_count"] == 1
-    assert albums[0]["scan_status"] == "stale"
+    assert len(albums) == 2
+    assert albums[0]['system'] == 'model-sources'
+    assert albums[1]["media_count"] == 1
+    assert albums[1]["scan_status"] == "stale"
     assert not os.path.exists(paths.photo_index_file)
     assert os.path.exists(f"{paths.photo_index_file}.bak")
 
@@ -1435,8 +1436,8 @@ def test_album_list_migrates_once_and_avoids_legacy_rebuild(config_file, workspa
 
     monkeypatch.setattr("backend.services.photo_gallery.load_photo_index", fail_load_index)
     albums_again = list_photo_album_responses(paths)
-    assert len(albums_again) == 1
-    assert albums_again[0]["scan_status"] == "stale"
+    assert len(albums_again) == 2
+    assert albums_again[1]["scan_status"] == "stale"
 
 
 def test_photo_gallery_cache_stats_and_clear_do_not_delete_originals(config_file, workspace):

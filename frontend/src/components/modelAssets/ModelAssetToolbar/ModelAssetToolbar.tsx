@@ -56,8 +56,8 @@ interface ModelAssetToolbarProps {
 const sourceFilters: ModelAssetSourceFilter[] = ['all', 'generated', 'imported', 'video'];
 const formatFilters: ModelAssetFormatFilter[] = ['all', 'spz', 'ply', 'splat', 'rad'];
 const sortOptions: ModelAssetSort[] = [
-  'modified_desc',
   'created_desc',
+  'modified_desc',
   'name_asc',
   'size_desc',
 ];

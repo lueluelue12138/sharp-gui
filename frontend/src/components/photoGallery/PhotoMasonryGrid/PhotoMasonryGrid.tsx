@@ -10,6 +10,8 @@ import {
   SparklesIcon,
 } from '@/components/common/Icons';
 import type { PhotoItem, PhotoMediaType } from '@/types';
+import { SourceModelBadge } from '@/components/photoGallery/SourceModelBadge';
+import { useAppStore } from '@/store';
 
 import styles from './PhotoMasonryGrid.module.css';
 
@@ -39,6 +41,7 @@ export const PhotoMasonryGrid = memo(function PhotoMasonryGrid({
   onReconstructVideo,
 }: PhotoMasonryGridProps) {
   const { t } = useTranslation();
+  const links = useAppStore((state) => state.modelSourceLinks);
   const [failedThumbIds, setFailedThumbIds] = useState<Set<string>>(() => new Set());
   const columnCount = Math.max(1, Math.floor(columns));
   const columnItems = useMemo(() => {
@@ -104,6 +107,7 @@ export const PhotoMasonryGrid = memo(function PhotoMasonryGrid({
                 style={{ aspectRatio: ratio }}
                 role="listitem"
               >
+                <SourceModelBadge item={photo} />
                 <button
                   className={styles.imageBtn}
                   onClick={() => selectionMode ? onTogglePhoto(photo.id) : onOpenPhoto(photo)}
@@ -166,7 +170,7 @@ export const PhotoMasonryGrid = memo(function PhotoMasonryGrid({
                     <span data-tooltip={photo.name}>{photo.name}</span>
                     {specLabel ? <small data-tooltip={specLabel}>{specLabel}</small> : null}
                   </span>
-                  {isVideo ? (
+                  {(links[photo.id]?.total_count ?? photo.model_link?.total_count ?? 0) > 0 ? null : isVideo ? (
                     <button
                       className={styles.convertBtn}
                       onClick={() => onReconstructVideo(photo)}

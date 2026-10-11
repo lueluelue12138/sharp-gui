@@ -35,7 +35,8 @@ def test_core_read_apis_return_expected_shapes(client, app):
 
     albums = client.get("/api/photo-albums")
     assert albums.status_code == 200
-    assert albums.get_json()["albums"] == []
+    assert albums.get_json()['albums'][0]['system'] == 'model-sources'
+    assert albums.get_json()['albums'][0]['media_count'] == 0
 
     tasks = client.get("/api/tasks")
     assert tasks.status_code == 200
@@ -345,7 +346,7 @@ def test_photo_album_media_api_lists_videos_and_supports_range(client, app, conf
 
     albums = client.get("/api/photo-albums")
     assert albums.status_code == 200
-    album_payload = albums.get_json()["albums"][0]
+    album_payload = albums.get_json()["albums"][1]
     assert album_payload["scan_status"] in {"needs_index", "idle"}
 
     scan = client.post("/api/photo-albums/album1/scan")
@@ -354,7 +355,7 @@ def test_photo_album_media_api_lists_videos_and_supports_range(client, app, conf
 
     albums = client.get("/api/photo-albums")
     assert albums.status_code == 200
-    album_payload = albums.get_json()["albums"][0]
+    album_payload = albums.get_json()["albums"][1]
     assert album_payload["media_count"] == 1
     assert album_payload["video_count"] == 1
     assert album_payload["photo_count"] == 0

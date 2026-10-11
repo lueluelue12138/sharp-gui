@@ -276,6 +276,7 @@ export function PhotoAlbumList() {
       ) : (
         <div className={styles.list}>
           {photoAlbums.map((album) => {
+            const name = album.system ? t('sourceAlbumName') : album.name;
             const isActive = album.id === currentPhotoAlbumId;
             const isAvailable = isPhotoAlbumAvailable(album);
             return (
@@ -304,7 +305,7 @@ export function PhotoAlbumList() {
                   </div>
 
                   <div className={styles.info}>
-                    <span className={styles.name} data-tooltip={album.name}>{album.name}</span>
+                    <span className={styles.name} data-tooltip={name}>{name}</span>
                     <span className={styles.meta}>
                       {getAlbumMetaLabel(t, album)}
                     </span>
@@ -313,7 +314,7 @@ export function PhotoAlbumList() {
                   {isActive ? <CheckIcon className={styles.activeIcon} width={15} height={15} /> : null}
                 </button>
 
-                {isLocalAccess ? (
+                {isLocalAccess && !album.system ? (
                   <span className={styles.actions}>
                     <button
                       className={styles.iconBtn}

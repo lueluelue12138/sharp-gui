@@ -4,6 +4,7 @@ export * from './modelAssets';
 export * from './tasks';
 export * from './settings';
 export * from './photoGallery';
+export * from './modelSources';
 export * from './auth';
 export * from './videoReconstruction';
 export * from './updates';

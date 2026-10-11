@@ -145,10 +145,16 @@ def read_model_metadata(paths, item_id):
         return {}
 
 
-def write_model_metadata(paths, item_id, metadata):
+def write_model_metadata(paths, item_id, metadata, *, preserve_timestamp=False):
     """写入模型图库条目的 sidecar 元数据。"""
     os.makedirs(paths.output_folder, exist_ok=True)
     metadata_path = get_model_metadata_path(paths, item_id)
+    previous_stat = None
+    if preserve_timestamp:
+        try:
+            previous_stat = os.stat(metadata_path)
+        except FileNotFoundError:
+            pass
     normalized_metadata = dict(metadata) if isinstance(metadata, dict) else {}
     if "viewer_orientation" in normalized_metadata:
         normalized_metadata["viewer_orientation"] = normalize_viewer_orientation(
@@ -157,11 +163,14 @@ def write_model_metadata(paths, item_id, metadata):
     payload = {
         **normalized_metadata,
         "id": item_id,
-        "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "updated_at": (normalized_metadata.get('updated_at') if previous_stat else None)
+        or datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
     temp_path = f"{metadata_path}.tmp-{uuid.uuid4().hex[:8]}"
     with open(temp_path, "w", encoding="utf-8") as file:
         json.dump(payload, file, ensure_ascii=False, indent=2, sort_keys=True)
+    if previous_stat:
+        os.utime(temp_path, ns=(previous_stat.st_atime_ns, previous_stat.st_mtime_ns))
     os.replace(temp_path, metadata_path)
     return metadata_path
 
@@ -235,6 +244,16 @@ def resolve_gallery_source_video(paths, item_id):
         )
         if resolved:
             _, full_path, meta = resolved
+            identity = metadata.get('source_identity')
+            if identity:
+                from backend.services import model_sources
+                if not model_sources.version_matches(metadata.get('source_media_version'), meta):
+                    try:
+                        current = model_sources.capture_source(full_path, meta.get('name'), 'video', meta)
+                    except (OSError, ValueError):
+                        return None
+                    if current['id'] != identity.get('id'):
+                        return None
             return {
                 "path": full_path,
                 "name": meta.get("name") or os.path.basename(full_path),

@@ -38,6 +38,9 @@ export interface ModelAssetFile {
 }
 
 export interface ModelAsset {
+  source_generation_kind?: 'edited' | 'reconstruction';
+  source_parent_asset_id?: string | null;
+  quality?: string | null;
   id: string;
   name: string;
   source_type: ModelAssetSourceType;

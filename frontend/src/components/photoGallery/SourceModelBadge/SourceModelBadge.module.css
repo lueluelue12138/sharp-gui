@@ -1,0 +1,136 @@
+.root {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge,
+.status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 26px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: rgba(24, 28, 34, 0.48);
+  color: #fff;
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge {
+  position: relative;
+  background: var(--accent-blue);
+  cursor: pointer;
+  transition: background var(--transition-normal), transform var(--transition-normal);
+}
+
+.badge:hover {
+  background: var(--accent-blue-hover);
+}
+
+.badge:active,
+.allModels:active {
+  transform: scale(0.95);
+}
+
+.badge:focus-visible,
+.allModels:focus-visible {
+  outline: 2px solid #75baff;
+  outline-offset: 3px;
+}
+
+.status {
+  padding: 6px;
+  color: #e8f2ff;
+}
+
+.failed {
+  color: #ffd79a;
+}
+
+.preview {
+  position: static;
+  gap: 12px;
+}
+
+.preview .badge,
+.allModels {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  cursor: pointer;
+  transition: background var(--transition-normal), transform var(--transition-normal);
+}
+
+.preview .badge {
+  width: auto;
+  min-width: 110px;
+  padding: 0 15px;
+  gap: 8px;
+  border-radius: 999px;
+  background: var(--accent-blue);
+  border-color: transparent;
+  font-size: 13px;
+}
+
+.preview .badge:hover {
+  background: var(--accent-blue-hover);
+  transform: scale(1.05);
+}
+
+.allModels:hover {
+  background: rgba(255, 255, 255, 0.25);
+  transform: scale(1.05);
+}
+
+.preview .status {
+  padding: 7px 10px;
+  max-width: 150px;
+  font-size: 12px;
+}
+
+@media (pointer: coarse) {
+  .root:not(.preview) .badge::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+}
+
+@media (max-width: 600px) {
+  .preview {
+    gap: 8px;
+  }
+
+  .preview .status {
+    position: absolute;
+    top: 54px;
+    right: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .badge,
+  .allModels {
+    transition: none;
+  }
+}

@@ -57,6 +57,9 @@ Do not grant owner permissions from `X-Forwarded-For`, `Forwarded`, `X-Real-IP`,
 | DELETE | `/api/photo-albums/<album_id>` | 移除本地媒体相册配置，不删除原始文件 | Owner |
 | POST | `/api/photo-albums/<album_id>/scan` | 重新扫描本地媒体相册 | Owner |
 | GET | `/api/photo-albums/<album_id>/photos` | 分页获取相册媒体，支持 `type=all|photo|video` 与时间/名称/大小排序 | Unlocked |
+| POST | `/api/photo-models` | 批量读取原片关联模型摘要和后台来源恢复状态（每批最多 200 个媒体 ID） | Unlocked |
+| GET | `/api/photo-models/<media_id>` | 读取原片的全部模型及默认选择，不受模型库当前筛选/分页影响 | Unlocked |
+| POST | `/api/model-sources/<source_id>/default` | 设置或取消原片默认模型，校验模型归属及可用性 | Owner |
 | POST | `/api/photo-albums/<album_id>/uploads` | 上传照片到当前相册目录 | Unlocked when gate enabled / Owner when gate disabled |
 | GET | `/api/photo-thumbnail/<photo_id>` | 获取或按需生成照片缩略图 | Unlocked |
 | GET | `/api/photo-original/<photo_id>` | 获取照片原图（inline 或 `?download=1` 附件） | Unlocked |
@@ -407,6 +410,8 @@ if not is_real_path_inside(resolved, workspace):
 - 断盘或扫描失败不能把有效索引覆盖为空；扫描完成提交前再次确认根目录和文件系统。媒体文件解析的 `realpath` / stat 失败必须安全返回不可用，不能令整页或启动流程失败。
 
 ### 模型资产库索引与性能
+
+- 资产库未指定排序时使用 `created_desc`；侧栏近期模型使用同样的最近创建降序。补齐历史来源资料这类后台维护需保留 sidecar 文件时间与原 `updated_at`，不能把旧模型推到最近修改列表前面。
 
 - 普通 `GET /api/model-assets` 应从 workspace 级摘要快照或增量索引使用稳定游标和固定批次返回结果；暖路径、后续游标页、筛选和排序不得同步 `os.listdir` / `os.walk` 完整 `outputs/`，也不得逐资产重复 `stat`、读取 sidecar 或生成封面。
 - 首次迁移、显式刷新或冷启动可建立摘要；生成任务完成、导入、删除、资料和封面写入应增量更新或精确失效。列表读取应容忍文件并发出现/消失，单个资产的 `stat` / `open` 失败只能跳过或标记不可用，不能让整页 500。

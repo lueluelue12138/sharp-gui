@@ -14,6 +14,28 @@ export function hasActiveTask(tasks: Task[]): boolean {
   return tasks.some((task) => isActiveTaskStatus(task.status));
 }
 
+export function sourceTask(
+  item: { id: string; source_id?: string; size?: number | null; updated_at?: string | null },
+  link: { source_id: string | null } | undefined,
+  tasks: Task[],
+): Task | undefined {
+  const sourceId = link?.source_id ?? item.source_id;
+  const matching = tasks.filter((task) => {
+    if (task.source_id && sourceId) return task.source_id === sourceId;
+    if (task.source_media_id !== item.id) return false;
+    if (!task.source_media_version || item.id.startsWith('model-sources_')) return true;
+    const mtime = item.updated_at ? Date.parse(item.updated_at) / 1000 : NaN;
+    return (item.size == null || task.source_media_version.size === item.size)
+      && (!Number.isFinite(mtime) || Math.abs(task.source_media_version.mtime - mtime) < 0.002);
+  });
+  const timestamp = (task: Task) => typeof task.created_at === 'number'
+    ? task.created_at * 1000 : Date.parse(task.created_at ?? '') || 0;
+  matching.sort((a, b) => timestamp(b) - timestamp(a));
+  const active = matching.find((task) => isActiveTaskStatus(task.status));
+  // Successful retries clear older failure badges; an active concurrent run remains visible.
+  return active ?? (matching[0]?.status === 'failed' ? matching[0] : undefined);
+}
+
 export function mergeTaskUpdates(currentTasks: Task[], updatedTasks: Task[]): Task[] {
   if (updatedTasks.length === 0) {
     return currentTasks;

@@ -278,6 +278,10 @@ def get_required_access_level(access_config=None):
 
     if path == "/api/settings":
         return ACCESS_OWNER if method != "GET" else ACCESS_UNLOCKED
+    if path.startswith('/api/model-sources/') and path.endswith('/default'):
+        return ACCESS_OWNER
+    if path == '/api/photo-models' or path.startswith('/api/photo-models/'):
+        return ACCESS_UNLOCKED
     if path == "/api/updates/status" and method == "GET":
         return ACCESS_UNLOCKED
     if path in {

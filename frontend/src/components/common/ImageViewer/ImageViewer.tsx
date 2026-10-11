@@ -21,6 +21,7 @@ import {
 } from '@/utils/ultraHdrPreview';
 import { getGallerySourceVideoUrl } from '@/utils/gallery';
 import styles from './ImageViewer.module.css';
+import { SourceModelBadge } from '@/components/photoGallery/SourceModelBadge';
 
 const VIDEO_LONG_PRESS_MS = 260;
 const VIDEO_SCRUB_THRESHOLD_PX = 12;
@@ -87,6 +88,8 @@ export function ImageViewer() {
     setPreviewPhoto,
     openVideoReconstructionDialog,
     upsertTasks,
+    modelSourceLinks,
+    sourceModelTarget,
   } = useAppStore();
   const { t } = useTranslation();
   
@@ -184,14 +187,14 @@ export function ImageViewer() {
   // Handle Escape key to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && activePreview) {
+      if (e.key === 'Escape' && activePreview && !sourceModelTarget) {
         handleClose();
       }
     };
     
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activePreview, handleClose]);
+  }, [activePreview, handleClose, sourceModelTarget]);
 
   // Lock body scroll and reset states when opened
   useEffect(() => {
@@ -1113,8 +1116,9 @@ export function ImageViewer() {
       onMouseLeave={handleMouseUp}
       onDoubleClick={handleDoubleClick}
     >
-      <div className={styles.controls} onClick={(e) => { e.stopPropagation(); setIsDragging(false); }}>
-        {previewPhoto && previewPhoto.media_type === 'image' ? (
+      <div className={styles.controls} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsDragging(false); }}>
+        {previewPhoto ? <SourceModelBadge item={previewPhoto} preview /> : null}
+        {previewPhoto && !(modelSourceLinks[previewPhoto.id]?.total_count ?? previewPhoto.model_link?.total_count) && previewPhoto.media_type === 'image' ? (
           <button
             className={`${styles.controlBtn} ${isConverting ? styles.downloading : ''}`}
             onClick={handleConvertPhoto}
@@ -1125,7 +1129,7 @@ export function ImageViewer() {
             <SparklesIcon width={20} height={20} />
           </button>
         ) : null}
-        {previewPhoto && previewPhoto.media_type === 'video' ? (
+        {previewPhoto && !(modelSourceLinks[previewPhoto.id]?.total_count ?? previewPhoto.model_link?.total_count) && previewPhoto.media_type === 'video' ? (
           <button
             className={styles.controlBtn}
             onClick={handleReconstructVideo}
@@ -1295,7 +1299,7 @@ export function ImageViewer() {
                     <PlayIcon width={22} height={22} />
                   </div>
                   <strong>{t('photoVideoPlaybackFailedTitle')}</strong>
-                  <span>{t('photoVideoPlaybackFailedHint')}</span>
+                  <span>{t(previewPhoto?.album_id === 'model-sources' ? 'sourceMediaUnavailable' : 'photoVideoPlaybackFailedHint')}</span>
                   <button
                     className={styles.videoErrorAction}
                     onClick={handleDownload}
@@ -1474,7 +1478,7 @@ export function ImageViewer() {
         ) : (
           <div className={styles.imageWrapper}>
             {!isLoaded && <div className={styles.loadingSpinner} />}
-            {imageError ? <div className={styles.imageError}>{t('photoOriginalLoadFailed')}</div> : null}
+            {imageError ? <div className={styles.imageError}>{t(previewPhoto?.album_id === 'model-sources' ? 'sourceMediaUnavailable' : 'photoOriginalLoadFailed')}</div> : null}
             {imageUrl && !isWaitingForSafeImage ? (
               <img
                 src={imageUrl}

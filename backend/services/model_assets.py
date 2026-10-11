@@ -27,7 +27,7 @@ from backend.services.static_files import get_relative_files_path, is_real_path_
 # 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
 _INDEX_LOCK = threading.RLock()
 _DOWNLOAD_LOCK = threading.Lock()
-INDEX_VERSION = 3
+INDEX_VERSION = 4
 
 # 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
 IMPORTED_IDENTITY_KEYS = ("model_path", "format", "original_name", "imported_at", "created_at")
@@ -157,8 +157,13 @@ def validate_asset_index(data):
             )
 
     normalized = dict(data)
+    defaults = data.get('source_defaults', {})
+    if not isinstance(defaults, dict) or any(
+        not isinstance(key, str) or not isinstance(value, str) for key, value in defaults.items()
+    ):
+        raise ModelAssetIndexError('Model source defaults are invalid', 'model_asset_index_schema_invalid')
     if data.get("version") != INDEX_VERSION:
-        # Catalog v3 adds normalized preview-orientation context. Preserve user
+        # Catalog v4 includes media provenance and normalized preview context. Preserve user
         # records, but rebuild stale summaries once instead of serving entries
         # that silently drop the new contract on ordinary warm reads.
         normalized.pop("catalog", None)
@@ -194,6 +199,7 @@ def write_asset_index(paths, data):
         "version": INDEX_VERSION,
         "updated_at": utc_now_iso(),
         "assets": validated["assets"],
+        "source_defaults": validated.get('source_defaults', {}),
     }
     if "catalog" in validated:
         payload["catalog"] = validated["catalog"]
@@ -595,6 +601,12 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         'viewer_camera': normalize_viewer_camera(metadata.get('viewer_camera')),
         'viewer_transform': normalize_viewer_transform(metadata.get('viewer_transform')),
         "source_media_id": metadata.get("source_media_id"),
+        "source_identity": metadata.get('source_identity'),
+        "source_provenance_unverified": metadata.get('recovered_from') == 'gallery-video-stem',
+        "source_media_version": metadata.get('source_media_version'),
+        "source_parent_asset_id": (metadata.get('editing') or {}).get('source_asset_id'),
+        "source_generation_kind": 'edited' if metadata.get('editing') else 'reconstruction',
+        "quality": metadata.get('quality'),
         "source_name": metadata.get("source_name") or original_filename,
         "source_video_url": source_video_url,
         "image_url": f"/api/original/{quote(asset_id, safe='')}" if original_filename else None,
@@ -1029,7 +1041,7 @@ def list_model_assets(paths, args):
     source = args.get("source", SOURCE_ALL)
     fmt = args.get("format", "all")
     tag = args.get("tag")
-    sort = args.get("sort", "modified_desc")
+    sort = args.get("sort", "created_desc")
     limit = parse_positive_int(args.get("limit"), DEFAULT_BATCH_SIZE, minimum=1, maximum=MAX_BATCH_SIZE)
     cursor = parse_positive_int(args.get("cursor"), 0, minimum=0)
 

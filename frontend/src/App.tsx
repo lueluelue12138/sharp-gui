@@ -33,6 +33,8 @@ import {
 } from '@/components/photoGallery';
 import { ViewerCanvas } from '@/components/viewer/ViewerCanvas/ViewerCanvas';
 import { useTaskQueue } from '@/hooks/useTaskQueue';
+import { useModelSourceLinks } from '@/hooks/useModelSources';
+import { SourceModelPanel } from '@/components/photoGallery/SourceModelPanel';
 import { useAppStore } from '@/store';
 import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import type {
@@ -157,6 +159,7 @@ function shouldShowAccessSetupPrompt(status: {
 }
 
 function App() {
+  const modelReturnToPhotos = useAppStore((state) => state.modelReturnToPhotos);
   const { t } = useTranslation();
   const [showAccessSetupPrompt, setShowAccessSetupPrompt] = useState(false);
   const [modelAssetLibraryOpen, setModelAssetLibraryOpen] = useState(false);
@@ -619,6 +622,7 @@ function App() {
 
   // Task queue polling (must be called unconditionally before any early returns)
   useTaskQueue();
+  useModelSourceLinks();
 
   // Boot screen
   if (isBooting) {
@@ -690,15 +694,21 @@ function App() {
             />
           ) : (
             <div className="viewer-container">
-              {currentModelUrl && (modelAssetLibraryOpen || temporaryModelPreview) ? (
+              {currentModelUrl && (modelAssetLibraryOpen || temporaryModelPreview || modelReturnToPhotos) ? (
                 <div className="viewer-library-actions">
-                  {modelAssetLibraryOpen ? (
+                  {modelAssetLibraryOpen || modelReturnToPhotos ? (
                     <button
                       className="viewer-library-back"
                       type="button"
-                      onClick={() => setCurrentModel(null)}
+                      onClick={() => {
+                        setCurrentModel(null);
+                        if (modelReturnToPhotos) {
+                          useAppStore.getState().setActiveView('photos');
+                          useAppStore.setState({ modelReturnToPhotos: false });
+                        }
+                      }}
                     >
-                      {t('modelAssetBackToLibrary')}
+                      {t(modelReturnToPhotos ? 'sourceBackToPhotos' : 'modelAssetBackToLibrary')}
                     </button>
                   ) : null}
                   {temporaryModelPreview ? (
@@ -770,6 +780,7 @@ function App() {
       
       {/* Lightbox / Image Viewer */}
       <ImageViewer />
+      <SourceModelPanel />
 
       <VideoReconstructionDialog />
 

@@ -11,8 +11,10 @@ export interface Task {
   stage?: string; // e.g., "preprocessing", "training", etc.
   error?: string;
   error_code?: string | null;
-  created_at?: string;
+  created_at?: string | number;
   source_media_id?: string;
+  source_id?: string;
+  source_media_version?: { size: number; mtime: number };
   source_name?: string;
   mode?: string;
   quality?: string;

@@ -109,7 +109,7 @@ export function PhotoToolbar({
   ];
   const currentDensity = densityOptions.find((option) => option.value === String(gridColumns)) ?? densityOptions[3];
   const densityProgress = `${((gridColumns - 1) / 7) * 100}%`;
-  const title = album?.name ?? t('photoNoAlbumSelected');
+  const title = album?.system ? t('sourceAlbumName') : album?.name ?? t('photoNoAlbumSelected');
   const albumAvailable = isPhotoAlbumAvailable(album);
   const subtitle = album
     ? !albumAvailable
@@ -125,7 +125,7 @@ export function PhotoToolbar({
           })
     : t('photoChooseAlbumHint');
   const compactTitle = album
-    ? albumAvailable ? `${album.name} · ${total}` : album.name
+    ? albumAvailable ? `${title} · ${total}` : title
     : t('photoNoAlbumSelected');
   const uploadDisabled = !album || !canUploadPhotos || isUploadingPhotos;
   const isExpandedMode = mode === 'expanded';

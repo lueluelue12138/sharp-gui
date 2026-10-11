@@ -8,19 +8,53 @@ from flask import (
     current_app,
     g,
     jsonify,
+    redirect,
     request,
     send_file,
     send_from_directory,
     stream_with_context,
 )
 
-from backend.services import photo_gallery
+from backend.services import model_assets, model_sources, photo_gallery
 
 bp = Blueprint("photo_gallery", __name__)
 
 
 def get_paths():
     return current_app.config["PATH_CONTEXT"]
+
+
+@bp.errorhandler(model_assets.ModelAssetServiceError)
+def model_source_error_response(error):
+    return jsonify({'error': str(error), 'code': error.code}), error.status_code
+
+
+@bp.route('/api/photo-models', methods=['POST'])
+def get_photo_model_links():
+    data = request.get_json(silent=True) or {}
+    ids = data.get('media_ids') if isinstance(data, dict) else None
+    if not isinstance(ids, list) or len(ids) > 200 or any(not isinstance(value, str) or len(value) > 180 for value in ids):
+        return jsonify({'error': 'Invalid media IDs', 'code': 'model_source_ids_invalid'}), 400
+    return jsonify(model_sources.query_links(get_paths(), ids))
+
+
+@bp.route('/api/photo-models/<media_id>')
+def get_photo_models(media_id):
+    return jsonify(model_sources.query_models(get_paths(), media_id))
+
+
+@bp.route('/api/model-sources/<source_id>/default', methods=['POST'])
+def set_source_default_model(source_id):
+    if not g.is_owner:
+        return jsonify({'error': 'Only the owner can select a default model'}), 403
+    data = request.get_json(silent=True) or {}
+    if not isinstance(data, dict):
+        return jsonify({'error': 'Invalid model ID', 'code': 'model_source_default_invalid'}), 400
+    asset_id = data.get('asset_id')
+    if asset_id is not None and not isinstance(asset_id, str):
+        return jsonify({'error': 'Invalid model ID', 'code': 'model_source_default_invalid'}), 400
+    payload, status = model_sources.set_default(get_paths(), source_id, asset_id)
+    return jsonify(payload), status
 
 
 @bp.route("/api/photo-albums", methods=["GET", "POST"])
@@ -95,6 +129,8 @@ def get_photo_album_photos(album_id):
 def get_photo_thumbnail(photo_id):
     """获取照片缩略图。"""
     paths = get_paths()
+    if photo_id.startswith(model_sources.SYSTEM_ALBUM_ID + '_'):
+        return source_thumbnail_response(paths, photo_id, 'image')
     thumb_path = photo_gallery.ensure_photo_thumbnail(paths, photo_id)
     if not thumb_path or not os.path.exists(thumb_path):
         return jsonify({"error": "Thumbnail not found"}), 404
@@ -135,6 +171,8 @@ def get_photo_original(photo_id):
 def get_video_poster(video_id):
     """获取视频封面；不可生成时返回 404 交给前端占位降级。"""
     paths = get_paths()
+    if video_id.startswith(model_sources.SYSTEM_ALBUM_ID + '_'):
+        return source_thumbnail_response(paths, video_id, 'video')
     poster_path = photo_gallery.ensure_video_poster(paths, video_id)
     if not poster_path or not os.path.exists(poster_path):
         return jsonify({"error": "Video poster not available"}), 404
@@ -149,6 +187,21 @@ def get_video_poster(video_id):
     response.headers["Content-Disposition"] = f'inline; filename="{filename}"'
     response.cache_control.public = True
     response.cache_control.max_age = photo_gallery.PHOTO_THUMBNAIL_CACHE_SECONDS
+    return response
+
+
+def source_thumbnail_response(paths, media_id, media_type):
+    thumbnail, fallback = model_sources.resolve_source_thumbnail(paths, media_id, media_type)
+    if thumbnail:
+        root = paths.video_poster_folder if media_type == 'video' else paths.photo_thumbnail_folder
+        response = send_from_directory(root, os.path.basename(thumbnail), conditional=True,
+                                       max_age=photo_gallery.PHOTO_THUMBNAIL_CACHE_SECONDS)
+    elif fallback:
+        response = redirect(fallback)
+        # An album thumbnail may become available later; do not cache the fallback redirect.
+        response.cache_control.no_store = True
+    else:
+        return jsonify({'error': 'Thumbnail not found'}), 404
     return response
 
 
