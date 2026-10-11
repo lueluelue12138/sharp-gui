@@ -14,13 +14,14 @@ import {
   rescanPhotoAlbum,
   uploadPhotosToGallery,
 } from '@/api';
-import { ChevronUpIcon, CloseIcon } from '@/components/common/Icons';
+import { ChevronUpIcon, CloseIcon, FolderIcon } from '@/components/common/Icons';
 import { TextInputDialog } from '@/components/common/TextInputDialog';
 import { PhotoMasonryGrid } from '@/components/photoGallery/PhotoMasonryGrid';
 import { PhotoSelectionBar } from '@/components/photoGallery/PhotoSelectionBar';
 import { PhotoToolbar } from '@/components/photoGallery/PhotoToolbar';
 import type { PhotoToolbarMode } from '@/components/photoGallery/PhotoToolbar';
 import { useAppStore } from '@/store';
+import { getPhotoAlbumErrorKey, isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import type { PhotoItem, PhotoMediaType } from '@/types';
 
 import styles from './PhotoGalleryView.module.css';
@@ -64,6 +65,7 @@ function getTouchDistance(touches: TouchList) {
 export function PhotoGalleryView() {
   const { t } = useTranslation();
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const photoRequestRef = useRef(0);
   const hasCustomGridColumns = useRef(false);
   const pinchRef = useRef<{ distance: number; columns: number } | null>(null);
   const toolbarModeRef = useRef<PhotoToolbarMode>('expanded');
@@ -99,7 +101,6 @@ export function PhotoGalleryView() {
     currentPhotoAlbumId,
     photoItems,
     photoNextCursor,
-    photoSnapshot,
     photoTotal,
     photoMediaType,
     photoMediaCounts,
@@ -128,7 +129,6 @@ export function PhotoGalleryView() {
       currentPhotoAlbumId: state.currentPhotoAlbumId,
       photoItems: state.photoItems,
       photoNextCursor: state.photoNextCursor,
-      photoSnapshot: state.photoSnapshot,
       photoTotal: state.photoTotal,
       photoMediaType: state.photoMediaType,
       photoMediaCounts: state.photoMediaCounts,
@@ -153,6 +153,10 @@ export function PhotoGalleryView() {
   );
 
   const currentAlbum = photoAlbums.find((album) => album.id === currentPhotoAlbumId) ?? null;
+  const currentAlbumAvailable = isPhotoAlbumAvailable(currentAlbum);
+  const albumUnavailable = Boolean(currentAlbum && !currentAlbumAvailable);
+  const allAlbumsUnavailable = photoAlbumsLoaded && photoAlbums.length > 0
+    && !photoAlbums.some(isPhotoAlbumAvailable);
   const currentAlbumIsIndexing = Boolean(
     currentAlbum && ['needs_index', 'indexing', 'scanning'].includes(currentAlbum.scan_status),
   );
@@ -169,7 +173,7 @@ export function PhotoGalleryView() {
     () => selectedItems.filter((photo) => photo.media_type === 'video'),
     [selectedItems],
   );
-  const canUploadPhotos = Boolean(currentAlbum) && (
+  const canUploadPhotos = currentAlbumAvailable && (
     isLocalAccess || Boolean(authStatus?.access_control_enabled)
   );
 
@@ -271,8 +275,12 @@ export function PhotoGalleryView() {
     append: boolean,
     albumId = currentPhotoAlbumId,
   ) => {
-    if (!albumId) {
+    const requestId = ++photoRequestRef.current;
+    if (!albumId || !currentAlbumAvailable) {
       clearPhotoItems();
+      setError(null);
+      setIsLoading(false);
+      setIsLoadingMore(false);
       return;
     }
 
@@ -290,8 +298,17 @@ export function PhotoGalleryView() {
         60,
         sort,
         photoMediaType,
-        append ? photoSnapshot : null,
+        append ? useAppStore.getState().photoSnapshot : null,
       );
+      const state = useAppStore.getState();
+      if (requestId !== photoRequestRef.current || state.currentPhotoAlbumId !== albumId
+        || !isPhotoAlbumAvailable(state.photoAlbums.find((album) => album.id === albumId))) return;
+      if (response.available === false) {
+        setPhotoAlbums(state.photoAlbums.map((album) => album.id === albumId
+          ? { ...album, available: false, code: response.code, error: response.error, scan_status: 'error' }
+          : album));
+        return;
+      }
       setPhotoItems(
         response.items,
         response.next_cursor,
@@ -301,19 +318,24 @@ export function PhotoGalleryView() {
         response.snapshot ?? null,
       );
       if (response.error) {
-        setError(response.error);
+        setError(t(getPhotoAlbumErrorKey(response.code)));
       }
     } catch (loadError) {
+      if (requestId !== photoRequestRef.current) return;
       const message = loadError instanceof Error ? loadError.message : t('photoLoadFailed');
       setError(message);
       if (!append) {
         clearPhotoItems();
       }
     } finally {
-      setIsLoading(false);
-      setIsLoadingMore(false);
+      if (requestId === photoRequestRef.current) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
     }
-  }, [clearPhotoItems, currentPhotoAlbumId, photoMediaType, photoSnapshot, setPhotoItems, sort, t]);
+  }, [clearPhotoItems, currentAlbumAvailable, currentPhotoAlbumId, photoMediaType, setPhotoAlbums, setPhotoItems, sort, t]);
+
+  useEffect(() => () => { photoRequestRef.current += 1; }, []);
 
   useEffect(() => {
     scrollStateRef.current = {
@@ -328,7 +350,7 @@ export function PhotoGalleryView() {
 
   useEffect(() => {
     void loadPhotos(null, false);
-  }, [loadPhotos]);
+  }, [currentAlbumIsIndexing, loadPhotos]);
 
   useEffect(() => {
     if (!currentAlbum || !['needs_index', 'indexing', 'scanning'].includes(currentAlbum.scan_status)) {
@@ -436,12 +458,21 @@ export function PhotoGalleryView() {
   }, [isLocalAccess, submitAlbumPath, t]);
 
   const handleRefresh = useCallback(async () => {
-    if (currentAlbum) {
-      await rescanPhotoAlbum(currentAlbum.id);
+    try {
+      if (currentAlbum && isLocalAccess) {
+        await rescanPhotoAlbum(currentAlbum.id);
+      }
+      await refreshAlbums();
+      const state = useAppStore.getState();
+      // 可用性/当前相册变化由查询 effect 加载，避免旧闭包清空恢复后的新请求。
+      if (currentAlbumAvailable && state.currentPhotoAlbumId === currentPhotoAlbumId
+        && isPhotoAlbumAvailable(state.photoAlbums.find((album) => album.id === currentPhotoAlbumId))) {
+        await loadPhotos(null, false);
+      }
+    } catch {
+      setError(t('photoAlbumScanFailed'));
     }
-    await refreshAlbums();
-    await loadPhotos(null, false);
-  }, [currentAlbum, loadPhotos, refreshAlbums]);
+  }, [currentAlbum, currentAlbumAvailable, currentPhotoAlbumId, isLocalAccess, loadPhotos, refreshAlbums, t]);
 
   const handleUploadPhotos = useCallback(async (files: FileList | File[]) => {
     if (!currentAlbum) {
@@ -482,9 +513,11 @@ export function PhotoGalleryView() {
     } catch (uploadError) {
       const message = uploadError instanceof ApiError && uploadError.status === 403
         ? t('photoUploadAccessDenied')
-        : uploadError instanceof Error
-          ? uploadError.message
-          : t('photoUploadFailed');
+        : uploadError instanceof ApiError && uploadError.data?.code?.startsWith('photo_album_')
+          ? t(getPhotoAlbumErrorKey(uploadError.data.code))
+          : uploadError instanceof Error
+            ? uploadError.message
+            : t('photoUploadFailed');
       setNotice({ tone: 'error', message });
     } finally {
       setIsUploadingPhotos(false);
@@ -686,7 +719,7 @@ export function PhotoGalleryView() {
           onExpandRequest={handleExpandToolbar}
         />
 
-        {error ? <div className={styles.error}>{error}</div> : null}
+        {!albumUnavailable && error ? <div className={styles.error}>{error}</div> : null}
         {!error && currentAlbumIsIndexing ? (
           <div className={styles.error}>
             {currentAlbum?.scan_status === 'needs_index'
@@ -695,7 +728,16 @@ export function PhotoGalleryView() {
           </div>
         ) : null}
 
-        <PhotoMasonryGrid
+        {albumUnavailable || allAlbumsUnavailable ? (
+          <section className={styles.unavailable} role="status" aria-live="polite">
+            <FolderIcon width={36} height={36} />
+            <h2>{t(currentAlbum ? getPhotoAlbumErrorKey(currentAlbum.code) : 'photoAlbumsNoneAvailable')}</h2>
+            <p>{t('photoAlbumReconnectHint')}</p>
+            <button type="button" onClick={() => void handleRefresh()} disabled={isLoading}>
+              {t('photoAlbumCheckAgain')}
+            </button>
+          </section>
+        ) : <PhotoMasonryGrid
           items={photoItems}
           isLoading={isLoading || isLoadingMore}
           selectionMode={photoSelectionMode}
@@ -706,7 +748,7 @@ export function PhotoGalleryView() {
           onTogglePhoto={toggleSelectedPhoto}
           onConvertPhoto={handleConvertOne}
           onReconstructVideo={handleReconstructVideo}
-        />
+        />}
       </div>
 
       <button

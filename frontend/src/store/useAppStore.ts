@@ -1,5 +1,7 @@
 import { create } from 'zustand';
+import { DEFAULT_VIEWER_TRANSFORM } from '@/constants/viewerCoordinates';
 import { getLodPresetConfig } from '@/constants/spark';
+import { isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import {
   getGalleryModelSource,
   getNextModelReloadToken,
@@ -84,16 +86,6 @@ const QUALITY_LIMITS = {
   lodScale: { min: 0.2, max: 3.0 },
   coneFoveate: { min: 0, max: 1 },
   behindFoveate: { min: 0, max: 1 },
-};
-
-const DEFAULT_VIEWER_TRANSFORM: ViewerTransformState = {
-  positionX: 0,
-  positionY: 0,
-  positionZ: 0,
-  rotationX: Math.PI,
-  rotationY: 0,
-  rotationZ: 0,
-  scale: 2,
 };
 
 const DEFAULT_VIEWER_INTERACTION: ViewerInteractionState = {
@@ -435,6 +427,7 @@ interface AppState {
   previewImage: GalleryItem | null; // For image lightbox
   modelAssets: ModelAsset[];
   modelAssetTotal: number;
+  modelAssetMutationVersion: number;
   modelAssetNextCursor: string | null;
   modelAssetCounts: ModelAssetListCounts;
   modelAssetAvailableTags: string[];
@@ -660,6 +653,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   previewImage: null,
   modelAssets: [],
   modelAssetTotal: 0,
+  modelAssetMutationVersion: 0,
   modelAssetNextCursor: null,
   modelAssetCounts: { ...DEFAULT_MODEL_ASSET_COUNTS },
   modelAssetAvailableTags: [],
@@ -1055,6 +1049,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nextItems = Array.from(byId.values());
     return {
       modelAssets: nextItems,
+      modelAssetMutationVersion: state.modelAssetMutationVersion + 1,
+      modelAssetCacheReady: items.some((item) => {
+        const current = state.modelAssets.find((asset) => asset.id === item.id);
+        return !current || current.default_open_url !== item.default_open_url;
+      }) ? false : state.modelAssetCacheReady,
       modelAssetTotal: Math.max(state.modelAssetTotal, nextItems.length),
       selectedModelAssetId: state.selectedModelAssetId ?? items[0]?.id ?? null,
     };
@@ -1066,6 +1065,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     return {
       modelAssets: nextItems,
       modelAssetTotal: Math.max(0, state.modelAssetTotal - 1),
+      modelAssetMutationVersion: state.modelAssetMutationVersion + 1,
       selectedModelAssetId: state.selectedModelAssetId === id
         ? nextItems[0]?.id ?? null
         : state.selectedModelAssetId,
@@ -1104,27 +1104,34 @@ export const useAppStore = create<AppState>((set, get) => ({
       : false;
     const currentPhotoAlbumId = currentExists
       ? state.currentPhotoAlbumId
-      : albums[0]?.id ?? null;
+      : albums.find(isPhotoAlbumAvailable)?.id ?? null;
+    const keepCurrentItems = currentPhotoAlbumId === state.currentPhotoAlbumId
+      && isPhotoAlbumAvailable(albums.find((album) => album.id === currentPhotoAlbumId));
 
     return {
       photoAlbums: albums,
       photoAlbumsLoaded: true,
       photoAlbumsLoading: false,
       currentPhotoAlbumId,
-      photoItems: currentPhotoAlbumId === state.currentPhotoAlbumId ? state.photoItems : [],
-      photoNextCursor: currentPhotoAlbumId === state.currentPhotoAlbumId ? state.photoNextCursor : null,
-      photoSnapshot: currentPhotoAlbumId === state.currentPhotoAlbumId ? state.photoSnapshot : null,
-      photoTotal: currentPhotoAlbumId === state.currentPhotoAlbumId ? state.photoTotal : 0,
-      photoMediaCounts: currentPhotoAlbumId === state.currentPhotoAlbumId
+      photoItems: keepCurrentItems ? state.photoItems : [],
+      photoNextCursor: keepCurrentItems ? state.photoNextCursor : null,
+      photoSnapshot: keepCurrentItems ? state.photoSnapshot : null,
+      photoTotal: keepCurrentItems ? state.photoTotal : 0,
+      photoMediaCounts: keepCurrentItems
         ? state.photoMediaCounts
         : { ...DEFAULT_PHOTO_MEDIA_COUNTS },
-      selectedPhotoIds: currentPhotoAlbumId === state.currentPhotoAlbumId ? state.selectedPhotoIds : [],
-      previewPhoto: currentPhotoAlbumId === state.previewPhoto?.album_id ? state.previewPhoto : null,
+      selectedPhotoIds: keepCurrentItems ? state.selectedPhotoIds : [],
+      photoSelectionMode: keepCurrentItems ? state.photoSelectionMode : false,
+      previewPhoto: keepCurrentItems && currentPhotoAlbumId === state.previewPhoto?.album_id
+        ? state.previewPhoto : null,
     };
   }),
   setPhotoAlbumsLoading: (loading) => set({ photoAlbumsLoading: loading }),
   resetPhotoAlbumsLoaded: () => set({ photoAlbumsLoaded: false }),
   setCurrentPhotoAlbum: (albumId) => set((state) => {
+    if (albumId && !isPhotoAlbumAvailable(state.photoAlbums.find((album) => album.id === albumId))) {
+      return state;
+    }
     if (state.currentPhotoAlbumId === albumId) {
       return state;
     }

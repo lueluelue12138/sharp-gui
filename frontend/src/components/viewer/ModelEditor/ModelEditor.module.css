@@ -25,6 +25,7 @@
 }
 .header {
   position: absolute;
+  z-index: 2;
   inset: var(--space-lg) var(--space-xl) auto;
   min-height: 68px;
   padding: var(--space-sm) var(--space-md);
@@ -55,6 +56,7 @@
 .toolRail button,
 .actionPair button,
 .cameraButton,
+.resetButton,
 .clearButton {
   font: inherit;
   cursor: pointer;
@@ -98,6 +100,27 @@
 }
 .saveButton:hover:not(:disabled) {
   background: var(--accent-blue-hover);
+}
+.saveGroup {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+.saveMode {
+  min-width: 40px;
+}
+.saveMode > button {
+  height: 44px;
+  color: var(--editor-text-secondary);
+  background: rgba(127, 127, 127, 0.1);
+  border-radius: var(--radius-md);
+}
+.saveMode > button:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(127, 127, 127, 0.18);
+}
+.saveMode [role='listbox'] {
+  min-width: 190px;
 }
 .root button:disabled {
   opacity: 0.4;
@@ -175,6 +198,20 @@
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
 }
+.resetButton {
+  width: 100%;
+  min-height: 38px;
+  margin-top: var(--space-md);
+  color: var(--editor-text-secondary);
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+.resetButton:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: rgba(127, 127, 127, 0.16);
+}
 .numberField {
   display: flex;
   flex-direction: column;
@@ -186,7 +223,39 @@
   font-size: 11px;
   padding-left: 2px;
 }
+.fieldLabel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 22px;
+}
+.scrubHandle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--editor-text-secondary);
+  background: rgba(127, 127, 127, 0.08);
+  cursor: ew-resize;
+  touch-action: none;
+  user-select: none;
+}
+.scrubHandle:hover:not(:disabled),
+.scrubHandle.scrubbing {
+  color: var(--editor-accent);
+  background: rgba(43, 136, 255, 0.14);
+  border-color: var(--glass-border);
+}
+@media (pointer: coarse) {
+  .fieldLabel { min-height: 40px; }
+  .scrubHandle { min-width: 40px; min-height: 40px; }
+}
 .numberField input,
+.selectionMode select,
 .nameField input {
   width: 100%;
   min-width: 0;
@@ -200,6 +269,17 @@
   border: 1px solid rgba(127, 127, 127, 0.12);
   border-radius: var(--radius-sm);
   font-variant-numeric: tabular-nums;
+}
+.selectionMode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+  color: var(--editor-text-secondary);
+  font-size: 12px;
+}
+.selectionMode select option {
+  color: var(--text-primary);
+  background: var(--bg-color);
 }
 .numberField input::-webkit-inner-spin-button {
   -webkit-appearance: none;

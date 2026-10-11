@@ -463,6 +463,7 @@ export const useViewer = (
       activeContext: viewerRef.current,
     })
       && activeCtx.loadGeneration === resetLoadGeneration
+      && !activeCtx.editorActive
       && getViewerModelLoadKey(
         useAppStore.getState().currentModelDescriptor,
       ) === resetModelLoadKey;
@@ -741,6 +742,7 @@ export const useViewer = (
             activeContext: viewerRef.current,
           })
             && ctx.loadGeneration === focusLoadGeneration
+            && !ctx.editorActive
             && getViewerModelLoadKey(
               useAppStore.getState().currentModelDescriptor,
             ) === focusModelLoadKey;

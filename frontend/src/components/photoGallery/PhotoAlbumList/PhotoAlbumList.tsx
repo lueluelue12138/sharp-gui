@@ -21,6 +21,7 @@ import {
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { TextInputDialog } from '@/components/common/TextInputDialog';
 import { useAppStore } from '@/store';
+import { getPhotoAlbumErrorKey, isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import type { PhotoAlbum } from '@/types';
 
 import styles from './PhotoAlbumList.module.css';
@@ -75,6 +76,54 @@ export function PhotoAlbumList() {
       setMessage(errorMessage);
     });
   }, [photoAlbumsLoaded, photoAlbumsLoading, refreshAlbums, t]);
+
+  useEffect(() => {
+    let disposed = false;
+    let checking = false;
+    const checkAvailability = async () => {
+      if (document.visibilityState === 'hidden' || checking) return;
+      checking = true;
+      try {
+        const response = await fetchPhotoAlbums();
+        if (!disposed) setPhotoAlbums(response.albums);
+      } catch {
+        // 网络错误不等于磁盘离线，保留上一次已确认的状态。
+      } finally {
+        checking = false;
+      }
+    };
+    const interval = window.setInterval(() => void checkAvailability(), 10000);
+    const handleFocus = () => void checkAvailability();
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+    void checkAvailability();
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+    };
+  }, [setPhotoAlbums]);
+
+  const handleOpenAlbum = useCallback(async (album: PhotoAlbum) => {
+    if (!isPhotoAlbumAvailable(album) || isBusy) return;
+    setIsBusy(true);
+    try {
+      const response = await fetchPhotoAlbums();
+      setPhotoAlbums(response.albums);
+      const freshAlbum = response.albums.find((item) => item.id === album.id);
+      if (isPhotoAlbumAvailable(freshAlbum)) {
+        setCurrentPhotoAlbum(album.id);
+        setMessage(null);
+      } else {
+        setMessage(t(getPhotoAlbumErrorKey(freshAlbum?.code)));
+      }
+    } catch {
+      setMessage(t('photoAlbumsLoadFailed'));
+    } finally {
+      setIsBusy(false);
+    }
+  }, [isBusy, setCurrentPhotoAlbum, setPhotoAlbums, t]);
 
   const submitAlbumPath = useCallback(async (selectedPath: string) => {
     if (!selectedPath.trim() || isBusy) {
@@ -167,9 +216,8 @@ export function PhotoAlbumList() {
       setIsBusy(true);
       setMessage(null);
       const result = await rescanPhotoAlbum(album.id);
-      if (result.success) {
-        await refreshAlbums();
-      }
+      await refreshAlbums();
+      if (!result.success) setMessage(t(getPhotoAlbumErrorKey(result.album?.code)));
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : t('photoAlbumScanFailed');
       setMessage(errorMessage);
@@ -177,16 +225,6 @@ export function PhotoAlbumList() {
       setIsBusy(false);
     }
   }, [refreshAlbums, t]);
-
-  const handleAlbumKeyDown = useCallback((
-    event: React.KeyboardEvent<HTMLDivElement>,
-    albumId: string,
-  ) => {
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault();
-      setCurrentPhotoAlbum(albumId);
-    }
-  }, [setCurrentPhotoAlbum]);
 
   return (
     <section className={styles.root} aria-label={t('photoAlbums')}>
@@ -239,36 +277,41 @@ export function PhotoAlbumList() {
         <div className={styles.list}>
           {photoAlbums.map((album) => {
             const isActive = album.id === currentPhotoAlbumId;
+            const isAvailable = isPhotoAlbumAvailable(album);
             return (
               <div
                 key={album.id}
                 className={[
                   styles.album,
                   isActive ? styles.albumActive : '',
-                  album.scan_status === 'error' ? styles.albumError : '',
+                  !isAvailable || album.scan_status === 'error' ? styles.albumError : '',
                 ].filter(Boolean).join(' ')}
-                onClick={() => setCurrentPhotoAlbum(album.id)}
-                onKeyDown={(event) => handleAlbumKeyDown(event, album.id)}
-                role="button"
-                tabIndex={0}
-                aria-current={isActive ? 'true' : undefined}
               >
-                <div className={styles.cover}>
-                  {album.cover_thumb_url ? (
-                    <img src={album.cover_thumb_url} alt="" loading="lazy" decoding="async" />
-                  ) : (
-                    <FolderIcon width={22} height={22} />
-                  )}
-                </div>
+                <button
+                  className={styles.albumOpen}
+                  onClick={() => void handleOpenAlbum(album)}
+                  type="button"
+                  disabled={!isAvailable || isBusy}
+                  aria-current={isActive ? 'true' : undefined}
+                  data-tooltip={!isAvailable ? t(getPhotoAlbumErrorKey(album.code)) : undefined}
+                >
+                  <div className={styles.cover}>
+                    {isAvailable && album.cover_thumb_url ? (
+                      <img src={album.cover_thumb_url} alt="" loading="lazy" decoding="async" />
+                    ) : (
+                      <FolderIcon width={22} height={22} />
+                    )}
+                  </div>
 
-                <div className={styles.info}>
-                  <span className={styles.name} data-tooltip={album.name}>{album.name}</span>
-                  <span className={styles.meta}>
-                    {getAlbumMetaLabel(t, album)}
-                  </span>
-                </div>
+                  <div className={styles.info}>
+                    <span className={styles.name} data-tooltip={album.name}>{album.name}</span>
+                    <span className={styles.meta}>
+                      {getAlbumMetaLabel(t, album)}
+                    </span>
+                  </div>
 
-                {isActive ? <CheckIcon className={styles.activeIcon} width={15} height={15} /> : null}
+                  {isActive ? <CheckIcon className={styles.activeIcon} width={15} height={15} /> : null}
+                </button>
 
                 {isLocalAccess ? (
                   <span className={styles.actions}>
@@ -278,6 +321,7 @@ export function PhotoAlbumList() {
                       data-tooltip={t('photoRescanAlbum')}
                       aria-label={t('photoRescanAlbum')}
                       type="button"
+                      disabled={isBusy}
                     >
                       <ResetIcon width={13} height={13} />
                     </button>
@@ -287,6 +331,7 @@ export function PhotoAlbumList() {
                       data-tooltip={t('photoRemoveAlbum')}
                       aria-label={t('photoRemoveAlbum')}
                       type="button"
+                      disabled={isBusy}
                     >
                       <DeleteIcon width={13} height={13} />
                     </button>
@@ -329,8 +374,9 @@ function getAlbumMetaLabel(
   t: (key: string, options?: Record<string, unknown>) => string,
   album: PhotoAlbum,
 ) {
+  if (!isPhotoAlbumAvailable(album)) return t(getPhotoAlbumErrorKey(album.code));
   if (album.scan_status === 'error') {
-    return album.error || t('photoAlbumUnavailable');
+    return t('photoAlbumUnavailable');
   }
   if (album.scan_status === 'needs_index') {
     return t('photoAlbumNeedsIndex');

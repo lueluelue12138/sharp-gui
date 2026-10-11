@@ -1,11 +1,12 @@
-"""高斯模型编辑：校验源文件、过滤点并导出独立副本，保留 SH0～SH3。"""
+"""高斯模型编辑：校验源文件、过滤点并保存副本或覆盖模型，保留 SH0～SH3。"""
 
 import base64
 import binascii
+import copy
 import gzip
-import hashlib
 import math
 import os
+import shutil
 import struct
 import tempfile
 import threading
@@ -22,10 +23,6 @@ MAX_POINTS = 8_000_000
 MAX_SOURCE_BYTES = 2_000_000_000
 MAX_REQUEST_BYTES = 2_000_000
 SAVE_LOCK = threading.Lock()
-IDENTITY_VIEWER_TRANSFORM = {
-    'positionX': 0, 'positionY': 0, 'positionZ': 0,
-    'rotationX': 0, 'rotationY': 0, 'rotationZ': 0, 'scale': 1,
-}
 
 
 class ModelEditorError(model_assets.ModelAssetServiceError):
@@ -38,8 +35,7 @@ def fail(code='model_editor_invalid', status=400):
 
 def source_fingerprint(path):
     """使用文件状态生成不暴露服务器路径的修订标识。"""
-    stat = os.stat(path)
-    return hashlib.sha256(f'{os.path.realpath(path)}:{stat.st_size}:{stat.st_mtime_ns}'.encode()).hexdigest()
+    return model_assets.model_source_fingerprint(path)
 
 
 def resolve_source(paths, asset_id):
@@ -284,10 +280,23 @@ def decode_mask(encoded, count):
     return np.unpackbits(np.frombuffer(raw, dtype=np.uint8), bitorder='little')[:count].astype(bool)
 
 
-def save_edited_copy(paths, asset_id, payload):
-    """只创建新资产；不修改源模型和已有的伴随文件。"""
+def release_vertices(vertices):
+    """覆盖前释放 PLY 映射，避免 Windows 锁住正在读取的源文件。"""
+    while vertices is not None:
+        if isinstance(vertices, np.memmap):
+            vertices._mmap.close()
+            return
+        vertices = getattr(vertices, 'base', None)
+
+
+def save_edited_model(paths, asset_id, payload):
+    """默认创建副本；显式 overwrite 时沿用原资产编号和来源。"""
     if not isinstance(payload, dict):
         fail()
+    save_mode = payload.get('save_mode', 'copy')
+    if save_mode not in ('copy', 'overwrite'):
+        fail()
+    overwrite = save_mode == 'overwrite'
     raw_name = payload.get('name')
     if raw_name is not None and (not isinstance(raw_name, str) or len(raw_name) > 160):
         fail()
@@ -298,6 +307,8 @@ def save_edited_copy(paths, asset_id, payload):
     if not SAVE_LOCK.acquire(blocking=False):
         fail('model_editor_busy', 409)
     temporary = None
+    staging = None
+    vertices = None
     published = []
     try:
         asset, source, fmt = resolve_source(paths, asset_id)
@@ -315,13 +326,17 @@ def save_edited_copy(paths, asset_id, payload):
         rest = sum(name.startswith('f_rest_') for name in vertices.dtype.names)
         degree = {0: 0, 9: 1, 24: 2, 45: 3}[rest]
         harmonic_matrix = sh_rotation(rotation, degree) if degree else None
-        model_assets.require_controlled_root(paths, paths.output_folder, 'model_asset_path_invalid')
-        os.makedirs(paths.output_folder, exist_ok=True)
-        model_id = 'edit-' + uuid.uuid4().hex
-        ply_path = os.path.join(paths.output_folder, model_id + '.ply')
-        spz_path = os.path.join(paths.output_folder, model_id + '.spz')
+        root = paths.model_asset_import_folder if overwrite and asset.get('is_imported') else paths.output_folder
+        model_assets.require_controlled_root(paths, root, 'model_asset_path_invalid')
+        os.makedirs(root, exist_ok=True)
+        if overwrite:
+            staging = tempfile.TemporaryDirectory(dir=root, prefix='.model-edit-')
+        destination = staging.name if staging else root
+        model_id = 'edited' if overwrite else 'edit-' + uuid.uuid4().hex
+        ply_path = os.path.join(destination, model_id + '.ply')
+        spz_path = os.path.join(destination, model_id + '.spz')
         max_coordinate = 0.0
-        with tempfile.NamedTemporaryFile(dir=paths.output_folder, prefix='.model-edit-', suffix='.tmp', delete=False) as file:
+        with tempfile.NamedTemporaryFile(dir=destination, prefix='.model-edit-', suffix='.tmp', delete=False) as file:
             temporary = file.name
             header = str(PlyData([PlyElement.describe(np.empty(0, dtype=vertices.dtype), 'vertex')], text=False, byte_order='<').header)
             header = header.replace('element vertex 0', f'element vertex {retained}')
@@ -341,15 +356,52 @@ def save_edited_copy(paths, asset_id, payload):
         published.append(ply_path)
         model_convert.ply_to_spz(ply_path, spz_path)
         published.append(spz_path)
-        name = (raw_name or '').strip() or (str(asset['name'])[:140] + ' · Edited')
-        metadata = {'generator': 'model_editor', 'display_name': name,
-                    'viewer_orientation': 'default', 'viewer_transform': IDENTITY_VIEWER_TRANSFORM,
+        name = (raw_name or '').strip() or (str(asset['name']) if overwrite else str(asset['name'])[:140] + ' · Edited')
+        if asset.get('is_generated') and not overwrite:
+            original_name, original_path = model_gallery.find_original_image(paths, asset['id'])
+            if original_path:
+                if not model_assets.is_controlled_path(paths, original_path, paths.input_folder):
+                    fail('model_asset_path_invalid', 403)
+                model_assets.require_controlled_root(paths, paths.input_folder, 'model_asset_path_invalid')
+                image_path = os.path.join(paths.input_folder, model_id + os.path.splitext(original_name)[1])
+                published.append(image_path)
+                shutil.copyfile(original_path, image_path)
+        source_metadata = (model_gallery.read_model_metadata(paths, asset['id']) if asset.get('is_generated')
+                           else asset.get('metadata', {}))
+        # 来源及重建报告是谱系资料；点数、坐标、相机等结果属性必须由本次编辑重新生成。
+        metadata = {key: copy.deepcopy(source_metadata[key]) for key in (
+            'source_media_type', 'source_media_id', 'source_name', 'source_video_path', 'source_mime_type',
+            'mode', 'quality', 'custom_options', 'engine', 'resolved_engine', 'reconstruction',
+        ) if key in source_metadata}
+        metadata.update({'generator': 'model_editor', 'display_name': name,
+                    'viewer_orientation': 'default', 'viewer_transform': None,
                     'viewer_camera': camera, 'point_count': retained,
                     'editing': {'source_asset_id': asset['id'], 'source_count': count,
-                                'deleted_count': count-retained, 'matrix': payload['matrix'], 'sh_degree': degree}}
+                                'deleted_count': count-retained, 'matrix': payload['matrix'], 'sh_degree': degree,
+                                'source_generator': source_metadata.get('generator'),
+                                'previous_editing': source_metadata.get('editing')}})
+        if overwrite:
+            staged_files = {'ply': ply_path, 'spz': spz_path}
+            if asset.get('is_imported'):
+                metadata = {**{key: value for key, value in source_metadata.items() if key not in (
+                    'bounding_box', 'gaussian_points', 'coordinate_system', 'attributes', 'compression', 'version',
+                )}, **metadata}
+                if fmt == 'splat':
+                    splat_path = os.path.join(destination, model_id + '.splat')
+                    with open(splat_path, 'wb') as file:
+                        file.write(model_convert.ply_to_splat(ply_path))
+                    staged_files['splat'] = splat_path
+            release_vertices(vertices)
+            vertices = None
+            return model_assets.replace_edited_model_asset(paths, asset['id'], staged_files, metadata, source, fingerprint)
         meta_path = model_gallery.write_model_metadata(paths, model_id, metadata)
         published.append(meta_path)
-        return model_assets.sync_generated_model_asset(paths, model_id)
+        result = model_assets.sync_generated_model_asset(paths, model_id)
+        if asset.get('tags') or asset.get('note'):
+            result = model_assets.update_model_asset_profile(paths, model_id, {
+                'display_name': name, 'tags': asset.get('tags', []), 'note': asset.get('note', ''),
+            })
+        return result
     except ModelEditorError:
         for path in published:
             if os.path.isfile(path):
@@ -361,6 +413,16 @@ def save_edited_copy(paths, asset_id, payload):
                 os.remove(path)
         raise
     finally:
-        if temporary and os.path.isfile(temporary):
-            os.remove(temporary)
-        SAVE_LOCK.release()
+        try:
+            release_vertices(vertices)
+            if temporary and os.path.isfile(temporary):
+                os.remove(temporary)
+            if staging:
+                staging.cleanup()
+        finally:
+            SAVE_LOCK.release()
+
+
+def save_edited_copy(paths, asset_id, payload):
+    """兼容既有服务调用；未指定保存方式的请求仍创建独立副本。"""
+    return save_edited_model(paths, asset_id, payload)

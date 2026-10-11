@@ -170,13 +170,30 @@
 }
 
 .album:hover,
-.album:focus-visible {
+.album:focus-within {
   background: rgba(255, 255, 255, 0.55);
 }
 
-.album:focus-visible {
+.albumOpen:focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: 2px;
+}
+
+.albumOpen {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-md);
+}
+
+.albumOpen:disabled {
+  cursor: not-allowed;
 }
 
 .albumActive {
@@ -185,7 +202,15 @@
 }
 
 .albumError {
-  color: var(--danger-color);
+  cursor: not-allowed;
+}
+
+.albumError .meta {
+  color: var(--text-secondary);
+}
+
+.albumError .actions {
+  opacity: 1;
 }
 
 .cover {
@@ -278,7 +303,7 @@
 @media (prefers-color-scheme: dark) {
   .empty,
   .album:hover,
-  .album:focus-visible,
+  .album:focus-within,
   .albumActive {
     background: rgba(255, 255, 255, 0.1);
     border-color: rgba(255, 255, 255, 0.12);

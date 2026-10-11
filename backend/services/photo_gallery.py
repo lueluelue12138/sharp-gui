@@ -3,6 +3,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import threading
@@ -100,17 +101,25 @@ def build_browser_audio_stream_url(video_id, filename):
 
 def make_photo_album_id(path):
     """根据目录真实路径生成稳定相册 ID。"""
-    normalized = os.path.normcase(os.path.realpath(os.path.abspath(os.path.expanduser(path))))
+    normalized = normalize_identity_path(path)
     return hashlib.sha1(normalized.encode("utf-8", "surrogatepass")).hexdigest()[:16]
+
+
+def normalize_identity_path(path):
+    """离线目录仍可计算配置身份；此回退不能用于文件访问的安全校验。"""
+    absolute_path = os.path.abspath(os.path.expanduser(path))
+    try:
+        absolute_path = os.path.realpath(absolute_path)
+    except OSError:
+        pass
+    return os.path.normcase(absolute_path)
 
 
 def normalize_workspace_key(workspace_folder):
     """归一化工作目录路径，作为相册分桶的稳定键。"""
     if not isinstance(workspace_folder, str) or not workspace_folder.strip():
         workspace_folder = runtime.DEFAULT_WORKSPACE_FOLDER
-    return os.path.normcase(
-        os.path.realpath(os.path.abspath(os.path.expanduser(workspace_folder.strip())))
-    )
+    return normalize_identity_path(workspace_folder.strip())
 
 
 def migrate_photo_gallery_roots_config(config_data):
@@ -222,6 +231,50 @@ def find_photo_album(album_id):
     return None
 
 
+def get_photo_album_availability(album, expected_device=None, expected_media_count=None):
+    """只探测相册根目录，不遍历媒体；离线和权限异常不能打断应用。"""
+    code = None
+    source_device = None
+    if not album.get('enabled', True):
+        code = 'photo_album_disabled'
+    else:
+        try:
+            root_stat = os.stat(album['path'])
+            if not stat.S_ISDIR(root_stat.st_mode):
+                code = 'photo_album_path_missing'
+            else:
+                source_device = root_stat.st_dev
+                # 卸载后 Unix 挂载点本身可能仍在，但已属于另一个文件系统。
+                if expected_device is not None and source_device != expected_device:
+                    code = 'photo_album_storage_changed'
+                else:
+                    with os.scandir(album['path']) as entries:
+                        # 仅确认目录是否为空，不扫描媒体、不逐文件 stat。
+                        if expected_media_count and next(entries, None) is None:
+                            code = 'photo_album_media_missing'
+        except (FileNotFoundError, NotADirectoryError):
+            code = 'photo_album_path_missing'
+        except PermissionError:
+            code = 'photo_album_permission_denied'
+        except OSError:
+            code = 'photo_album_unavailable'
+
+    errors = {
+        'photo_album_disabled': 'Album disabled',
+        'photo_album_path_missing': 'Album path does not exist',
+        'photo_album_permission_denied': 'Album folder cannot be read',
+        'photo_album_storage_changed': 'Album storage is disconnected or has changed',
+        'photo_album_unavailable': 'Album path is not available',
+        'photo_album_media_missing': 'Previously indexed album files have been moved or removed',
+    }
+    return {
+        'available': code is None,
+        'code': code,
+        'error': errors.get(code),
+        'source_device': source_device,
+    }
+
+
 def safe_load_json(path, fallback):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -292,6 +345,7 @@ def normalize_album_index(data, album_id):
         "last_scanned_at": data.get("last_scanned_at"),
         "updated_at": data.get("updated_at"),
         "error": data.get("error"),
+        "source_device": data.get("source_device"),
     }
 
 
@@ -394,6 +448,7 @@ def get_album_index_snapshot(paths, album_id, snapshot_token=None):
         "error": index_data.get("error"),
         "snapshot_token": index_data.get("_snapshot_token"),
         "media": media,
+        "source_device": index_data.get("source_device"),
     }
 
 
@@ -498,7 +553,7 @@ def build_catalog_summary_for_unindexed_album(album, scan_status=None, error=Non
     }
 
 
-def update_catalog_album(paths, album, media_items=None, scan_status=None, error=None, summary=None):
+def update_catalog_album(paths, album, media_items=None, scan_status=None, error=None, summary=None, source_device=None):
     catalog = load_catalog(paths)
     if summary is None:
         if media_items is None:
@@ -514,6 +569,8 @@ def update_catalog_album(paths, album, media_items=None, scan_status=None, error
     summary["name"] = album.get("name") or os.path.basename(os.path.normpath(album.get("path", ""))) or album["id"]
     summary["recursive"] = album.get("recursive", True)
     summary["enabled"] = album.get("enabled", True)
+    if source_device is not None:
+        summary['source_device'] = source_device
     catalog.setdefault("albums", {})[album["id"]] = summary
     save_catalog(paths, catalog)
     return summary
@@ -907,13 +964,9 @@ def build_catalog_from_legacy_index(paths):
 
 def scan_photo_album(paths, album):
     """扫描相册并刷新轻量索引。"""
-    if not album.get("enabled", True):
-        update_catalog_album(paths, album, [], scan_status=PHOTO_SCAN_STATUS_ERROR, error="Album disabled")
-        return [], PHOTO_SCAN_STATUS_ERROR, "Album disabled"
-
-    if not os.path.isdir(album["path"]):
-        update_catalog_album(paths, album, [], scan_status=PHOTO_SCAN_STATUS_ERROR, error="Album path is not available")
-        return [], PHOTO_SCAN_STATUS_ERROR, "Album path is not available"
+    availability = get_photo_album_availability(album)
+    if not availability['available']:
+        return [], PHOTO_SCAN_STATUS_ERROR, availability['error']
 
     album_lock = get_album_lock(album["id"])
     with album_lock:
@@ -940,8 +993,11 @@ def scan_photo_album(paths, album):
                     continue
                 album_photos.append(meta)
         except Exception as exc:
-            update_catalog_album(paths, album, [], scan_status=PHOTO_SCAN_STATUS_ERROR, error=str(exc))
             return [], PHOTO_SCAN_STATUS_ERROR, str(exc)
+
+        final_availability = get_photo_album_availability(album, availability['source_device'])
+        if not final_availability['available']:
+            return [], PHOTO_SCAN_STATUS_ERROR, final_availability['error']
 
         media_by_id = {meta["id"]: meta for meta in album_photos}
         now_iso = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -954,8 +1010,9 @@ def scan_photo_album(paths, album):
             "last_scanned_at": now_iso,
             "updated_at": updated_at,
             "error": None,
+            "source_device": availability['source_device'],
         })
-        update_catalog_album(paths, album, album_photos)
+        update_catalog_album(paths, album, album_photos, source_device=availability['source_device'])
         if os.path.exists(paths.photo_index_file):
             archive_legacy_photo_index(paths)
 
@@ -1164,13 +1221,15 @@ def resolve_media_path(paths, media_id, expected_type=None, allow_stale=False):
     if not album:
         return None
 
-    root_path = os.path.realpath(album["path"])
-    relative_path = str(meta.get("relative_path", "")).replace("/", os.sep)
-    full_path = os.path.realpath(os.path.join(root_path, relative_path))
-    if not is_real_path_inside(full_path, root_path) or not os.path.isfile(full_path):
+    if not get_photo_album_availability(album, index_data.get('source_device'))['available']:
         return None
 
     try:
+        root_path = os.path.realpath(album["path"])
+        relative_path = str(meta.get("relative_path", "")).replace("/", os.sep)
+        full_path = os.path.realpath(os.path.join(root_path, relative_path))
+        if not is_real_path_inside(full_path, root_path) or not os.path.isfile(full_path):
+            return None
         stat = os.stat(full_path)
     except OSError:
         return None
@@ -1324,10 +1383,24 @@ def build_photo_album_response(paths, album, catalog=None):
     if catalog is None:
         catalog = build_catalog_from_legacy_index(paths)
     summary = catalog.get("albums", {}).get(album["id"])
+    availability = get_photo_album_availability(
+        album, (summary or {}).get('source_device'), (summary or {}).get('media_count'),
+    )
     if not summary:
         index_data = load_album_index(paths, album["id"])
         if index_data:
-            summary = update_catalog_album(paths, album, list(index_data.get("media", {}).values()))
+            media_items = list(index_data.get("media", {}).values())
+            availability = get_photo_album_availability(
+                album, index_data.get('source_device'), len(media_items),
+            )
+            summary = build_catalog_summary_from_media(album, media_items)
+            summary['last_scanned_at'] = index_data.get('last_scanned_at')
+            if availability['available']:
+                summary = update_catalog_album(
+                    paths, album, summary=summary, source_device=index_data.get('source_device'),
+                )
+        elif not availability['available']:
+            summary = build_catalog_summary_for_unindexed_album(album)
         else:
             error = None
             status = PHOTO_SCAN_STATUS_NEEDS_INDEX
@@ -1344,16 +1417,19 @@ def build_photo_album_response(paths, album, catalog=None):
     return {
         "id": album["id"],
         "name": album["name"],
-        "cover_thumb_url": summary.get("cover_thumb_url"),
+        "cover_thumb_url": summary.get("cover_thumb_url") if availability['available'] else None,
         "photo_count": summary.get("photo_count"),
         "media_count": summary.get("media_count"),
         "video_count": summary.get("video_count"),
         "recursive": album.get("recursive", True),
         "enabled": album.get("enabled", True),
-        "scan_status": summary.get("scan_status") or PHOTO_SCAN_STATUS_NEEDS_INDEX,
+        "scan_status": (summary.get("scan_status") or PHOTO_SCAN_STATUS_NEEDS_INDEX)
+        if availability['available'] else PHOTO_SCAN_STATUS_ERROR,
         "updated_at": summary.get("updated_at"),
         "last_scanned_at": summary.get("last_scanned_at"),
-        "error": summary.get("error"),
+        "available": availability['available'],
+        "code": availability['code'],
+        "error": availability['error'] or summary.get("error"),
         "index_version": summary.get("index_version") or PHOTO_INDEX_VERSION,
     }
 
@@ -1509,19 +1585,23 @@ def list_album_photos(
     if not album:
         return {"error": "Album not found"}, 404
 
+    summary = load_catalog(paths).get('albums', {}).get(album_id, {})
+    availability = get_photo_album_availability(album, summary.get('source_device'), summary.get('media_count'))
+    if not availability['available']:
+        return unavailable_album_photos(availability), 200
+
     snapshot = get_album_index_snapshot(paths, album_id, snapshot_token=snapshot_token)
+    if snapshot is not None:
+        availability = get_photo_album_availability(album, snapshot.get('source_device'), len(snapshot['media']))
+        if not availability['available']:
+            return unavailable_album_photos(availability), 200
     if snapshot is None:
-        error = None
+        availability = get_photo_album_availability(album)
+        if not availability['available']:
+            return unavailable_album_photos(availability), 200
         scan_status = PHOTO_SCAN_STATUS_NEEDS_INDEX
-        if not album.get("enabled", True):
-            error = "Album disabled"
-            scan_status = PHOTO_SCAN_STATUS_ERROR
-        elif not os.path.isdir(album["path"]):
-            error = "Album path is not available"
-            scan_status = PHOTO_SCAN_STATUS_ERROR
-        else:
-            schedule_album_bootstrap(paths, album)
-        summary = update_catalog_album(paths, album, scan_status=scan_status, error=error)
+        summary = update_catalog_album(paths, album, scan_status=scan_status)
+        schedule_album_bootstrap(paths, album)
         return {
             "items": [],
             "next_cursor": None,
@@ -1530,7 +1610,9 @@ def list_album_photos(
             "scan_status": summary.get("scan_status") or scan_status,
             "index_version": summary.get("index_version") or PHOTO_INDEX_VERSION,
             "snapshot": None,
-            "error": error,
+            "error": None,
+            "available": True,
+            "code": None,
         }, 200
 
     media_items = snapshot["media"]
@@ -1547,6 +1629,8 @@ def list_album_photos(
             "index_version": snapshot.get("index_version") or PHOTO_INDEX_VERSION,
             "snapshot": snapshot.get("snapshot_token"),
             "error": error,
+            "available": True,
+            "code": None,
         }, 200
 
     requested_media_type = normalize_media_type(media_type_value)
@@ -1596,7 +1680,25 @@ def list_album_photos(
         "index_version": snapshot.get("index_version") or PHOTO_INDEX_VERSION,
         "snapshot": snapshot.get("snapshot_token"),
         "error": error,
+        "available": True,
+        "code": None,
     }, 200
+
+
+def unavailable_album_photos(availability):
+    """离线相册拒绝返回旧条目，同时保留磁盘索引以便重新连接恢复。"""
+    return {
+        'items': [],
+        'next_cursor': None,
+        'total': 0,
+        'media_counts': get_media_counts([]),
+        'scan_status': PHOTO_SCAN_STATUS_ERROR,
+        'index_version': PHOTO_INDEX_VERSION,
+        'snapshot': None,
+        'available': False,
+        'code': availability['code'],
+        'error': availability['error'],
+    }
 
 
 def make_unique_photo_upload_filename(filename, target_folder):
@@ -1640,9 +1742,14 @@ def upload_photos_to_album(paths, album_id, files):
     if not album.get("enabled", True):
         return {"error": "Album is disabled"}, 400
 
-    album_root = os.path.realpath(os.path.abspath(album["path"]))
-    if not os.path.isdir(album_root):
-        return {"error": "Album folder is unavailable"}, 400
+    index_data = load_album_index(paths, album_id) or {}
+    availability = get_photo_album_availability(album, index_data.get('source_device'))
+    if not availability['available']:
+        return {'error': availability['error'], 'code': availability['code']}, 400
+    try:
+        album_root = os.path.realpath(os.path.abspath(album["path"]))
+    except OSError:
+        return {'error': 'Album folder is unavailable', 'code': 'photo_album_unavailable'}, 400
 
     if not files or files[0].filename == "":
         return {"error": "No selected file"}, 400
@@ -1705,10 +1812,12 @@ def rescan_photo_album(paths, album_id):
 
     media_items, scan_status, error = scan_photo_album(paths, album)
     if scan_status == PHOTO_SCAN_STATUS_ERROR:
+        availability = get_photo_album_availability(album)
         return {
             "success": False,
             "album": build_photo_album_response(paths, album),
             "error": error,
+            "code": availability['code'],
         }, 200
 
     return {

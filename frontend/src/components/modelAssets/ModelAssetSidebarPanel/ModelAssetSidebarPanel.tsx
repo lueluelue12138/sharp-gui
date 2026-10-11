@@ -45,6 +45,7 @@ export function ModelAssetSidebarPanel({
   });
   const {
     modelAssetTotal,
+    modelAssetMutationVersion,
     currentModelId,
     preferredModelFormat,
     setSelectedModelAsset,
@@ -55,6 +56,7 @@ export function ModelAssetSidebarPanel({
   } = useAppStore(
     useShallow((state) => ({
       modelAssetTotal: state.modelAssetTotal,
+      modelAssetMutationVersion: state.modelAssetMutationVersion,
       currentModelId: state.currentModelId,
       preferredModelFormat: state.localModelFormat ?? state.serverModelFormat,
       setSelectedModelAsset: state.setSelectedModelAsset,
@@ -108,7 +110,7 @@ export function ModelAssetSidebarPanel({
 
   useEffect(() => {
     void loadRecentAssets(null, false);
-  }, [loadRecentAssets, modelAssetTotal]);
+  }, [loadRecentAssets, modelAssetTotal, modelAssetMutationVersion]);
 
   useEffect(() => {
     recentScrollStateRef.current = {

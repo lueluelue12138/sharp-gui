@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import json
 import os
 import re
@@ -332,6 +333,19 @@ def build_file_descriptor(paths, path, fmt=None, primary=False):
         return None
 
 
+def model_source_fingerprint(path):
+    """源文件修订标识，同时用于编辑打开和覆盖时的并发检查。"""
+    stat = os.stat(path)
+    return hashlib.sha256(f'{os.path.realpath(path)}:{stat.st_size}:{stat.st_mtime_ns}'.encode()).hexdigest()
+
+
+def apply_model_revision(descriptor, record):
+    """覆盖后的文件 URL 使用新修订号，避免浏览器和渲染器复用旧模型。"""
+    revision = record.get('model_revision')
+    if descriptor and isinstance(revision, str) and revision:
+        descriptor['url'] += '?v=' + quote(revision, safe='')
+
+
 def select_primary_format(files):
     for fmt in VIEWER_FORMAT_PRIORITY:
         if fmt in files:
@@ -533,6 +547,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
     for fmt, path in sorted(files.items(), key=lambda entry: VIEWER_FORMAT_PRIORITY.index(entry[0])):
         descriptor = build_file_descriptor(paths, path, fmt, primary=fmt == primary_format)
         if descriptor:
+            apply_model_revision(descriptor, record)
             descriptor["download_url"] = f"/api/model-assets/{quote(asset_id, safe='')}/download?format={fmt}"
             descriptor["source_media_type"] = source_media_type
             descriptor["viewer_orientation"] = viewer_orientation
@@ -549,7 +564,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
     if include_details:
         detail_metadata = {
             **derived_metadata,
-            **metadata,
+            **{key: value for key, value in metadata.items() if key != 'source_video_path'},
             "source_media_type": source_media_type,
             "viewer_orientation": viewer_orientation,
         }
@@ -565,7 +580,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         "files": descriptors,
         "size": total_size,
         "primary_size": primary_descriptor["size"],
-        "created_at": file_timestamp(primary_path),
+        "created_at": record.get('created_at') or file_timestamp(primary_path),
         "updated_at": max(file_updated_at, str(record.get("updated_at") or "")),
         "default_open_url": primary_descriptor["url"],
         "default_open_format": primary_format,
@@ -616,6 +631,7 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
     descriptors = []
     if available:
         descriptor = build_file_descriptor(paths, model_path, fmt, primary=True)
+        apply_model_revision(descriptor, record)
         descriptor["download_url"] = f"/api/model-assets/{quote(asset_id, safe='')}/download?format={fmt}"
         descriptor["source_media_type"] = source_media_type
         descriptor["viewer_orientation"] = viewer_orientation
@@ -660,6 +676,8 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
         "is_imported": True,
         "source_media_type": source_media_type,
         "viewer_orientation": viewer_orientation,
+        'viewer_camera': normalize_viewer_camera(record.get('viewer_camera')),
+        'viewer_transform': normalize_viewer_transform(record.get('viewer_transform')),
         "source_media_id": None,
         "source_name": record.get("original_name"),
         "source_video_url": None,
@@ -808,6 +826,93 @@ def sync_generated_model_asset(paths, asset_id):
             remove_catalog_asset(index, normalized_id)
         write_asset_index(paths, index)
         return deepcopy(asset)
+
+
+def replace_edited_model_asset(paths, asset_id, staged_files, metadata, source_path, fingerprint):
+    """用已转换的文件覆盖受控模型，保留资产身份；索引写入失败时恢复旧文件。"""
+    with _INDEX_LOCK:
+        index = read_asset_index(paths)
+        asset = get_model_asset(paths, asset_id, include_details=False)
+        if not asset or not asset.get('available'):
+            raise ModelAssetServiceError('Source model has changed', 'model_editor_source_changed', 409)
+        original_files = resolve_asset_source_files(paths, asset_id)
+        if source_path not in original_files.values() or model_source_fingerprint(source_path) != fingerprint:
+            raise ModelAssetServiceError('Source model has changed', 'model_editor_source_changed', 409)
+        imported = asset.get('is_imported')
+        root = paths.model_asset_import_folder if imported else paths.output_folder
+        require_controlled_root(paths, root)
+        record = dict(get_user_record(index, asset_id))
+        record.update({
+            'asset_id': asset_id, 'display_name': metadata['display_name'],
+            'updated_at': utc_now_iso(), 'model_revision': uuid.uuid4().hex,
+        })
+        record.setdefault('created_at', asset['created_at'])
+        if 'catalog' not in index:
+            index['catalog'] = build_asset_catalog(paths, index)
+        if imported:
+            fmt = normalize_format(record.get('format')) or asset['primary_format']
+            if fmt not in original_files or fmt not in staged_files:
+                raise ModelAssetServiceError('Source model has changed', 'model_editor_source_changed', 409)
+            replacements = {original_files[fmt]: staged_files[fmt]}
+            record.update({
+                'metadata': metadata, 'point_count': metadata['point_count'],
+                'viewer_orientation': metadata['viewer_orientation'],
+                'viewer_camera': metadata['viewer_camera'],
+                'viewer_transform': metadata['viewer_transform'],
+            })
+            for key in ('bounding_box', 'coordinate_system', 'attributes', 'compression', 'version'):
+                record.pop(key, None)
+        else:
+            record.setdefault('source_type', SOURCE_GENERATED)
+            replacements = {os.path.join(root, asset_id + '.' + fmt): staged
+                            for fmt, staged in staged_files.items()}
+            previous_metadata = model_gallery.read_model_metadata(paths, asset_id)
+            for key in ('bounding_box', 'gaussian_points', 'coordinate_system', 'attributes', 'compression', 'version'):
+                previous_metadata.pop(key, None)
+            metadata = {**previous_metadata, **metadata, 'id': asset_id, 'updated_at': record['updated_at']}
+            meta_target = model_gallery.get_model_metadata_path(paths, asset_id)
+            meta_staging = os.path.join(os.path.dirname(staged_files['ply']), 'metadata.json')
+            with open(meta_staging, 'w', encoding='utf-8') as file:
+                json.dump(metadata, file, ensure_ascii=False, indent=2, sort_keys=True)
+            replacements[meta_target] = meta_staging
+        original_paths = set(original_files.values()) | set(replacements)
+        for path in original_paths:
+            if not is_controlled_path(paths, path, root) or os.path.islink(path):
+                raise ModelAssetServiceError('Invalid model edit path', 'model_asset_path_invalid', 403)
+        for staged in replacements.values():
+            if not is_controlled_path(paths, staged, root) or os.path.islink(staged) or not os.path.isfile(staged):
+                raise ModelAssetServiceError('Invalid model edit staging file', 'model_asset_path_invalid', 403)
+        # 备份在暂存目录之外；恢复意外失败时不会被编辑器清理掉。
+        backups = []
+        installed = []
+        try:
+            for target in sorted(original_paths):
+                if os.path.lexists(target):
+                    backup = target + '.model-edit-backup-' + uuid.uuid4().hex
+                    os.replace(target, backup)
+                    backups.append((target, backup))
+            for target, staged in replacements.items():
+                os.replace(staged, target)
+                installed.append(target)
+            index.setdefault('assets', {})[asset_id] = record
+            updated = (build_imported_asset(paths, asset_id, record, include_details=False) if imported
+                       else build_generated_asset(paths, asset_id, collect_supported_files(root, asset_id), record, include_details=False))
+            if not updated or not updated['available']:
+                raise ModelAssetServiceError('Model edit could not be published', 'model_editor_save_failed', 500)
+            update_catalog_asset(index, updated)
+            write_asset_index(paths, index)
+        except Exception:
+            for target in reversed(installed):
+                os.remove(target)
+            for target, backup in reversed(backups):
+                os.replace(backup, target)
+            raise
+        for _, backup in backups:
+            try:
+                os.remove(backup)
+            except OSError:
+                pass
+        return deepcopy(updated)
 
 
 def get_catalog_items(paths, refresh=False):

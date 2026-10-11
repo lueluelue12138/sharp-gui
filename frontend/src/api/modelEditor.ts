@@ -9,6 +9,7 @@ export function fetchEditorSource(id: string, signal?: AbortSignal) {
 }
 
 export function saveEditedModel(id: string, input: ModelEditorSaveInput) {
+  // Default to a new copy; overwriting must be explicitly selected in the editor.
   return apiPost<ModelAsset>(`/api/model-assets/${encodeURIComponent(id)}/editor`, input, {
     timeout: 300000,
   });

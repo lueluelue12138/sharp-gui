@@ -20,6 +20,8 @@ export interface PhotoAlbum {
   video_count?: number | null;
   recursive: boolean;
   enabled: boolean;
+  available?: boolean;
+  code?: string | null;
   scan_status: PhotoAlbumScanStatus;
   updated_at: string | null;
   last_scanned_at?: string | null;
@@ -98,6 +100,7 @@ export interface AddPhotoAlbumResponse {
   album: PhotoAlbum;
   duplicate?: boolean;
   error?: string;
+  code?: string | null;
 }
 
 export interface PhotoListResponse {
@@ -109,6 +112,8 @@ export interface PhotoListResponse {
   snapshot?: string | null;
   index_version?: number;
   error?: string | null;
+  available?: boolean;
+  code?: string | null;
 }
 
 export interface PhotoConversionResponse {
@@ -130,4 +135,5 @@ export interface PhotoUploadResponse {
     error: string;
   }>;
   error?: string;
+  code?: string | null;
 }

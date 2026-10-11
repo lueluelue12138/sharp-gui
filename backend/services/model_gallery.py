@@ -669,14 +669,14 @@ def delete_gallery_item(paths, item_id):
         if os.path.exists(img_path):
             os.remove(img_path)
 
-    delete_uploaded_source_video(paths, metadata)
+    delete_uploaded_source_video(paths, metadata, excluded_model_id=normalized_item_id)
 
     metadata_path = get_model_metadata_path(paths, normalized_item_id)
     if os.path.exists(metadata_path):
         os.remove(metadata_path)
 
 
-def delete_uploaded_source_video(paths, metadata):
+def delete_uploaded_source_video(paths, metadata, excluded_model_id=None):
     """删除拖拽上传视频的源文件缓存，不触碰照片图库原视频。"""
     if not isinstance(metadata, dict) or metadata.get("source_media_id"):
         return
@@ -688,6 +688,25 @@ def delete_uploaded_source_video(paths, metadata):
     upload_root = os.path.realpath(get_video_uploads_folder(paths))
     real_path = os.path.realpath(source_video_path)
     if not is_real_path_inside(real_path, upload_root):
+        return
+
+    # 编辑副本共享来源，最后一个引用消失前不能删除上传视频。
+    try:
+        with os.scandir(paths.output_folder) as entries:
+            for entry in entries:
+                if not entry.name.endswith(MODEL_METADATA_SUFFIX):
+                    continue
+                other_id = entry.name[:-len(MODEL_METADATA_SUFFIX)]
+                if other_id == excluded_model_id:
+                    continue
+                other_path = read_model_metadata(paths, other_id).get('source_video_path')
+                if isinstance(other_path, str) and os.path.normcase(os.path.realpath(other_path)) == os.path.normcase(real_path):
+                    return
+    except FileNotFoundError:
+        # 取消首个重建任务时可能还没有 outputs，也就没有模型引用。
+        pass
+    except OSError:
+        # 无法确认引用时保留源文件。
         return
 
     try:

@@ -16,6 +16,7 @@ import {
   SparklesIcon,
 } from '@/components/common/Icons';
 import { SelectMenu } from '@/components/common/SelectMenu';
+import { getPhotoAlbumErrorKey, isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import type { PhotoAlbum, PhotoMediaCounts, PhotoMediaType } from '@/types';
 
 import styles from './PhotoToolbar.module.css';
@@ -109,8 +110,11 @@ export function PhotoToolbar({
   const currentDensity = densityOptions.find((option) => option.value === String(gridColumns)) ?? densityOptions[3];
   const densityProgress = `${((gridColumns - 1) / 7) * 100}%`;
   const title = album?.name ?? t('photoNoAlbumSelected');
+  const albumAvailable = isPhotoAlbumAvailable(album);
   const subtitle = album
-    ? mediaType === 'video'
+    ? !albumAvailable
+      ? t(getPhotoAlbumErrorKey(album.code))
+      : mediaType === 'video'
       ? t('photoVideoTotalCount', { count: total })
       : mediaType === 'image'
         ? t('photoTotalCount', { count: total })
@@ -120,7 +124,9 @@ export function PhotoToolbar({
             videos: mediaCounts.video,
           })
     : t('photoChooseAlbumHint');
-  const compactTitle = album ? `${album.name} · ${total}` : t('photoNoAlbumSelected');
+  const compactTitle = album
+    ? albumAvailable ? `${album.name} · ${total}` : album.name
+    : t('photoNoAlbumSelected');
   const uploadDisabled = !album || !canUploadPhotos || isUploadingPhotos;
   const isExpandedMode = mode === 'expanded';
   const primaryActionLabel = selectedCount > 0
@@ -128,7 +134,7 @@ export function PhotoToolbar({
       ? t('photoConvertSelectedShort', { count: selectedImageCount })
       : t('photoConvertPhotosOnlyShort')
     : t('photoConvertTo3d');
-  const primaryActionDisabled = !album || (selectedCount > 0 && selectedImageCount === 0);
+  const primaryActionDisabled = !albumAvailable || (selectedCount > 0 && selectedImageCount === 0);
   const mediaOptions: Array<{ value: PhotoMediaType; label: string; count: number }> = [
     { value: 'all', label: t('photoFilterAll'), count: mediaCounts.all },
     { value: 'image', label: t('photoFilterPhotos'), count: mediaCounts.image },
@@ -445,7 +451,7 @@ export function PhotoToolbar({
               selectionMode ? styles.textBtnActive : '',
             ].filter(Boolean).join(' ')}
             onClick={onToggleSelection}
-            disabled={!album}
+            disabled={!albumAvailable}
             tabIndex={isExpandedMode ? undefined : -1}
             aria-hidden={!isExpandedMode}
             type="button"

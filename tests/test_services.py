@@ -1207,6 +1207,8 @@ def test_album_pagination_snapshot_is_stable_during_rescan(config_file, workspac
 def test_large_warm_album_browsing_does_not_walk_directory(config_file, workspace, monkeypatch):
     album_dir = workspace / "album"
     album_dir.mkdir()
+    # 暖索引性能夹具需要一个非空源目录，避免模拟成媒体已全部移走的相册。
+    (album_dir / 'image-0999.jpg').write_bytes(b'present')
     write_config(
         config_file,
         {

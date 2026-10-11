@@ -61,7 +61,7 @@ def save_model_editor(asset_id):
     if request.content_length and request.content_length > model_editor.MAX_REQUEST_BYTES:
         return jsonify({'error': 'Model edit request is too large', 'code': 'model_editor_too_large'}), 413
     try:
-        return jsonify(model_editor.save_edited_copy(get_paths(), asset_id, request.get_json(silent=True)))
+        return jsonify(model_editor.save_edited_model(get_paths(), asset_id, request.get_json(silent=True)))
     except model_assets.ModelAssetServiceError as exc:
         return service_error_response(exc)
     except RequestEntityTooLarge:

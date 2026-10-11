@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import {
   ArrowLeft,
+  ArrowLeftRight,
   Box,
   Camera,
   Check,
@@ -11,6 +12,7 @@ import {
   Move,
   Redo2,
   RotateCw,
+  RotateCcw,
   Save,
   SlidersHorizontal,
   SquareDashed,
@@ -21,12 +23,13 @@ import {
 import { useTranslation } from 'react-i18next';
 
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { SelectMenu } from '@/components/common/SelectMenu';
+import { DEFAULT_VIEWER_TRANSFORM } from '@/constants/viewerCoordinates';
 import { uploadModelAssetCover } from '@/api/modelAssets';
 import { useModelEditor } from '@/hooks/useModelEditor';
 import type { ViewerContext } from '@/hooks/useViewer';
 import { useAppStore } from '@/store/useAppStore';
-import type { EditorTool } from '@/types/modelEditor';
-import type { ViewerTransformState } from '@/types/viewerQuickControls';
+import type { EditorSaveMode, EditorSelectionMode, EditorTool } from '@/types/modelEditor';
 import { resolveModelAssetSource } from '@/utils/modelAssets';
 
 import styles from './ModelEditor.module.css';
@@ -41,6 +44,8 @@ function NumberField({
   label,
   value,
   onCommit,
+  onFinish,
+  step = 0.01,
   disabled = false,
   min,
   max,
@@ -48,10 +53,51 @@ function NumberField({
   label: string;
   value: number;
   onCommit: (value: number) => void;
+  onFinish?: () => void;
+  step?: number;
   disabled?: boolean;
   min?: number;
   max?: number;
 }) {
+  const { t } = useTranslation();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const dragRef = useRef<{ pointerId: number; x: number; value: number; moved: boolean } | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const finishRef = useRef(onFinish);
+  useEffect(() => { finishRef.current = onFinish; }, [onFinish]);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (input && !dragRef.current && document.activeElement !== input) input.value = String(Number(value.toFixed(4)));
+  }, [value]);
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+  useEffect(() => {
+    const input = inputRef.current;
+    if (!input) return;
+    const wheel = (event: WheelEvent) => {
+      if (document.activeElement !== input || disabled || event.deltaY === 0) return;
+      event.preventDefault();
+      const current = Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : value;
+      const next = Math.min(max ?? Infinity, Math.max(min ?? -Infinity,
+        current + (event.deltaY < 0 ? step : -step) * (event.shiftKey ? 0.1 : 1)));
+      input.value = String(Number(next.toFixed(6)));
+      onCommit(next);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => finishRef.current?.(), 350);
+    };
+    input.addEventListener('wheel', wheel, { passive: false });
+    return () => input.removeEventListener('wheel', wheel);
+  }, [disabled, max, min, onCommit, step, value]);
+  const finishDrag = (button: HTMLButtonElement, pointerId: number) => {
+    if (dragRef.current?.pointerId !== pointerId) return;
+    const moved = dragRef.current.moved;
+    dragRef.current = null;
+    setDragging(false);
+    if (button.hasPointerCapture(pointerId)) button.releasePointerCapture(pointerId);
+    if (moved) onFinish?.();
+  };
   const commit = (input: HTMLInputElement) => {
     const number = input.valueAsNumber;
     if (
@@ -63,28 +109,85 @@ function NumberField({
     else input.value = String(Number(value.toFixed(4)));
   };
   return (
-    <label className={styles.numberField}>
-      <span>{label}</span>
+    <div className={styles.numberField}>
+      <div className={styles.fieldLabel}>
+        <span>{label}</span>
+        <button
+          type="button"
+          className={[styles.scrubHandle, dragging && styles.scrubbing].filter(Boolean).join(' ')}
+          aria-label={t('modelEditorDragValue', { label })}
+          title={t('modelEditorDragValueHint')}
+          disabled={disabled}
+          onPointerDown={(event) => {
+            if (event.button !== 0 || dragRef.current) return;
+            event.preventDefault();
+            if (timerRef.current) clearTimeout(timerRef.current);
+            inputRef.current?.blur();
+            onFinish?.();
+            const current = inputRef.current?.valueAsNumber;
+            dragRef.current = {
+              pointerId: event.pointerId, x: event.clientX,
+              value: current !== undefined && Number.isFinite(current) ? current : value,
+              moved: false,
+            };
+            event.currentTarget.setPointerCapture(event.pointerId);
+            setDragging(true);
+          }}
+          onPointerMove={(event) => {
+            const drag = dragRef.current;
+            if (!drag || event.pointerId !== drag.pointerId) return;
+            const delta = event.clientX - drag.x;
+            // Incremental deltas let Shift be pressed mid-drag without a jump.
+            drag.x = event.clientX;
+            if (!delta) return;
+            drag.moved = true;
+            drag.value = Math.min(max ?? Infinity, Math.max(min ?? -Infinity,
+              drag.value + delta * step * (event.shiftKey ? 0.1 : 1)));
+            const next = Number(drag.value.toFixed(6));
+            if (inputRef.current) inputRef.current.value = String(next);
+            onCommit(next);
+          }}
+          onPointerUp={(event) => finishDrag(event.currentTarget, event.pointerId)}
+          onPointerCancel={(event) => finishDrag(event.currentTarget, event.pointerId)}
+          onLostPointerCapture={(event) => finishDrag(event.currentTarget, event.pointerId)}
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+            event.preventDefault();
+            const next = Math.min(max ?? Infinity, Math.max(min ?? -Infinity,
+              value + (event.key === 'ArrowRight' ? step : -step) * (event.shiftKey ? 0.1 : 1)));
+            onCommit(next);
+            onFinish?.();
+          }}
+        ><ArrowLeftRight size={13} /></button>
+      </div>
       <input
-        key={value}
+        ref={inputRef}
         aria-label={label}
         type="number"
-        step="any"
+        step={step}
         min={min}
         max={max}
         disabled={disabled}
         defaultValue={Number(value.toFixed(4))}
-        onBlur={(event) => commit(event.currentTarget)}
+        onChange={(event) => {
+          const number = event.currentTarget.valueAsNumber;
+          if (Number.isFinite(number) && (min === undefined || number >= min) && (max === undefined || number <= max)) onCommit(number);
+        }}
+        onBlur={(event) => {
+          commit(event.currentTarget);
+          if (timerRef.current) clearTimeout(timerRef.current);
+          onFinish?.();
+        }}
         onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur();
         }}
       />
-    </label>
+    </div>
   );
 }
 
 const TOOLS = [
-  { id: 'move', label: 'modelEditorMove', icon: Move },
+  { id: 'origin', label: 'modelEditorOrigin', icon: Move },
   { id: 'rotate', label: 'modelEditorRotate', icon: RotateCw },
   { id: 'rectangle', label: 'modelEditorRectangle', icon: SquareDashed },
   { id: 'sphere', label: 'modelEditorSphere', icon: Circle },
@@ -96,12 +199,17 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
   const editor = useModelEditor(viewerRef, assetId);
   const { state } = editor;
   const [showExit, setShowExit] = useState(false);
+  const [showOverwrite, setShowOverwrite] = useState(false);
+  const [saveMode, setSaveMode] = useState<EditorSaveMode>('copy');
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [name, setName] = useState<string | null>(null);
-  const defaultName = state.name ? t('modelEditorDefaultName', { name: state.name }) : '';
+  const defaultName = state.name
+    ? saveMode === 'overwrite' ? state.name : t('modelEditorDefaultName', { name: state.name.slice(0, 140) })
+    : '';
+  const saveLabel = saveMode === 'overwrite' ? 'modelEditorOverwrite' : 'modelEditorSave';
   const controlsReady = state.ready && !state.busy;
   const regionTool = state.tool === 'sphere' || state.tool === 'box';
-  const canDelete = controlsReady && state.selectedCount > 0;
+  const canDelete = controlsReady && !state.selecting && state.selectedCount > 0;
 
   useEffect(() => {
     const onUnload = (event: BeforeUnloadEvent) => {
@@ -123,7 +231,7 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (showExit) return;
+      if (showExit || showOverwrite) return;
       if ((event.target as HTMLElement)?.closest('input, textarea, [contenteditable="true"]'))
         return;
       if ((event.ctrlKey || event.metaKey) && ['z', 'y'].includes(event.key.toLowerCase())) {
@@ -142,14 +250,14 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [editor, showExit]);
+  }, [editor, showExit, showOverwrite]);
 
   const close = () => {
     editor.close();
     onClose();
   };
   const save = async () => {
-    let asset = await editor.save(name ?? defaultName);
+    let asset = await editor.save(name ?? defaultName, saveMode);
     if (!asset) return;
     const cover = await editor.captureCover();
     if (cover) {
@@ -167,22 +275,26 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
     const source = resolveModelAssetSource(asset, store.effectiveModelFormat());
     editor.close();
     store.upsertModelAssets([asset]);
-    if (source.url)
+    if (source.url) {
       store.setCurrentModel({
         id: asset.id,
         url: source.url,
         format: source.format,
         size: source.size,
-        source: 'model-asset-generated',
+        source: asset.is_imported ? 'model-asset-imported' : 'model-asset-generated',
         sourceMediaType: source.sourceMediaType,
         viewerOrientation: source.viewerOrientation,
         viewerCamera: source.viewerCamera,
         viewerTransform: source.viewerTransform,
       });
+      if (saveMode === 'overwrite') {
+        // User adjustments are baked in file space; use the ordinary display basis.
+        store.setViewerTransformDraft(DEFAULT_VIEWER_TRANSFORM);
+        store.applyViewerTransformDraft();
+        store.requestCurrentModelReload();
+      }
+    }
     onClose();
-  };
-  const changeTransform = (key: keyof ViewerTransformState, value: number) => {
-    if (state.transform) editor.changeTransform({ ...state.transform, [key]: value });
   };
   const selectTool = (tool: EditorTool) => {
     editor.changeTool(tool);
@@ -224,16 +336,30 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
             <Redo2 size={18} />
           </button>
         </div>
-        <button
-          className={styles.saveButton}
-          aria-label={t(state.busy ? 'modelEditorWorking' : 'modelEditorSave')}
-          title={t('modelEditorSave')}
-          disabled={!controlsReady || state.deletedCount === state.pointCount}
-          onClick={() => void save()}
-        >
-          <Save size={16} />
-          <span>{t(state.busy ? 'modelEditorWorking' : 'modelEditorSave')}</span>
-        </button>
+        <div className={styles.saveGroup}>
+          <button
+            className={styles.saveButton}
+            aria-label={t(state.busy ? 'modelEditorWorking' : saveLabel)}
+            title={t(saveLabel)}
+            disabled={!controlsReady || state.selecting || state.deletedCount === state.pointCount}
+            onClick={() => saveMode === 'overwrite' ? setShowOverwrite(true) : void save()}
+          >
+            <Save size={16} />
+            <span>{t(state.busy ? 'modelEditorWorking' : saveLabel)}</span>
+          </button>
+          <SelectMenu
+            className={styles.saveMode}
+            value={saveMode}
+            options={[
+              { value: 'copy', label: t('modelEditorSave') },
+              { value: 'overwrite', label: t('modelEditorOverwrite') },
+            ]}
+            onChange={(value) => setSaveMode(value as EditorSaveMode)}
+            ariaLabel={t('modelEditorSaveMode')}
+            showSelectedLabel={false}
+            disabled={!controlsReady}
+          />
+        </div>
       </header>
 
       {state.ready && (
@@ -310,7 +436,9 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
                   ? 'modelEditorRegionHint'
                   : state.tool === 'rectangle'
                     ? 'modelEditorRectangleHint'
-                    : 'modelEditorTransformHint',
+                    : state.tool === 'origin'
+                      ? 'modelEditorOriginHint'
+                      : 'modelEditorLevelHint',
               )}
             </p>
             {regionTool ? (
@@ -324,6 +452,7 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
                         label={axis}
                         value={state.region.center[index]}
                         disabled={state.busy}
+                        onFinish={editor.commitTransform}
                         onCommit={(value) => {
                           const center = [...state.region.center] as [number, number, number];
                           center[index] = value;
@@ -341,6 +470,7 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
                       value={state.region.radius}
                       min={0.00001}
                       disabled={state.busy}
+                      onFinish={editor.commitTransform}
                       onCommit={(radius) => editor.changeRegion({ ...state.region, radius })}
                     />
                   ) : (
@@ -352,6 +482,7 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
                           value={state.region.size[index]}
                           min={0.00001}
                           disabled={state.busy}
+                          onFinish={editor.commitTransform}
                           onCommit={(value) => {
                             const size = [...state.region.size] as [number, number, number];
                             size[index] = value;
@@ -365,53 +496,82 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
               </>
             ) : (
               state.tool !== 'rectangle' &&
-              state.transform && (
-                <>
+              state.alignment && (
+                state.tool === 'origin' ? (
                   <section>
-                    <h4>{t('modelEditorPosition')}</h4>
+                    <h4>{t('modelEditorOriginPosition')}</h4>
                     <div className={styles.fieldGrid}>
-                      {(['X', 'Y', 'Z'] as const).map((axis) => (
+                      {(['X', 'Y', 'Z'] as const).map((axis, index) => (
                         <NumberField
                           key={axis}
                           label={axis}
-                          value={state.transform![`position${axis}`]}
+                          value={state.alignment!.origin[index]}
                           disabled={state.busy}
-                          onCommit={(value) => changeTransform(`position${axis}`, value)}
+                          onCommit={(value) => editor.changeOrigin(index, value)}
+                          onFinish={editor.commitTransform}
                         />
                       ))}
                     </div>
+                    <button
+                      className={styles.resetButton}
+                      disabled={!controlsReady}
+                      onClick={editor.alignOriginToView}
+                    >
+                      <Move size={15} />
+                      {t('modelEditorAlignOriginToView')}
+                    </button>
+                    <p className={styles.hint}>{t('modelEditorFileOriginHint')}</p>
                   </section>
+                ) : (
                   <section>
                     <h4>
                       {t('modelEditorRotation')} <span>°</span>
                     </h4>
                     <div className={styles.fieldGrid}>
-                      {(['X', 'Y', 'Z'] as const).map((axis) => (
+                      {(['X', 'Y', 'Z'] as const).map((axis, index) => (
                         <NumberField
                           key={axis}
                           label={axis}
-                          value={(state.transform![`rotation${axis}`] * 180) / Math.PI}
+                          value={(state.alignment!.rotation[index] * 180) / Math.PI}
+                          step={1}
                           disabled={state.busy}
                           onCommit={(value) =>
-                            changeTransform(`rotation${axis}`, (value * Math.PI) / 180)
+                            editor.changeRotation(index, (value * Math.PI) / 180)
                           }
+                          onFinish={editor.commitTransform}
                         />
                       ))}
                     </div>
+                    <button
+                      className={styles.resetButton}
+                      disabled={!controlsReady || !state.canResetRotation}
+                      onClick={editor.resetRotation}
+                    >
+                      <RotateCcw size={15} />
+                      {t('modelEditorResetRotation')}
+                    </button>
+                    <p className={styles.hint}>{t('modelEditorResetRotationHint')}</p>
                   </section>
-                  <section>
-                    <h4>{t('modelEditorScale')}</h4>
-                    <NumberField
-                      label={t('modelEditorUniform')}
-                      value={state.transform.scale}
-                      min={0.00001}
-                      max={10000}
-                      disabled={state.busy}
-                      onCommit={(value) => changeTransform('scale', value)}
-                    />
-                  </section>
-                </>
+                )
               )
+            )}
+            {state.tool !== 'origin' && state.tool !== 'rotate' && (
+              <section>
+                <label className={styles.selectionMode}>
+                  <span>{t('modelEditorSelectionRange')}</span>
+                  <select
+                    aria-label={t('modelEditorSelectionRange')}
+                    value={state.selectionMode}
+                    disabled={state.busy}
+                    onChange={(event) => editor.changeSelectionMode(event.target.value as EditorSelectionMode)}
+                  >
+                    {(['intersect', 'center', 'contain'] as const).map((mode) => (
+                      <option key={mode} value={mode}>{t(`modelEditorSelection${mode[0].toUpperCase()}${mode.slice(1)}`)}</option>
+                    ))}
+                  </select>
+                </label>
+                <p className={styles.hint}>{t('modelEditorSelectionRangeHint')}</p>
+              </section>
             )}
             <section className={styles.selectionSection}>
               <div className={styles.selectionSummary}>
@@ -450,7 +610,7 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
             </section>
             <section>
               <label className={styles.nameField}>
-                <span>{t('modelEditorName')}</span>
+                <span>{t(saveMode === 'overwrite' ? 'modelEditorOverwriteName' : 'modelEditorName')}</span>
                 <input
                   maxLength={160}
                   value={name ?? defaultName}
@@ -458,7 +618,7 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
                   onChange={(event) => setName(event.target.value)}
                 />
               </label>
-              <p className={styles.hint}>{t('modelEditorCopyHint')}</p>
+              <p className={styles.hint}>{t(saveMode === 'overwrite' ? 'modelEditorOverwriteHint' : 'modelEditorCopyHint')}</p>
             </section>
           </aside>
 
@@ -499,6 +659,15 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
         </>
       )}
       <div className={styles.confirmLayer}>
+        <ConfirmDialog
+          isOpen={showOverwrite}
+          title={t('modelEditorOverwrite')}
+          message={t('modelEditorOverwriteConfirm', { name: state.name })}
+          confirmLabel={t('modelEditorOverwrite')}
+          isBusy={state.busy}
+          onConfirm={() => { setShowOverwrite(false); void save(); }}
+          onClose={() => setShowOverwrite(false)}
+        />
         <ConfirmDialog
           isOpen={showExit}
           title={t('modelEditorDiscardTitle')}

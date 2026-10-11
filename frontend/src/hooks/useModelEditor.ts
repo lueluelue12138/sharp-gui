@@ -6,29 +6,36 @@ import { TransformControls } from 'three/addons/controls/TransformControls.js';
 
 import { fetchEditorSource, saveEditedModel } from '@/api/modelEditor';
 import { getSplatFileTypeFromFormat } from '@/constants/spark';
+import { getDefaultPlyDisplayMatrix } from '@/constants/viewerCoordinates';
 import type { ViewerContext } from '@/hooks/useViewer';
 import type { ModelAsset } from '@/types/modelAsset';
-import type { EditorRegion, EditorTool, ModelEditorDescriptor } from '@/types/modelEditor';
+import type { EditorAlignment, EditorRegion, EditorSaveMode, EditorSelectionMode, EditorTool, ModelEditorDescriptor } from '@/types/modelEditor';
 import type { ViewerCameraHint } from '@/types/modelPreview';
-import type { ViewerTransformState } from '@/types/viewerQuickControls';
+import { createAlignedExport, resolveEditorOrigin, rotateModelAtOrigin } from '@/utils/modelAlignment';
 import {
   combineSelection,
   countMask,
   createRectanglePreview,
   encodeMask,
-  inRegion,
-  inScreenRectangle,
+  splatInRegion,
+  splatInScreenRectangle,
   maskBit,
   selectPoints,
   setMaskBit,
+  writeSplatCovariance,
 } from '@/utils/modelEditor';
 import type { ScreenRectangle } from '@/utils/modelEditor';
 import { getReconstructionCameraView } from '@/utils/viewerRuntime';
+import { createRegionResizeControls } from '@/utils/regionResize';
 
 interface Snapshot {
   deleted: Uint8Array;
-  transform: ViewerTransformState;
+  matrix: number[];
+  origin: [number, number, number];
+  rotation: [number, number, number, number];
+  angles: [number, number, number];
   camera: ViewerCameraHint;
+  region: EditorRegion;
 }
 
 interface Session {
@@ -37,6 +44,12 @@ interface Session {
   mesh: SplatMesh;
   descriptor: ModelEditorDescriptor;
   positions: Float32Array;
+  covariance: Float32Array;
+  selectionMode: EditorSelectionMode;
+  selecting: boolean;
+  selectionFrame: number | null;
+  pendingTransform: boolean;
+  pendingRegion: boolean;
   mask: RgbaArray;
   deleted: Uint8Array;
   selected: Uint8Array;
@@ -45,6 +58,7 @@ interface Session {
   camera: ViewerCameraHint;
   startCamera: ViewerCameraHint;
   history: Snapshot[];
+  startSnapshot: Snapshot | null;
   historyIndex: number;
   revision: number;
   busy: boolean;
@@ -52,22 +66,28 @@ interface Session {
   gizmo: TransformControls;
   regionObject: THREE.Object3D;
   transformObject: THREE.Object3D;
-  pivotLocal: THREE.Vector3;
+  origin: THREE.Vector3;
+  rotation: THREE.Quaternion;
+  angles: THREE.Euler;
   sphere: THREE.LineSegments;
   box: THREE.LineSegments;
   grid: THREE.GridHelper;
+  resizeControls: ReturnType<typeof createRegionResizeControls> | null;
   restore: () => void;
 }
 
 export interface EditorState {
   ready: boolean;
+  selecting: boolean;
+  selectionMode: EditorSelectionMode;
   busy: boolean;
   error: string | null;
   pointCount: number;
   deletedCount: number;
   selectedCount: number;
   tool: EditorTool;
-  transform: ViewerTransformState | null;
+  alignment: EditorAlignment | null;
+  canResetRotation: boolean;
   region: EditorRegion;
   canUndo: boolean;
   canRedo: boolean;
@@ -81,13 +101,16 @@ export interface EditorState {
 const INITIAL_REGION: EditorRegion = { center: [0, 0, 0], radius: 1, size: [2, 2, 2] };
 const INITIAL_STATE: EditorState = {
   ready: false,
+  selecting: false,
+  selectionMode: 'intersect',
   busy: false,
   error: null,
   pointCount: 0,
   deletedCount: 0,
   selectedCount: 0,
-  tool: 'move',
-  transform: null,
+  tool: 'origin',
+  alignment: null,
+  canResetRotation: false,
   region: INITIAL_REGION,
   canUndo: false,
   canRedo: false,
@@ -118,31 +141,44 @@ function applyCamera(ctx: ViewerContext, hint: ViewerCameraHint) {
   ctx.controls.update();
 }
 
-function getTransform(mesh: SplatMesh): ViewerTransformState {
+function getAlignment(session: Session): EditorAlignment {
+  const { angles } = session;
   return {
-    positionX: mesh.position.x,
-    positionY: mesh.position.y,
-    positionZ: mesh.position.z,
-    rotationX: mesh.rotation.x,
-    rotationY: mesh.rotation.y,
-    rotationZ: mesh.rotation.z,
-    scale: mesh.scale.x,
+    origin: session.origin.toArray(),
+    rotation: [angles.x, angles.y, angles.z],
   };
 }
 
-function setTransform(mesh: SplatMesh, value: ViewerTransformState) {
-  mesh.position.set(value.positionX, value.positionY, value.positionZ);
-  mesh.rotation.set(value.rotationX, value.rotationY, value.rotationZ);
-  mesh.scale.setScalar(value.scale);
+function setModelMatrix(mesh: SplatMesh, matrix: THREE.Matrix4) {
+  matrix.decompose(mesh.position, mesh.quaternion, mesh.scale);
   mesh.updateMatrixWorld(true);
   mesh.updateVersion();
 }
 
+function setRotation(session: Session, rotation: THREE.Quaternion, angles?: THREE.Euler) {
+  if (session.rotation.angleTo(rotation) >= 1e-10) {
+    session.mesh.updateMatrixWorld(true);
+    setModelMatrix(session.mesh, rotateModelAtOrigin(
+      session.mesh.matrixWorld, session.origin, session.rotation, rotation,
+    ));
+  }
+  session.rotation.copy(rotation);
+  // Keep explicitly entered Euler angles through ±90°/180° instead of changing
+  // their equivalent representation between consecutive wheel/input events.
+  if (angles) session.angles.copy(angles);
+  else session.angles.setFromQuaternion(rotation, 'XYZ');
+}
+
 function snapshot(session: Session): Snapshot {
+  session.mesh.updateMatrixWorld(true);
   return {
     deleted: session.deleted.slice(),
-    transform: getTransform(session.mesh),
+    matrix: session.mesh.matrixWorld.toArray(),
+    origin: session.origin.toArray(),
+    rotation: session.rotation.toArray(),
+    angles: [session.angles.x, session.angles.y, session.angles.z],
     camera: structuredClone(session.camera),
+    region: structuredClone(session.region),
   };
 }
 
@@ -150,8 +186,12 @@ function recordHistory(session: Session) {
   const next = snapshot(session);
   const previous = session.history[session.historyIndex];
   if (
-    JSON.stringify(next.transform) === JSON.stringify(previous.transform) &&
+    JSON.stringify(next.matrix) === JSON.stringify(previous.matrix) &&
+    JSON.stringify(next.origin) === JSON.stringify(previous.origin) &&
+    JSON.stringify(next.rotation) === JSON.stringify(previous.rotation) &&
+    JSON.stringify(next.angles) === JSON.stringify(previous.angles) &&
     JSON.stringify(next.camera) === JSON.stringify(previous.camera) &&
+    JSON.stringify(next.region) === JSON.stringify(previous.region) &&
     next.deleted.every((value, index) => value === previous.deleted[index])
   )
     return;
@@ -185,14 +225,16 @@ function syncHelpers(session: Session) {
   box.visible = tool === 'box';
   session.gizmo.setMode(tool === 'rotate' ? 'rotate' : 'translate');
   session.mesh.updateMatrixWorld(true);
-  session.transformObject.position.copy(session.pivotLocal).applyMatrix4(session.mesh.matrixWorld);
-  session.transformObject.quaternion.copy(session.mesh.quaternion);
+  session.transformObject.position.copy(session.origin);
+  session.transformObject.quaternion.copy(session.rotation);
+  session.grid.position.copy(session.origin);
   session.transformObject.updateMatrixWorld(true);
   session.gizmo.attach(
     tool === 'sphere' || tool === 'box' ? regionObject : session.transformObject,
   );
   session.gizmo.enabled = tool !== 'rectangle' && !session.busy;
   session.gizmo.getHelper().visible = tool !== 'rectangle';
+  session.resizeControls?.update();
 }
 
 function createMaskModifier(mask: RgbaArray) {
@@ -239,31 +281,40 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
   const [state, setState] = useState<EditorState>(INITIAL_STATE);
   const publish = (session: Session) => {
     if (session.closed) return;
+    const baseline = session.startSnapshot;
     setState((previous) => ({
       ...previous,
       ready: true,
       busy: session.busy,
+      selecting: session.selecting,
+      selectionMode: session.selectionMode,
       pointCount: session.descriptor.point_count,
       deletedCount: countMask(session.deleted),
       selectedCount: countMask(session.selected),
       tool: session.tool,
       gridVisible: session.grid.visible,
-      transform: getTransform(session.mesh),
+      alignment: getAlignment(session),
+      canResetRotation: [session.angles.x, session.angles.y, session.angles.z].some((angle) => Math.abs(angle) > 1e-8),
       region: structuredClone(session.region),
       canUndo: session.historyIndex > 0,
       canRedo: session.historyIndex < session.history.length - 1,
-      dirty: session.history.length > 1 || session.historyIndex > 0,
+      // Selecting/resizing a crop alone does not modify the model file.
+      dirty: session.pendingTransform || !!baseline && (
+        JSON.stringify(session.mesh.matrixWorld.toArray()) !== JSON.stringify(baseline.matrix) ||
+        JSON.stringify(session.origin.toArray()) !== JSON.stringify(baseline.origin) ||
+        JSON.stringify(session.camera) !== JSON.stringify(baseline.camera) ||
+        session.deleted.some((value, index) => value !== baseline.deleted[index])
+      ),
     }));
   };
 
   const runSelection = async (
     session: Session,
-    predicate: (x: number, y: number, z: number) => boolean,
+    predicate: (x: number, y: number, z: number, index: number) => boolean,
     mode: 'replace' | 'add' | 'subtract' = 'replace',
   ) => {
     const revision = ++session.revision;
-    session.busy = true;
-    syncHelpers(session);
+    session.selecting = true;
     publish(session);
     setState((previous) => ({ ...previous, error: null }));
     try {
@@ -273,7 +324,7 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
         predicate,
         () => session.closed || revision !== session.revision,
       );
-      if (!selection || session.closed) return;
+      if (!selection || session.closed || revision !== session.revision) return;
       session.selected = combineSelection(session.selected, selection, mode);
       updateMask(session);
     } catch {
@@ -282,20 +333,29 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
       }
     } finally {
       if (!session.closed && revision === session.revision) {
-        session.busy = false;
-        syncHelpers(session);
+        session.selecting = false;
         publish(session);
       }
     }
   };
 
   const selectRegion = (session: Session) => {
-    session.mesh.updateMatrixWorld(true);
-    const matrix = session.mesh.matrixWorld.elements.slice();
-    const region = structuredClone(session.region);
-    void runSelection(session, (x, y, z) =>
-      inRegion(x, y, z, matrix, region, session.tool === 'sphere'),
-    );
+    // Coalesce continuous input; cancel obsolete chunks, keeping fields and the gizmo responsive.
+    session.revision++;
+    session.selecting = true;
+    publish(session);
+    if (session.selectionFrame !== null) cancelAnimationFrame(session.selectionFrame);
+    session.selectionFrame = requestAnimationFrame(() => {
+      session.selectionFrame = null;
+      if (session.closed || session.busy) return;
+      session.mesh.updateMatrixWorld(true);
+      const matrix = session.mesh.matrixWorld.elements.slice();
+      const region = structuredClone(session.region);
+      const sphere = session.tool === 'sphere', mode = session.selectionMode;
+      void runSelection(session, (x, y, z, index) =>
+        splatInRegion(x, y, z, session.covariance, index, matrix, region, sphere, mode),
+      );
+    });
   };
 
   useEffect(() => {
@@ -331,7 +391,13 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
         mesh.scale.copy(original.scale);
         mesh.updateMatrixWorld(true);
         const positions = new Float32Array(descriptor.point_count * 3);
-        mesh.forEachSplat((i, center) => center.toArray(positions, i * 3));
+        const covariance = new Float32Array(descriptor.point_count * 6);
+        mesh.forEachSplat((i, center, scales, quaternion, opacity) => {
+          center.toArray(positions, i * 3);
+          const support = Math.min(ctx.sparkRenderer.maxStdDev,
+            Math.sqrt(Math.max(0, 2 * Math.log(Math.max(opacity, ctx.sparkRenderer.minAlpha) / ctx.sparkRenderer.minAlpha))));
+          writeSplatCovariance(covariance, i, scales, quaternion, support);
+        });
         const mask = new RgbaArray({
           capacity: descriptor.point_count,
           count: descriptor.point_count,
@@ -342,6 +408,7 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
         mesh.updateGenerator();
         const gizmo = new TransformControls(ctx.camera, ctx.renderer.domElement);
         gizmo.setSize(0.85);
+        gizmo.setSpace('world');
         const sphere = new THREE.LineSegments(
           createSphereOutline(),
           new THREE.LineBasicMaterial({
@@ -357,12 +424,12 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
         );
         sphere.renderOrder = box.renderOrder = 1000;
         const camera = captureCamera(ctx);
+        const origin = resolveEditorOrigin(mesh.matrixWorld);
         const distance = Math.max(0.01, ctx.camera.position.distanceTo(ctx.controls.target));
         const radius = distance * Math.tan(THREE.MathUtils.degToRad(ctx.camera.fov / 2)) * 0.7;
         const gridSize = 10 ** Math.ceil(Math.log10(Math.max(radius * 6, 0.001)));
         const grid = new THREE.GridHelper(gridSize, 20, 0x667b9b, 0x667b9b);
-        grid.visible = false;
-        grid.position.copy(ctx.controls.target);
+        grid.visible = true;
         const gridMaterial = grid.material as THREE.Material;
         gridMaterial.transparent = true;
         gridMaterial.opacity = 0.15;
@@ -387,10 +454,16 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           mesh,
           descriptor,
           positions,
+          covariance,
+          selectionMode: 'intersect',
+          selecting: false,
+          selectionFrame: null,
+          pendingTransform: false,
+          pendingRegion: false,
           mask,
           deleted: new Uint8Array(Math.ceil(descriptor.point_count / 8)),
           selected: new Uint8Array(Math.ceil(descriptor.point_count / 8)),
-          tool: 'move',
+          tool: 'origin',
           region: {
             center: ctx.controls.target.toArray(),
             radius,
@@ -399,6 +472,7 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           camera,
           startCamera: structuredClone(camera),
           history: [],
+          startSnapshot: null,
           historyIndex: 0,
           revision: 0,
           busy: false,
@@ -409,10 +483,14 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           grid,
           regionObject: new THREE.Object3D(),
           transformObject: new THREE.Object3D(),
-          pivotLocal: ctx.controls.target.clone().applyMatrix4(mesh.matrixWorld.clone().invert()),
+          origin,
+          rotation: new THREE.Quaternion(),
+          angles: new THREE.Euler(),
+          resizeControls: null,
           restore: () => {},
         };
-        session.history.push(snapshot(session));
+        session.startSnapshot = snapshot(session);
+        session.history.push(session.startSnapshot);
         sessionRef.current = session;
         ctx.editorActive = true;
         const framingBackup = ctx.lastFramingMode;
@@ -437,6 +515,39 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           pointerId: number;
         } | null = null;
         const canvas = ctx.renderer.domElement;
+        let resizeControlsEnabled = controls.enabled;
+        let resizeGizmoEnabled = gizmo.enabled;
+        session.resizeControls = createRegionResizeControls({
+          canvas, camera: ctx.camera,
+          getRegion: () => session.region,
+          getTool: () => session.tool,
+          enabled: () => !session.closed && !session.busy && !gizmo.dragging,
+          begin: () => {
+            commitTransform();
+            resizeControlsEnabled = controls.enabled;
+            resizeGizmoEnabled = gizmo.enabled;
+            controls.enabled = false;
+            gizmo.enabled = false;
+          },
+          change: (region) => {
+            session.region = region;
+            session.pendingRegion = true;
+            syncHelpers(session);
+            // syncHelpers normally enables the center gizmo; a boundary drag owns the pointer.
+            gizmo.enabled = false;
+            selectRegion(session);
+          },
+          finish: () => {
+            if (session.closed) return;
+            controls.enabled = resizeControlsEnabled;
+            gizmo.enabled = resizeGizmoEnabled;
+            commitTransform();
+          },
+        });
+        ctx.scene.add(session.resizeControls.group);
+        const updateResize = () => session.resizeControls?.update();
+        controls.addEventListener('change', updateResize);
+        updateResize();
         const editorResize = new ResizeObserver(() => {
           if (session.closed || session.busy) return;
           const bounds = canvas.getBoundingClientRect();
@@ -449,6 +560,7 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           );
           if (fitted) ctx.camera.fov = fitted.fov;
           ctx.camera.updateProjectionMatrix();
+          updateResize();
         });
         editorResize.observe(canvas);
         const point = (event: PointerEvent) => {
@@ -501,9 +613,12 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           const projection = new THREE.Matrix4()
             .multiplyMatrices(ctx.camera.projectionMatrix, ctx.camera.matrixWorldInverse)
             .multiply(mesh.matrixWorld).elements;
+          const modeOfSelection = session.selectionMode;
+          const bounds = canvas.getBoundingClientRect();
+          const padding = [0.5 / bounds.width, 0.5 / bounds.height];
           void runSelection(
             session,
-            (x, y, z) => inScreenRectangle(x, y, z, projection, rect),
+            (x, y, z, index) => splatInScreenRectangle(x, y, z, covariance, index, projection, rect, modeOfSelection, padding),
             mode,
           );
         };
@@ -511,41 +626,37 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           start = null;
           rectanglePreview.clear();
         };
-        let dragPivotInverse: THREE.Matrix4 | null = null;
-        let dragModelMatrix: THREE.Matrix4 | null = null;
         const onDragging = (event: { value: unknown }) => {
           controls.enabled = !event.value;
-          if (event.value) {
-            session.transformObject.updateMatrixWorld(true);
-            mesh.updateMatrixWorld(true);
-            dragPivotInverse = session.transformObject.matrixWorld.clone().invert();
-            dragModelMatrix = mesh.matrixWorld.clone();
-          }
+          if (event.value) commitTransform();
+          session.resizeControls?.update();
         };
         const onChange = () => {
           if (session.tool === 'sphere' || session.tool === 'box') {
             session.region.center = session.regionObject.position.toArray();
             sphere.position.copy(session.regionObject.position);
             box.position.copy(session.regionObject.position);
-          } else if (dragPivotInverse && dragModelMatrix) {
-            session.transformObject.updateMatrixWorld(true);
-            new THREE.Matrix4()
-              .multiplyMatrices(session.transformObject.matrixWorld, dragPivotInverse)
-              .multiply(dragModelMatrix)
-              .decompose(mesh.position, mesh.quaternion, mesh.scale);
-            mesh.updateVersion();
+            session.pendingRegion = true;
+            session.resizeControls?.update();
+            selectRegion(session);
+          } else if (session.tool === 'origin') {
+            session.origin.copy(session.transformObject.position);
+            session.grid.position.copy(session.origin);
+          } else if (session.tool === 'rotate') {
+            setRotation(session, session.transformObject.quaternion);
           }
           mesh.updateMatrixWorld(true);
           publish(session);
         };
         const onCommit = () => {
-          if (session.tool === 'sphere' || session.tool === 'box') selectRegion(session);
+          if (session.tool === 'sphere' || session.tool === 'box') {
+            selectRegion(session);
+            commitTransform();
+          }
           else {
             recordHistory(session);
             publish(session);
           }
-          dragPivotInverse = null;
-          dragModelMatrix = null;
           syncHelpers(session);
         };
         gizmo.addEventListener('dragging-changed', onDragging);
@@ -559,8 +670,14 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
           if (session.closed) return;
           session.closed = true;
           session.revision++;
+          if (session.selectionFrame !== null) cancelAnimationFrame(session.selectionFrame);
           rectanglePreview.clear();
           editorResize.disconnect();
+          controls.removeEventListener('change', updateResize);
+          if (session.resizeControls) {
+            ctx.scene.remove(session.resizeControls.group);
+            session.resizeControls.dispose();
+          }
           canvas.removeEventListener('pointerdown', onDown, true);
           canvas.removeEventListener('pointermove', onMove, true);
           canvas.removeEventListener('pointerup', onUp, true);
@@ -596,7 +713,7 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
         };
         setState((previous) => ({
           ...previous,
-          name: descriptor.name.slice(0, 140),
+          name: descriptor.name.slice(0, 160),
         }));
         publish(session);
       } catch (error) {
@@ -633,7 +750,13 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
   function changeTool(tool: EditorTool) {
     const session = sessionRef.current;
     if (!session || session.busy) return;
+    session.resizeControls?.cancel();
+    commitTransform();
     session.tool = tool;
+    session.revision++;
+    session.selecting = false;
+    if (session.selectionFrame !== null) cancelAnimationFrame(session.selectionFrame);
+    session.selectionFrame = null;
     session.ctx.controls.mouseButtons.LEFT = tool === 'rectangle' ? null : THREE.MOUSE.ROTATE;
     session.ctx.controls.mouseButtons.MIDDLE = THREE.MOUSE.ROTATE;
     session.ctx.controls.mouseButtons.RIGHT = THREE.MOUSE.PAN;
@@ -642,20 +765,69 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
     else publish(session);
   }
 
-  function changeTransform(value: ViewerTransformState) {
+  function changeOrigin(axis: number, value: number) {
     const session = sessionRef.current;
-    if (
-      !session ||
-      session.busy ||
-      !Object.values(value).every(Number.isFinite) ||
-      value.scale < 0.00001 ||
-      value.scale > 10000
-    )
-      return;
-    setTransform(session.mesh, value);
+    if (!session || session.busy || !Number.isFinite(value)) return;
+    session.origin.setComponent(axis, value);
+    syncHelpers(session);
+    session.pendingTransform = true;
+    publish(session);
+  }
+
+  function changeRotation(axis: number, value: number) {
+    const session = sessionRef.current;
+    if (!session || session.busy || !Number.isFinite(value)) return;
+    const angles = session.angles.clone();
+    if (axis === 0) angles.x = value;
+    else if (axis === 1) angles.y = value;
+    else angles.z = value;
+    setRotation(session, new THREE.Quaternion().setFromEuler(angles), angles);
+    syncHelpers(session);
+    session.pendingTransform = true;
+    publish(session);
+  }
+
+  function resetRotation() {
+    const session = sessionRef.current;
+    if (!session || session.busy) return;
+    commitTransform();
+    setRotation(session, new THREE.Quaternion(), new THREE.Euler());
     syncHelpers(session);
     recordHistory(session);
     publish(session);
+  }
+
+  function alignOriginToView() {
+    const session = sessionRef.current;
+    if (!session || session.busy) return;
+    commitTransform();
+    session.origin.copy(session.ctx.controls.target);
+    syncHelpers(session);
+    recordHistory(session);
+    publish(session);
+  }
+
+  function commitTransform() {
+    const session = sessionRef.current;
+    if (!session || session.busy || session.closed || (!session.pendingTransform && !session.pendingRegion)) return;
+    session.pendingTransform = false;
+    session.pendingRegion = false;
+    recordHistory(session);
+    publish(session);
+  }
+
+  function changeSelectionMode(mode: EditorSelectionMode) {
+    const session = sessionRef.current;
+    if (!session || session.busy) return;
+    session.revision++;
+    session.selecting = false;
+    session.selectionMode = mode;
+    if (session.tool === 'sphere' || session.tool === 'box') selectRegion(session);
+    else {
+      session.selected.fill(0);
+      updateMask(session);
+      publish(session);
+    }
   }
 
   function changeRegion(region: EditorRegion) {
@@ -669,13 +841,15 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
     )
       return;
     session.region = region;
+    session.pendingRegion = true;
     syncHelpers(session);
     selectRegion(session);
   }
 
   function deleteSelection(keep = false) {
     const session = sessionRef.current;
-    if (!session || session.busy || countMask(session.selected) === 0) return;
+    if (!session || session.busy || session.selecting || countMask(session.selected) === 0) return;
+    commitTransform();
     for (let i = 0; i < session.descriptor.point_count; i++) {
       if (keep ? !maskBit(session.selected, i) : maskBit(session.selected, i))
         setMaskBit(session.deleted, i);
@@ -689,6 +863,10 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
   function clearSelection() {
     const session = sessionRef.current;
     if (!session || session.busy) return;
+    session.revision++;
+    session.selecting = false;
+    if (session.selectionFrame !== null) cancelAnimationFrame(session.selectionFrame);
+    session.selectionFrame = null;
     session.selected.fill(0);
     updateMask(session);
     publish(session);
@@ -704,23 +882,35 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
   function travelHistory(direction: number) {
     const session = sessionRef.current;
     if (!session || session.busy) return;
+    commitTransform();
+    session.revision++;
+    session.selecting = false;
+    if (session.selectionFrame !== null) cancelAnimationFrame(session.selectionFrame);
+    session.selectionFrame = null;
     const index = session.historyIndex + direction;
     if (index < 0 || index >= session.history.length) return;
     session.historyIndex = index;
     const entry = session.history[index];
+    const cameraChanged = JSON.stringify(session.camera) !== JSON.stringify(entry.camera);
     session.deleted = entry.deleted.slice();
     session.selected.fill(0);
     session.camera = structuredClone(entry.camera);
-    setTransform(session.mesh, entry.transform);
+    session.origin.fromArray(entry.origin);
+    session.rotation.fromArray(entry.rotation);
+    session.angles.set(...entry.angles);
+    session.region = structuredClone(entry.region);
+    setModelMatrix(session.mesh, new THREE.Matrix4().fromArray(entry.matrix));
     syncHelpers(session);
-    applyCamera(session.ctx, entry.camera);
+    if (cameraChanged) applyCamera(session.ctx, entry.camera);
     updateMask(session);
+    if (session.tool === 'sphere' || session.tool === 'box') selectRegion(session);
     publish(session);
   }
 
   function setInitialCamera() {
     const session = sessionRef.current;
     if (!session || session.busy) return;
+    commitTransform();
     session.camera = captureCamera(session.ctx);
     recordHistory(session);
     publish(session);
@@ -749,10 +939,11 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
     ctx.controls.update();
   }
 
-  async function save(name: string): Promise<ModelAsset | null> {
+  async function save(name: string, saveMode: EditorSaveMode = 'copy'): Promise<ModelAsset | null> {
     const session = sessionRef.current;
-    if (!session || session.busy || countMask(session.deleted) === session.descriptor.point_count)
+    if (!session || session.busy || session.selecting || countMask(session.deleted) === session.descriptor.point_count)
       return null;
+    commitTransform();
     session.busy = true;
     syncHelpers(session);
     publish(session);
@@ -760,15 +951,19 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
     const controlsEnabled = session.ctx.controls.enabled;
     session.ctx.controls.enabled = false;
     session.mesh.updateMatrixWorld(true);
+    const exported = createAlignedExport(
+      session.mesh.matrixWorld, session.origin, session.camera, getDefaultPlyDisplayMatrix(),
+    );
     let saved = false;
     try {
       const asset = await saveEditedModel(assetId, {
         fingerprint: session.descriptor.fingerprint,
         point_count: session.descriptor.point_count,
         deleted_mask: encodeMask(session.deleted),
-        matrix: session.mesh.matrixWorld.toArray(),
-        camera: session.camera,
+        matrix: exported.matrix,
+        camera: exported.camera,
         name,
+        save_mode: saveMode,
       });
       saved = true;
       return asset;
@@ -790,7 +985,8 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
     if (!session || session.closed) return null;
     const { ctx } = session;
     const previousCamera = captureCamera(ctx);
-    const helpers = [session.gizmo.getHelper(), session.sphere, session.box, session.grid];
+    const helpers = [session.gizmo.getHelper(), session.sphere, session.box, session.grid,
+      ...(session.resizeControls ? [session.resizeControls.group] : [])];
     const visibility = helpers.map((helper) => helper.visible);
     const previousSelection = session.selected;
     try {
@@ -828,7 +1024,12 @@ export function useModelEditor(viewerRef: RefObject<ViewerContext | null>, asset
   return {
     state,
     changeTool,
-    changeTransform,
+    changeOrigin,
+    alignOriginToView,
+    changeRotation,
+    resetRotation,
+    commitTransform,
+    changeSelectionMode,
     changeRegion,
     deleteSelection,
     clearSelection,
