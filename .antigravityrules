@@ -64,12 +64,13 @@ Sharp GUI 是一个 **3D 高斯溅射 (Gaussian Splatting) 图形化界面**，�
 | [.agents/skills/openspec-apply-change/SKILL.md](.agents/skills/openspec-apply-change/SKILL.md) | OpenSpec 任务实施：读取 tasks 并按步骤完成实现 | 用户要求开始或继续实施 OpenSpec 变更时 |
 | [.agents/skills/openspec-sync-specs/SKILL.md](.agents/skills/openspec-sync-specs/SKILL.md) | OpenSpec 规格同步：将变更中的 delta specs 智能合并到主规格 | 用户要求同步规格但暂不归档变更时 |
 | [.agents/skills/openspec-archive-change/SKILL.md](.agents/skills/openspec-archive-change/SKILL.md) | OpenSpec 变更归档：实现完成后归档规格和变更目录 | 用户要求完成并归档 OpenSpec 变更时 |
-| [.agents/skills/ui-ux-pro-max/SKILL.md](.agents/skills/ui-ux-pro-max/SKILL.md) | UI/UX 设计智能系统（67 种样式、161 组配色、57 组字体、99 条 UX 准则、25 种图表、16 种技术栈指南），含 Python 脚本可生成完整设计系统 | 用户要求 UI/UX 设计、界面改进、创建新页面时 |
 
 > **Skills 与 Rules/Workflows 的区别**：
 > - **Rules** = 被动约束，编码时始终遵守（"必须怎样写"）
 > - **Workflows** = 顺序步骤，执行特定任务时参考（"怎样完成某个任务"）
 > - **Skills** = 主动能力，用户明确请求时调用，可携带脚本/数据（"Agent 能做什么"）
+
+界面设计与改进以项目现有组件及 [.agents/rules/styling-guide.md](.agents/rules/styling-guide.md) 为准，优先复用通用组件与设计 Token，保持统一的视觉语言。
 
 > **目录约定**：
 > - `.agents/` 是规范与技能的唯一内容源

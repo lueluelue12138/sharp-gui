@@ -54,7 +54,7 @@ flowchart TB
 
 ## 视觉设计方向
 
-基于 `ui-ux-pro-max` 检索结果和现有项目风格，推荐采用“Swiss Modernism 2.0 + 项目既有 Glassmorphism”：
+初版视觉方案推荐采用“Swiss Modernism 2.0 + 项目既有 Glassmorphism”：
 
 - 主区域：清晰网格、宽松间距、高对比文字、避免过度装饰。
 - 控件层：使用现有玻璃态面板、半透明边框、`backdrop-filter` 和已有圆角 token。

@@ -14,7 +14,7 @@
 
 **不使用**：CSS-in-JS、Tailwind、Sass/Less。
 
-> 🎨 进行 UI 设计或界面改进时，可调用 Skill：[.agents/skills/ui-ux-pro-max/SKILL.md](../skills/ui-ux-pro-max/SKILL.md) 获取设计系统推荐（配色、字体、布局模式等）。
+进行 UI 设计或界面改进时，参考项目现有组件、本规范及已有设计 Token；优先复用通用组件，保持配色、字体、布局与交互的统一。
 
 ---
 
