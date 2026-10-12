@@ -12,9 +12,7 @@ import type {
 const MODEL_ASSET_FORMAT_FALLBACKS: ModelAssetFormat[] = ['spz', 'ply', 'splat', 'rad'];
 
 export function canEditModelAsset(asset: ModelAsset): boolean {
-  return asset.available && asset.formats.some((format) =>
-    format === 'ply' || format === 'spz' || format === 'splat',
-  );
+  return asset.available && asset.editor_supported === true;
 }
 
 export interface ResolvedModelAssetSource {

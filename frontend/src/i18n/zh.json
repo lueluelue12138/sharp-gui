@@ -826,7 +826,7 @@
   "modelAssetName": "名称",
   "modelAssetEditModel": "编辑模型",
   "modelAssetEditProfile": "编辑名称、标签和备注",
-  "modelAssetEditUnsupported": "此格式暂不支持编辑（支持 PLY、SPZ 和 SPLAT）",
+  "modelAssetEditUnsupported": "此模型的文件结构暂不支持编辑",
   "modelAssetTags": "标签",
   "modelAssetTagsPlaceholder": "扫描, 房间, 收藏",
   "modelAssetNotes": "备注",

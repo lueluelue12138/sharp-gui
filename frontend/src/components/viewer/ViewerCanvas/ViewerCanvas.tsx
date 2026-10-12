@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useViewer } from '@/hooks/useViewer';
 import { useAppStore } from '@/store/useAppStore';
+import { fetchEditorSource } from '@/api/modelEditor';
 import { ControlsBar } from '@/components/layout/ControlsBar/ControlsBar';
 import { Help } from '@/components/layout/Help/Help';
 import { GyroIndicator } from '@/components/viewer/GyroIndicator/GyroIndicator';
@@ -30,6 +31,7 @@ export const ViewerCanvas: React.FC = () => {
 // Internal component to handle the actual viewer lifecycle
 const ViewerInstance: React.FC = () => {
   const [editorOpen, setEditorOpen] = useState(false);
+  const [editorCheck, setEditorCheck] = useState<{ assetId: string; supported: boolean } | null>(null);
   const currentModelId = useAppStore((state) => state.currentModelId);
   const currentModelSource = useAppStore((state) => state.currentModelSource);
   const isOwnerAccess = useAppStore((state) => state.isOwnerAccess);
@@ -53,8 +55,26 @@ const ViewerInstance: React.FC = () => {
   }, [viewerDefaultRevealEffect]);
 
   useEffect(() => {
+    if (!isOwnerAccess || !currentModelId || currentModelSource === 'temporary') return;
+    const abort = new AbortController();
+    // Use the actual editor source, including for legacy gallery entries. A file
+    // extension or source label cannot establish that its structure is editable.
+    void fetchEditorSource(currentModelId, abort.signal).then(() => {
+      if (!abort.signal.aborted) setEditorCheck({ assetId: currentModelId, supported: true });
+    }).catch(() => {
+      if (!abort.signal.aborted) setEditorCheck({ assetId: currentModelId, supported: false });
+    });
+    return () => abort.abort();
+  }, [currentModelId, currentModelSource, isOwnerAccess]);
+
+  useEffect(() => {
     if (!pendingModelEditorId || pendingModelEditorId !== currentModelId) return;
     if (!isOwnerAccess || currentModelSource === 'temporary') {
+      clearModelEditorRequest();
+      return;
+    }
+    if (editorCheck?.assetId !== currentModelId) return;
+    if (!editorCheck.supported) {
       clearModelEditorRequest();
       return;
     }
@@ -63,7 +83,7 @@ const ViewerInstance: React.FC = () => {
     clearModelEditorRequest();
     setEditorOpen(true);
   }, [clearModelEditorRequest, currentModelId, currentModelSource, isInXR, isLoading, isOwnerAccess,
-    pendingModelEditorId, toggleGyro, viewerRef]);
+    pendingModelEditorId, toggleGyro, viewerRef, editorCheck]);
 
   return (
     <>
@@ -81,6 +101,7 @@ const ViewerInstance: React.FC = () => {
             onEdit={
               isOwnerAccess &&
               currentModelId &&
+              editorCheck?.assetId === currentModelId && editorCheck.supported &&
               currentModelSource !== 'temporary' &&
               !isLoading &&
               !viewerHook.xr.isInXR

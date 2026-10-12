@@ -60,6 +60,8 @@ export interface ModelAsset {
   thumbnail_state?: ModelAssetThumbnailState | string | null;
   thumbnail_kind?: string | null;
   available: boolean;
+  editor_supported?: boolean;
+  editor_error?: string | null;
   tags: string[];
   note?: string | null;
   is_generated?: boolean;

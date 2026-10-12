@@ -23,6 +23,13 @@ MAX_POINTS = 8_000_000
 MAX_SOURCE_BYTES = 2_000_000_000
 MAX_REQUEST_BYTES = 2_000_000
 SAVE_LOCK = threading.Lock()
+EDITOR_FORMAT_PRIORITY = ('ply', 'spz', 'splat')
+PLY_SCALAR_TYPES = {
+    'char': 'i1', 'int8': 'i1', 'uchar': 'u1', 'uint8': 'u1',
+    'short': 'i2', 'int16': 'i2', 'ushort': 'u2', 'uint16': 'u2',
+    'int': 'i4', 'int32': 'i4', 'uint': 'u4', 'uint32': 'u4',
+    'float': 'f4', 'float32': 'f4', 'double': 'f8', 'float64': 'f8',
+}
 
 
 class ModelEditorError(model_assets.ModelAssetServiceError):
@@ -43,7 +50,7 @@ def resolve_source(paths, asset_id):
     if not asset or not asset.get('available'):
         fail('model_asset_not_found', 404)
     formats = asset.get('formats', [])
-    fmt = next((item for item in ('ply', 'spz', 'splat') if item in formats), None)
+    fmt = select_editor_format(formats)
     if not fmt:
         fail('model_editor_unsupported', 415)
     resolved = model_assets.resolve_download_file(paths, asset_id, fmt)
@@ -62,6 +69,65 @@ def gaussian_dtype(degree):
     return np.dtype([(name, '<f4') for name in names])
 
 
+def select_editor_format(formats):
+    return next((fmt for fmt in EDITOR_FORMAT_PRIORITY if fmt in formats), None)
+
+
+def inspect_source_header(path, fmt):
+    """有界检查实际编辑源结构，冷索引只读头部，不解码整份模型。"""
+    size = os.path.getsize(path)
+    if size > MAX_SOURCE_BYTES:
+        fail('model_editor_too_large', 413)
+    if fmt == 'ply':
+        parsed = model_assets.parse_ply_header_metadata(path)
+        metadata = parsed.get('metadata', {})
+        names = metadata.get('ply_vertex_properties', [])
+        types = metadata.get('ply_vertex_property_types', [])
+        count = parsed.get('point_count', 0)
+        elements = metadata.get('ply_elements', [])
+        if (len(elements) != 1 or len(elements[0]) != 2 or elements[0][0] != 'vertex' or
+                metadata.get('ply_header_format') not in ('ascii', 'binary_little_endian', 'binary_big_endian') or
+                parsed.get('version') != '1.0' or len(names) != len(set(names)) or
+                any(value not in PLY_SCALAR_TYPES for value in types)):
+            fail('model_editor_unsupported', 415)
+        properties = dict(zip(names, types))
+        required = set(gaussian_dtype(0).names)
+        rest = [name for name in names if name.startswith('f_rest_')]
+        if (not required.issubset(properties) or len(rest) not in (0, 9, 24, 45) or
+                any(f'f_rest_{i}' not in properties for i in range(len(rest))) or
+                any(np.dtype(PLY_SCALAR_TYPES[properties[name]]).kind != 'f' for name in required.union(rest))):
+            fail('model_editor_unsupported', 415)
+        if metadata['ply_header_format'] != 'ascii':
+            row_bytes = sum(np.dtype(PLY_SCALAR_TYPES[value]).itemsize for value in types)
+            if size < metadata['ply_header_bytes'] + row_bytes * count:
+                fail('model_editor_unsupported', 415)
+    elif fmt == 'spz':
+        count = inspect_spz(path)[2]
+    elif fmt == 'splat':
+        if size % 32:
+            fail('model_editor_unsupported', 415)
+        count = size // 32
+    else:
+        fail('model_editor_unsupported', 415)
+    if count < 1 or count > MAX_POINTS:
+        fail('model_editor_too_large', 413)
+    return count
+
+
+def get_editor_capability(files):
+    """与编辑器使用相同的源优先级；不绕过不支持的 PLY 改用有损副本。"""
+    fmt = select_editor_format(files)
+    try:
+        if not fmt:
+            fail('model_editor_unsupported', 415)
+        inspect_source_header(files[fmt], fmt)
+    except ModelEditorError as error:
+        return {'editor_supported': False, 'editor_error': error.code}
+    except (OSError, ValueError, EOFError, struct.error):
+        return {'editor_supported': False, 'editor_error': 'model_editor_unsupported'}
+    return {'editor_supported': True, 'editor_error': None}
+
+
 def inspect_spz(path):
     with gzip.open(path, 'rb') as stream:
         raw = stream.read(16)
@@ -74,6 +140,7 @@ def inspect_spz(path):
 
 
 def inspect_source(path, fmt):
+    count = inspect_source_header(path, fmt)
     if fmt == 'ply':
         data = PlyData.read(path, mmap='r')
         if len(data.elements) != 1 or data.elements[0].name != 'vertex':

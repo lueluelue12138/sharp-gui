@@ -27,7 +27,7 @@ from backend.services.static_files import get_relative_files_path, is_real_path_
 # 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
 _INDEX_LOCK = threading.RLock()
 _DOWNLOAD_LOCK = threading.Lock()
-INDEX_VERSION = 4
+INDEX_VERSION = 5
 
 # 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
 IMPORTED_IDENTITY_KEYS = ("model_path", "format", "original_name", "imported_at", "created_at")
@@ -163,7 +163,7 @@ def validate_asset_index(data):
     ):
         raise ModelAssetIndexError('Model source defaults are invalid', 'model_asset_index_schema_invalid')
     if data.get("version") != INDEX_VERSION:
-        # Catalog v4 includes media provenance and normalized preview context. Preserve user
+        # Catalog v5 includes editor capability from the actual source header. Preserve user
         # records, but rebuild stale summaries once instead of serving entries
         # that silently drop the new contract on ordinary warm reads.
         normalized.pop("catalog", None)
@@ -381,12 +381,11 @@ def parse_ply_header_metadata(path):
     except OSError:
         return {}
 
-    marker = b"end_header"
-    marker_index = header.find(marker)
-    if marker_index < 0:
+    marker = re.search(rb'(?m)^[ \t]*end_header[ \t]*\r?(?:\n|$)', header)
+    if marker is None:
         return {}
 
-    text = header[:marker_index + len(marker)].decode("ascii", errors="ignore")
+    text = header[:marker.end()].decode("ascii", errors="ignore")
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     if not lines or lines[0] != "ply":
         return {}
@@ -395,6 +394,9 @@ def parse_ply_header_metadata(path):
         "derived_format": "ply",
         "derived_from": os.path.basename(path),
         "ply_vertex_properties": [],
+        "ply_vertex_property_types": [],
+        "ply_elements": [],
+        "ply_header_bytes": marker.end(),
     }
     result = {
         "compression": "none",
@@ -412,6 +414,7 @@ def parse_ply_header_metadata(path):
             result["version"] = parts[2]
         elif keyword == "element" and len(parts) >= 3:
             current_element = parts[1]
+            metadata["ply_elements"].append(parts[1:])
             if current_element == "vertex":
                 try:
                     result["point_count"] = int(parts[2])
@@ -419,6 +422,7 @@ def parse_ply_header_metadata(path):
                     pass
         elif keyword == "property" and current_element == "vertex" and len(parts) >= 3:
             metadata["ply_vertex_properties"].append(parts[-1])
+            metadata["ply_vertex_property_types"].append(parts[1])
 
     properties = metadata.get("ply_vertex_properties") or []
     if properties:
@@ -514,6 +518,8 @@ def cover_from_record(paths, asset_id, record):
 
 
 def build_generated_asset(paths, asset_id, files, record=None, include_details=False):
+    from backend.services.model_editor import get_editor_capability
+
     record = record or {}
     primary_format = select_primary_format(files)
     primary_path = files.get(primary_format) if primary_format else None
@@ -592,6 +598,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         "default_open_format": primary_format,
         "download_url": f"/api/model-assets/{quote(asset_id, safe='')}/download?format={primary_format}",
         "available": True,
+        **get_editor_capability(files),
         "tags": record.get("tags") if isinstance(record.get("tags"), list) else [],
         "note": record.get("note") or "",
         "is_generated": True,
@@ -623,6 +630,8 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
 
 
 def build_imported_asset(paths, asset_id, record, include_details=False):
+    from backend.services.model_editor import get_editor_capability
+
     relative_path = record.get("model_path")
     model_path = resolve_workspace_relative_path(paths, relative_path)
     fmt = normalize_format(record.get("format")) or (format_for_path(model_path) if model_path else None)
@@ -702,6 +711,7 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
         "version": first_present(record.get("version"), record_metadata.get("version"), derived.get("version")),
         "metadata": detail_metadata,
         **cover,
+        **get_editor_capability(files),
     }
 
 
@@ -717,6 +727,8 @@ def build_unavailable_generated_asset(paths, asset_id, record=None, previous=Non
         "primary_format": None,
         "formats": [],
         "files": [],
+        "editor_supported": False,
+        "editor_error": "model_asset_not_found",
         "size": 0,
         "primary_size": 0,
         "default_open_url": None,

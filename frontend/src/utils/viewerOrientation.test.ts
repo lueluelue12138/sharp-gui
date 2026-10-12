@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import * as THREE from 'three';
 
-import { resolveModelAssetSource } from './modelAssets.js';
+import { canEditModelAsset, resolveModelAssetSource } from './modelAssets.js';
 import { getNextModelReloadToken } from './modelPreviewState.js';
 import { resolveViewerOrientation } from './viewerOrientation.js';
 import {
@@ -23,6 +23,17 @@ const cameraHint: ViewerCameraHint = {
   position: [1, 2, 3], target: [1, 2, 6], up: [0, 1, 0],
   fov_y_degrees: 50, aspect: 16 / 9,
 };
+
+it('edit capability comes from the verified file structure, not format or media labels', () => {
+  const asset: ModelAsset = {
+    id: 'source', name: 'source', source_type: 'video', primary_format: 'ply',
+    formats: ['ply', 'spz'], size: 100, available: true, tags: [],
+  };
+  assert.equal(canEditModelAsset(asset), false);
+  assert.equal(canEditModelAsset({ ...asset, editor_supported: false }), false);
+  assert.equal(canEditModelAsset({ ...asset, source_type: 'generated', source_media_type: 'image', editor_supported: true }), true);
+  assert.equal(canEditModelAsset({ ...asset, editor_supported: true, available: false }), false);
+});
 
 describe('reconstruction camera framing', () => {
   it('transforms the source camera with the model, preserving input data', () => {

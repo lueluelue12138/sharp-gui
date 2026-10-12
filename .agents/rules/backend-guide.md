@@ -411,6 +411,7 @@ if not is_real_path_inside(resolved, workspace):
 
 ### 模型资产库索引与性能
 
+- 编辑能力通过实际编辑源的头部结构、点数与大小计算，摘要返回 `editor_supported` / `editor_error` 并缓存到资产索引。编辑源优先级与描述符一致；不得根据图片/视频来源标签或文件后缀猜测，不得绕过不支持的原始 PLY 改用 SPZ。普通暖列表不能重新读取模型头部或完整点数据。
 - 资产库未指定排序时使用 `created_desc`；侧栏近期模型使用同样的最近创建降序。补齐历史来源资料这类后台维护需保留 sidecar 文件时间与原 `updated_at`，不能把旧模型推到最近修改列表前面。
 
 - 普通 `GET /api/model-assets` 应从 workspace 级摘要快照或增量索引使用稳定游标和固定批次返回结果；暖路径、后续游标页、筛选和排序不得同步 `os.listdir` / `os.walk` 完整 `outputs/`，也不得逐资产重复 `stat`、读取 sidecar 或生成封面。

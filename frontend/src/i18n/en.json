@@ -826,7 +826,7 @@
   "modelAssetName": "Name",
   "modelAssetEditModel": "Edit model",
   "modelAssetEditProfile": "Edit name, tags and notes",
-  "modelAssetEditUnsupported": "This format cannot be edited yet (PLY, SPZ and SPLAT are supported)",
+  "modelAssetEditUnsupported": "This model's file structure cannot be edited yet",
   "modelAssetTags": "Tags",
   "modelAssetTagsPlaceholder": "scan, room, favorite",
   "modelAssetNotes": "Notes",
