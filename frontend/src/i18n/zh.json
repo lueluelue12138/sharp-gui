@@ -756,6 +756,8 @@
     "video_reconstruction_source_unavailable": "源视频不可用，或已不在配置的相册中。",
     "video_reconstruction_cancelled": "视频重建已取消。",
     "video_reconstruction_oom": "GPU 显存不足。请降低质量档位或减少帧数。",
+    "video_reconstruction_gpu_device_lost": "GPU 设备中断或驱动已重置。请检查显卡连接和驱动后重试。",
+    "video_reconstruction_host_memory": "系统内存（RAM）不足。请释放内存并检查虚拟内存后重试。",
     "video_reconstruction_output_missing": "重建完成但没有得到可用的 PLY 输出。",
     "video_reconstruction_spz_failed": "SPZ 压缩失败，但已保留 PLY 输出。",
     "video_reconstruction_unsupported_video": "不支持的视频格式。请使用 MP4、MOV、M4V、WebM 或 MKV。",

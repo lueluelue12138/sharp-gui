@@ -481,13 +481,18 @@ def test_brush_pipeline_publishes_real_sh3_ply_spz_and_final_report(video_task, 
 
 
 @pytest.mark.parametrize('second_has_output', [True, False])
-@pytest.mark.parametrize('quality, expected_resolution', [('preview', 1200), ('high', 1920)])
+@pytest.mark.parametrize('quality, expected_resolution', [
+    ('preview', 1200), ('high', 1920), ('extreme', 3840), ('custom', 3200),
+])
 def test_brush_oom_retry_preserves_high_resolution_and_isolates_outputs(
     video_task, monkeypatch, second_has_output, quality, expected_resolution,
 ):
     manager, task = video_task
     task['quality'] = quality
-    geometry = SyntheticGeometry([38, 0])
+    if quality == 'custom':
+        task['custom_options'] = {'frame_count': 120, 'max_num_iterations': 18000,
+                                  'max_resolution': 3200, 'matching_method': 'sequential'}
+    geometry = SyntheticGeometry([1200, 0])
     brush_commands = []
     final_bytes = []
     def fake_command(*args, **kwargs):
@@ -537,6 +542,90 @@ def test_brush_cancellation_after_export_does_not_publish(video_task, monkeypatc
     assert task['status'] == 'cancelled'
     assert not Path(task['output_path']).exists()
     assert not Path(task['spz_path']).exists()
+
+
+@pytest.mark.parametrize('output,expected', [
+    ('CUDA out of memory. Tried to allocate 2GiB', 'video_reconstruction_oom'),
+    ('CUDA_ERROR_OUT_OF_MEMORY', 'video_reconstruction_oom'),
+    ('CUBLAS_STATUS_ALLOC_FAILED', 'video_reconstruction_oom'),
+    ('CUDNN_STATUS_ALLOC_FAILED', 'video_reconstruction_oom'),
+    ('HIP out of memory', 'video_reconstruction_oom'),
+    ('VK_ERROR_OUT_OF_DEVICE_MEMORY', 'video_reconstruction_oom'),
+    ('wgpu::Error::OutOfMemory while allocating', 'video_reconstruction_oom'),
+    ('torch.OutOfMemoryError raised', 'video_reconstruction_oom'),
+    ('GPU allocation failed', 'video_reconstruction_oom'),
+    ('MemoryError: CUDA out of memory', 'video_reconstruction_oom'),
+    ('MemoryError: failed to allocate memory', 'video_reconstruction_host_memory'),
+    ('numpy.core._exceptions._ArrayMemoryError: allocation failed', 'video_reconstruction_host_memory'),
+    ('std::bad_alloc', 'video_reconstruction_host_memory'),
+    ('VK_ERROR_OUT_OF_HOST_MEMORY', 'video_reconstruction_host_memory'),
+    ('Cannot allocate memory', 'video_reconstruction_host_memory'),
+    ('memory allocation of 34359738368 bytes failed', 'video_reconstruction_host_memory'),
+    ('VK_ERROR_DEVICE_LOST', 'video_reconstruction_gpu_device_lost'),
+    ('DeviceLost: driver reset', 'video_reconstruction_gpu_device_lost'),
+    ('parent device is lost', 'video_reconstruction_gpu_device_lost'),
+    ('DXGI_ERROR_DEVICE_REMOVED', 'video_reconstruction_gpu_device_lost'),
+    ('DXGI_ERROR_DEVICE_RESET', 'video_reconstruction_gpu_device_lost'),
+    ('DXGI_ERROR_DEVICE_HUNG', 'video_reconstruction_gpu_device_lost'),
+    ('VK_ERROR_DEVICE_LOST: failed to allocate memory', 'video_reconstruction_gpu_device_lost'),
+    ('OutOfMemory\nVK_ERROR_DEVICE_LOST', 'video_reconstruction_gpu_device_lost'),
+    ('failed to allocate memory', 'video_reconstruction_training_failed'),
+    ('allocation failed', 'video_reconstruction_training_failed'),
+    ('BufferTooBig(2290420416)', 'video_reconstruction_training_failed'),
+    ('buffer too big', 'video_reconstruction_training_failed'),
+    ('could not read dataset', 'video_reconstruction_training_failed'),
+    ('training finished cleanly', 'video_reconstruction_training_failed'),
+])
+def test_training_failure_classification_requires_specific_evidence(output, expected):
+    assert video_reconstruction.classify_process_failure(output) == expected
+    assert video_reconstruction.contains_oom(output) is (expected == video_reconstruction.ERROR_OOM)
+    code, message = video_reconstruction.build_failure_message(1, [output])
+    assert code == expected
+    assert message
+    if expected == 'video_reconstruction_training_failed':
+        assert message == output
+
+
+@pytest.mark.parametrize('quality', ['high', 'extreme'])
+@pytest.mark.parametrize('failure,expected', [
+    ('VK_ERROR_DEVICE_LOST: failed to allocate memory', 'video_reconstruction_gpu_device_lost'),
+    ('MemoryError: failed to allocate memory', 'video_reconstruction_host_memory'),
+    ('failed to allocate memory', 'video_reconstruction_training_failed'),
+    ('BufferTooBig(2290420416)', 'video_reconstruction_training_failed'),
+])
+def test_non_oom_failure_never_retries_or_publishes_partial_ply(video_task, monkeypatch, quality, failure, expected):
+    manager, task = video_task
+    task['quality'] = quality
+    geometry = SyntheticGeometry([1200, 0])
+    commands = []
+    def fake_command(*args, **kwargs):
+        command = args[2]
+        if command[0] != 'synthetic-brush':
+            return geometry(*args, **kwargs)
+        commands.append(command)
+        output = Path(command[command.index('--export-path') + 1]) / brush_engine.BRUSH_EXPORT_NAME
+        write_gaussian_ply(output)
+        return 1, [failure + '\n'], False
+    monkeypatch.setattr(video_reconstruction, 'run_command', fake_command)
+    video_reconstruction.run_video_reconstruction_task(manager, task['id'], task)
+    assert len(commands) == 1
+    assert task['status'] == 'failed'
+    assert task['error_code'] == expected
+    assert 'brush_oom_retry' not in task['details']
+    assert not Path(task['output_path']).exists()
+    assert not Path(task['spz_path']).exists()
+    command = commands[0]
+    assert command[command.index('--max-resolution') + 1] == ('1920' if quality == 'high' else '3840')
+    assert command[command.index('--total-steps') + 1] == ('15000' if quality == 'high' else '30000')
+    assert command[command.index('--max-splats') + 1] == '1500000'
+
+
+def test_gpu_failure_codes_have_translations_in_the_existing_task_queue():
+    root = Path(__file__).resolve().parents[1]
+    for language in ('zh', 'en'):
+        translations = json.loads((root / 'frontend' / 'src' / 'i18n' / f'{language}.json').read_text(encoding='utf-8'))
+        for code in (video_reconstruction.ERROR_GPU_DEVICE_LOST, video_reconstruction.ERROR_HOST_MEMORY):
+            assert translations['videoReconError'][code]
 
 
 

@@ -36,6 +36,9 @@ ERROR_INVALID_REQUEST = "video_reconstruction_invalid_request"
 ERROR_SOURCE_UNAVAILABLE = "video_reconstruction_source_unavailable"
 ERROR_CANCELLED = "video_reconstruction_cancelled"
 ERROR_OOM = "video_reconstruction_oom"
+ERROR_GPU_DEVICE_LOST = 'video_reconstruction_gpu_device_lost'
+ERROR_HOST_MEMORY = 'video_reconstruction_host_memory'
+ERROR_TRAINING_FAILED = 'video_reconstruction_training_failed'
 ERROR_OUTPUT_MISSING = "video_reconstruction_output_missing"
 ERROR_SPZ_FAILED = "video_reconstruction_spz_failed"
 ERROR_UNSUPPORTED_VIDEO = "video_reconstruction_unsupported_video"
@@ -81,11 +84,23 @@ OOM_PATTERNS = (
     "cublas_status_alloc_failed",
     "cudnn_status_alloc_failed",
     "hip out of memory",
-    "memoryerror",
-    'outofmemory',
     'vk_error_out_of_device_memory',
-    'failed to allocate memory',
+    'cuda_error_out_of_memory',
+    'hip_error_out_of_memory',
+    'out of gpu memory',
+    'gpu out of memory',
+    'gpu allocation failed',
+    'gpu memory allocation failed',
 )
+DEVICE_LOST_PATTERNS = (
+    'devicelost', 'device lost', 'device_lost', 'parent device is lost',
+    'dxgi_error_device_removed', 'dxgi_error_device_reset', 'dxgi_error_device_hung',
+)
+HOST_MEMORY_PATTERN = re.compile(
+    r'\b(?:_array)?memoryerror\b|std::bad_alloc|out.of.host.memory|\bcannot allocate memory\b|'
+    r'\bmemory allocation of \d+ bytes failed\b',
+)
+TYPED_OOM_PATTERN = re.compile(r'\boutofmemory(?:error)?\b')
 
 
 VIDEO_RUNTIME_PROCESS_TOKENS = (
@@ -1170,20 +1185,44 @@ def run_command(task_manager, task_id, cmd, cwd=None, stage=None, progress=None,
     return return_code, output_lines, cancelled
 
 
-def contains_oom(text):
+def classify_process_failure(text):
+    """只在明确显存不足时允许降预算；设备中断优先停止。"""
     normalized = (text or "").lower()
-    return any(pattern in normalized for pattern in OOM_PATTERNS)
+    if any(pattern in normalized for pattern in DEVICE_LOST_PATTERNS):
+        return ERROR_GPU_DEVICE_LOST
+    if any(pattern in normalized for pattern in OOM_PATTERNS):
+        return ERROR_OOM
+    if HOST_MEMORY_PATTERN.search(normalized):
+        return ERROR_HOST_MEMORY
+    if TYPED_OOM_PATTERN.search(normalized):
+        return ERROR_OOM
+    return ERROR_TRAINING_FAILED
+
+
+def contains_oom(text):
+    return classify_process_failure(text) == ERROR_OOM
 
 
 def build_failure_message(return_code, output_lines):
     output = "".join(output_lines or [])
     tail = "\n".join(output.splitlines()[-24:])
-    if contains_oom(output):
+    failure = classify_process_failure(output)
+    if failure == ERROR_GPU_DEVICE_LOST:
+        return failure, (
+            'The GPU device was lost or reset. Check the driver and GPU connection, '
+            'then retry.'
+        )
+    if failure == ERROR_HOST_MEMORY:
+        return failure, (
+            'System RAM is not enough for this reconstruction. Free system memory '
+            'and check virtual memory before retrying.'
+        )
+    if failure == ERROR_OOM:
         return ERROR_OOM, (
             "GPU memory is not enough for this reconstruction. "
             "Try a lower quality preset, fewer frames, or lower resolution."
         )
-    return 'video_reconstruction_training_failed', tail or f"Command failed with return code {return_code}"
+    return failure, tail or f"Command failed with return code {return_code}"
 
 
 def clean_job_dir(job_dir, keep):

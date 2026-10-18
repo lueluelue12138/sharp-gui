@@ -756,6 +756,8 @@
     "video_reconstruction_source_unavailable": "The source video is unavailable or no longer in the configured album.",
     "video_reconstruction_cancelled": "Video reconstruction was cancelled.",
     "video_reconstruction_oom": "GPU memory ran out. Try a lower quality preset or fewer frames.",
+    "video_reconstruction_gpu_device_lost": "The GPU device was lost or its driver was reset. Check the connection and driver, then retry.",
+    "video_reconstruction_host_memory": "System RAM ran out. Free memory and check virtual memory before retrying.",
     "video_reconstruction_output_missing": "The reconstruction finished without a usable PLY output.",
     "video_reconstruction_spz_failed": "SPZ compression failed, but the PLY output was kept.",
     "video_reconstruction_unsupported_video": "Unsupported video format. Please use MP4, MOV, M4V, WebM, or MKV.",
