@@ -538,9 +538,15 @@ Brush 档位：
 
 ## ⚙️ 配置选项
 
+### 换包保留配置
+
+配置默认保存在系统用户目录：Windows 为 `%LOCALAPPDATA%\SharpGUI\config.json`，macOS 为 `~/Library/Application Support/SharpGUI/config.json`，Linux 为 `${XDG_CONFIG_HOME:-~/.config}/sharp-gui/config.json`。同一用户运行另一套新版完整包时会自动读取它，继续使用原工作区、模型及相册。
+
+首次运行会导入**当前安装目录**的旧 `config.json`；如果直接在全新目录换包、旧配置尚未登记，请在「设置 → 配置存储 → 从旧版本恢复配置」选择旧包文件夹。确认前备份当前配置，恢复后自动重启。**模型仍在原工作区，不能因换包而删除旧数据目录。** `SHARP_CONFIG_FILE` 可指定完全独立的配置，`SHARP_CONFIG_HOME` 可指定全局配置目录。详见[全局配置与恢复说明](docs/global-configuration.md)。
+
 ### 自定义工作目录
 
-可通过界面设置或编辑 `config.json` (首次运行后生成):
+可通过界面设置或编辑当前活动的 `config.json`（实际位置见「配置存储」，手动编辑前关闭服务）:
 
 ```json
 {
@@ -570,7 +576,7 @@ Brush 档位：
 
 这些工作区运行时目录属于用户数据，默认已在 `.gitignore` 中排除，不应提交到仓库。切换 Settings 中的工作目录并自动重启后，`inputs/`、`outputs/`、`model-assets/`、`.model-asset-library/`、`.photo-gallery-cache/` 和 `.video-reconstruction/` 都会切到新工作目录；切回旧工作目录即可找回对应的模型资产、近期模型索引、相册缓存和任务相关状态。
 
-项目根目录下的 `config.json`、`cert.pem` / `key.pem`、`sharp-gui-verbose.log` 以及 `venv/`、`.sharp-gui-tools/`、`ml-sharp/` 是部署配置、证书、日志或依赖目录，不随 workspace 切换；其中敏感文件不会通过 `/files/*` 暴露。
+全局配置不随 workspace 切换。项目根目录下的旧 `config.json` 仅作为首次导入来源；`cert.pem` / `key.pem`、`sharp-gui-verbose.log` 以及 `venv/`、`.sharp-gui-tools/`、`ml-sharp/` 仍是安装级证书、日志或依赖目录；其中敏感文件不会通过 `/files/*` 暴露。
 
 > 💡 相册可通过界面添加，并按工作目录分别记忆：`photo_gallery_roots_by_workspace` 以归一化后的工作目录路径为键，切换工作目录时各自展示对应相册，切回原目录即可恢复。手动编辑时请按部署端系统填写路径。Windows、Linux、macOS 均可使用，局域网设备访问时读取的是服务器所在机器的目录。
 >

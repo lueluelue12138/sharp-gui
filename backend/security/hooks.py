@@ -18,6 +18,8 @@ from backend.security.access_control import (
 def register_security_hooks(app):
     @app.before_request
     def enforce_lan_access_control():
+        if app.config.get('CONFIG_RESTORE_PENDING') and request.method not in ('GET', 'HEAD', 'OPTIONS'):
+            return make_auth_error('Configuration restored; server is restarting.', 409, 'config_restart_pending')
         access_config = get_access_control_config()
         g.access_control = access_config
         g.is_owner = is_owner_request(access_config)
@@ -59,6 +61,8 @@ def register_security_hooks(app):
 
     @app.after_request
     def after_request(response):
+        if getattr(g, 'configuration_error', False):
+            return response
         origin = request.headers.get("Origin")
         if origin and is_origin_allowed(origin):
             response.headers["Access-Control-Allow-Origin"] = origin

@@ -9,3 +9,4 @@ export * from './modelSources';
 export * from './auth';
 export * from './videoReconstruction';
 export * from './update';
+export type { ConfigurationPreview, ConfigurationRestoreResult } from './configuration';

@@ -5,6 +5,7 @@ import threading
 import time
 import traceback
 import uuid
+from contextlib import contextmanager
 
 from backend import runtime
 from backend.services import model_gallery, video_reconstruction
@@ -88,7 +89,25 @@ class TaskManager:
                 f"Task {task_id} failed to save image metadata status {generation_status}: {exc}",
             )
 
+    @contextmanager
+    def _configuration_admission(self):
+        from backend.config_storage import ConfigStorageError
+
+        with self.task_lock:
+            if getattr(self, '_configuration_restore_pending', False):
+                raise ConfigStorageError('config_restart_pending', 409)
+            self._configuration_enqueuing = getattr(self, '_configuration_enqueuing', 0) + 1
+        try:
+            yield
+        finally:
+            with self.task_lock:
+                self._configuration_enqueuing -= 1
+
     def enqueue_file(self, input_path, filename, display_filename=None, source_media_id=None, source_meta=None):
+        with self._configuration_admission():
+            return self._enqueue_file(input_path, filename, display_filename, source_media_id, source_meta)
+
+    def _enqueue_file(self, input_path, filename, display_filename=None, source_media_id=None, source_meta=None):
         from backend.services import model_sources
 
         if self.thumbnail_generator:
@@ -131,6 +150,10 @@ class TaskManager:
         return self._public_task(task_info)
 
     def enqueue_video_reconstruction(self, task_payload):
+        with self._configuration_admission():
+            return self._enqueue_video_reconstruction(task_payload)
+
+    def _enqueue_video_reconstruction(self, task_payload):
         task_id = str(uuid.uuid4())
         task_info = {
             "id": task_id,

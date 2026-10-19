@@ -1,8 +1,9 @@
 from uuid import uuid4
 
-from flask import Flask
+from flask import Flask, g, jsonify
 
 from backend import runtime
+from backend.config_storage import ConfigStorageError
 from backend.config import (
     load_config,
     normalize_access_control_config,
@@ -30,6 +31,11 @@ def create_app(start_background_workers=False):
         static_folder=runtime.STATIC_DIR,
     )
     app.config["SERVER_INSTANCE_ID"] = uuid4().hex
+
+    @app.errorhandler(ConfigStorageError)
+    def configuration_error(error):
+        g.configuration_error = True
+        return jsonify({'error': str(error), 'code': error.code}), error.status_code
 
     config = load_config()
     _, access_config_changed = normalize_access_control_config(config)

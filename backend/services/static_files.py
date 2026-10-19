@@ -67,6 +67,10 @@ def get_relative_files_path(path, paths):
 def is_sensitive_served_file(abs_path):
     """判断目标文件是否属于敏感类型，命中则不应通过任何静态路由服务。"""
     name = os.path.basename(abs_path)
+    if (os.path.normcase(os.path.realpath(abs_path)) == os.path.normcase(os.path.realpath(runtime.get_config_file())) or
+            name.lower().startswith('config.json.') or '.before-restore-' in name or
+            (name.startswith('.config-') and name.endswith('.tmp'))):
+        return True
     if name.lower() in SENSITIVE_FILE_NAMES:
         return True
     _, ext = os.path.splitext(name)

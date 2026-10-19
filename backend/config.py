@@ -1,37 +1,26 @@
-import json
 import os
 import secrets
 
 from backend import runtime
+from backend.config_storage import default_workspace_dir, load_stored_config, save_stored_config
 
 
 def load_config():
-    """加载配置文件。"""
-    config_file = runtime.get_config_file()
-    if os.path.exists(config_file):
-        try:
-            with open(config_file, "r", encoding="utf-8") as f:
-                config = json.load(f)
-                if "workspace_folder" not in config and "input_folder" in config:
-                    old_input = config.get("input_folder", "")
-                    if old_input.endswith("/inputs") or old_input.endswith("\\inputs"):
-                        config["workspace_folder"] = os.path.dirname(old_input)
-                    else:
-                        config["workspace_folder"] = runtime.DEFAULT_WORKSPACE_FOLDER
-                return config
-        except Exception:
-            pass
-    return {"workspace_folder": runtime.DEFAULT_WORKSPACE_FOLDER}
+    """首次导入包内旧配置；显式路径完全隔离，不静默覆盖损坏配置。"""
+    explicit = bool(os.environ.get('SHARP_CONFIG_FILE', '').strip())
+    config = load_stored_config(
+        runtime.get_config_file(), legacy_path=None if explicit else runtime.CONFIG_FILE,
+        default_workspace=runtime.DEFAULT_WORKSPACE_FOLDER if explicit else default_workspace_dir(),
+    )
+    if 'workspace_folder' not in config:
+        old_input = config.get('input_folder', '')
+        config['workspace_folder'] = os.path.dirname(old_input) if old_input.endswith(('/inputs', '\\inputs')) else runtime.DEFAULT_WORKSPACE_FOLDER
+    return config
 
 
-def save_config(config):
-    """保存配置文件。"""
-    config_file = runtime.get_config_file()
-    config_dir = os.path.dirname(config_file)
-    if config_dir:
-        os.makedirs(config_dir, exist_ok=True)
-    with open(config_file, "w", encoding="utf-8") as f:
-        json.dump(config, f, indent=2)
+def save_config(config, *, backup=False):
+    """原子保存，仅提交读取之后未被其它请求更改的修订。"""
+    save_stored_config(runtime.get_config_file(), config, backup=backup)
 
 
 def get_default_access_control_config():

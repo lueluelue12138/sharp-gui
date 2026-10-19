@@ -69,8 +69,10 @@ def log(level, message):
 
 
 def get_config_file():
-    """Return the active config file path, allowing tests to isolate config."""
-    return os.environ.get("SHARP_CONFIG_FILE", CONFIG_FILE)
+    """显式独立配置优先；默认使用与安装位置无关的用户配置。"""
+    from backend.config_storage import user_config_dir
+
+    return os.environ.get('SHARP_CONFIG_FILE', '').strip() or str(user_config_dir() / 'config.json')
 
 
 def resolve_sharp_command():

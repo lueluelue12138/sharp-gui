@@ -537,9 +537,17 @@ Click **Share** button to generate a standalone HTML file:
 
 ## ⚙️ Configuration
 
+### Keep Settings Across Complete Packages
+
+Configuration now lives in the system user directory: `%LOCALAPPDATA%\SharpGUI\config.json` on Windows, `~/Library/Application Support/SharpGUI/config.json` on macOS, and `${XDG_CONFIG_HOME:-~/.config}/sharp-gui/config.json` on Linux. Another current-version package run by the same user reads it automatically and reuses the original workspace, models, and albums.
+
+The first launch imports the **current installation's** old `config.json`. If you extracted a new package before registering the old configuration, choose the old package folder under **Settings → Configuration storage → Restore settings from an older version**. Confirmation backs up the current configuration and restarts the app. **Models remain in the original workspace: keep that data directory when replacing a package.** `SHARP_CONFIG_FILE` selects a completely isolated configuration; `SHARP_CONFIG_HOME` changes the global configuration directory. See the [configuration and recovery guide (Chinese)](docs/global-configuration.md) for backup and failure handling.
+
+New profiles use a stable workspace: the configuration directory's `workspace/` on Windows/macOS, or `${XDG_DATA_HOME:-~/.local/share}/sharp-gui/workspace` on Linux. Restoring replaces the whole configuration rather than merging it; active tasks, revision conflicts, or an unavailable workspace prevent confirmation. Browser-local viewer preferences and installation-level certificates/runtime dependencies are not migrated. Corrupt or previously initialized but missing configuration fails explicitly instead of resetting settings. Older app versions still use their package-local file; changes are not synchronized back to it.
+
 ### Custom Workspace
 
-Configure via UI settings or edit `config.json` (generated on first run):
+Configure via UI settings or edit the active `config.json` (find its location in Configuration storage; stop the service before manual edits):
 
 ```json
 {
@@ -569,7 +577,7 @@ The system auto-creates:
 
 These workspace runtime folders are user data and are ignored by `.gitignore` by default; they should not be committed. After changing the workspace in Settings and letting the app restart, `inputs/`, `outputs/`, `model-assets/`, `.model-asset-library/`, `.photo-gallery-cache/`, and `.video-reconstruction/` all switch to the new workspace. Switching back to an old workspace restores that workspace's model assets, recent-model index, gallery cache, and task-related state.
 
-Project-root `config.json`, `cert.pem` / `key.pem`, `sharp-gui-verbose.log`, `venv/`, `.sharp-gui-tools/`, and `ml-sharp/` are deployment config, certificates, logs, or dependency folders. They do not switch with the workspace; sensitive files are never exposed through `/files/*`.
+Global configuration does not switch with the workspace. The old project-root `config.json` is only an initial import source. `cert.pem` / `key.pem`, `sharp-gui-verbose.log`, `venv/`, `.sharp-gui-tools/`, and `ml-sharp/` remain installation-level certificates, logs, or dependencies; sensitive files are never exposed through `/files/*`.
 
 > 💡 Albums can be added from the UI and are remembered per workspace: `photo_gallery_roots_by_workspace` is keyed by the normalized workspace path, so switching workspaces shows each one's own albums and switching back restores them. When editing manually, use paths from the server machine. Windows, Linux, and macOS are supported; LAN clients browse folders on the host running Sharp GUI.
 >

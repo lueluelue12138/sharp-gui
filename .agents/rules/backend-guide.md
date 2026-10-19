@@ -194,7 +194,7 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 - 视频重建抽帧、COLMAP/Brush 数据和日志存储在 `{workspace}/.video-reconstruction/jobs/`，拖入视频上传缓存存储在 `{workspace}/.video-reconstruction/uploads/`
 - 输出目录同时保留 `.ply` 原始模型和自动生成的 `.spz` 紧凑模型
 - 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、实际引擎、受控源视频引用，以及资源参数、抽帧/注册统计、配准率和阶段耗时；中间目录清理后仍保留该摘要，JSON 响应不得暴露 `source_video_path`
-- 配置文件 `config.json` 位于项目根目录（`BASE_DIR`），不随 workspace 切换；证书、私钥、日志和依赖目录同样是项目根运行时/部署状态，不得通过 `/files/*` 暴露
+- 活动配置由 `runtime.get_config_file()` 定位，默认位于系统用户目录，不随安装或 workspace 切换；包内 `BASE_DIR/config.json` 仅作首次导入来源。显式 `SHARP_CONFIG_FILE` 完全隔离，`SHARP_CONFIG_HOME` 覆盖用户配置目录。证书、私钥、日志和依赖目录仍为安装级状态，不得通过 `/files/*` 暴露
 - `.sharp-gui-update/` 是项目根安装状态，只能保存原子更新阶段、最近检查的目标、操作锁与有界诊断；`.sharp-gui-tools/` 保存 MinGit 与固定 Brush CLI。两者都不随 workspace 切换，不得通过 `/files/*` 暴露，也不得被代码 checkout/失败恢复清理；Brush 由 `tools/install_brush.py` 安装至 `.sharp-gui-tools/brush/v0.3.0/`，保留二进制来源、哈希及完整许可资料
 - 本地媒体图库 API 只接受 photo/media/video id，不接受任意绝对路径；后端必须从索引反查原始文件并再次校验 root
 - 模型资产 API 只接受 asset id 与受支持扩展名，不接受前端传入的服务器绝对路径；导入、封面和下载路径必须从资产索引或受控目录反查并再次校验 root
@@ -209,6 +209,12 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 ---
 
 ## 配置管理
+
+- 平台位置、迁移与人工恢复见 [全局配置说明](../../docs/global-configuration.md)。仅路径解析/模块导入不得写入配置。
+- 配置必须经 `load_config` / `save_config` 读写，保留返回字典的来源与修订属性，不能先转成普通 dict 丢失冲突保护再保存。锁文件采用系统内核锁，初始化标记防止已建立配置丢失后静默重置；保存使用同目录临时文件原子替换。
+- 全局首次导入只读当前包旧文件，保留未知字段、门禁密钥与相册 ID，按旧目录解析相对路径。损坏/无权限不得默默回退默认配置。测试必须隔离 `SHARP_CONFIG_HOME` / `SHARP_CONFIG_FILE`，不能读写真实用户配置。
+- `POST /api/settings/restore` 仅 owner 可用：预览隐藏密钥，确认验证源/目标修订、生成入队/活动任务及目标工作区锁；先备份再替换，不搬动用户数据。确认后拒绝写操作并走原服务重启流程，前端通过公开 auth status 的实例 ID 确认重启，以兼容恢复后要求重新登录的门禁配置。
+- `/files/*` 同样拒绝自定义活动配置路径、`config.json.*`、恢复备份和配置临时文件。
 
 ### config.json 结构
 

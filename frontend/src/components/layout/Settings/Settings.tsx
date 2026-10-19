@@ -20,6 +20,7 @@ import {
 } from '@/api';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { UpdateSettingsSection } from '@/components/layout/Settings/UpdateSettingsSection';
+import { ConfigurationSection } from '@/components/layout/Settings/ConfigurationSection';
 import type {
     AuthStatusResponse,
     ModelFormat,
@@ -88,6 +89,7 @@ export const Settings: React.FC = () => {
         openVideoReconstructionGuide,
     } = useAppStore();
     const [workspaceFolder, setWorkspaceFolder] = useState('');
+    const [configuration, setConfiguration] = useState({ file: '', scope: 'global' as 'global' | 'explicit' });
     const [modelFormat, setModelFormat] = useState<ModelFormat>('spz');
     const [defaultRevealEffect, setDefaultRevealEffect] = useState<RevealEffectPreferenceId>(viewerDefaultRevealEffect);
     const [isSaving, setIsSaving] = useState(false);
@@ -157,6 +159,7 @@ export const Settings: React.FC = () => {
     const loadSettings = useCallback(async () => {
         try {
             const data = await fetchSettings();
+            setConfiguration({ file: data.config_file ?? '', scope: data.config_scope ?? 'global' });
             if (data.workspace_folder) {
                 setWorkspaceFolder(data.workspace_folder);
                 setOriginalWorkspace(data.workspace_folder);
@@ -725,6 +728,10 @@ export const Settings: React.FC = () => {
                             📁 inputs/ ({t('images') || '图片'}) &nbsp;&nbsp; 📁 outputs/ ({t('models') || '模型'})
                         </p>
                     </div>
+                )}
+
+                {isLocalAccess && configuration.file && (
+                    <ConfigurationSection configFile={configuration.file} scope={configuration.scope} />
                 )}
 
                 {isLocalAccess && (

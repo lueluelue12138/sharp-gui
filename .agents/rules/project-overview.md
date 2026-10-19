@@ -59,7 +59,7 @@ sharp-gui/
 │   ├── security/             #   LAN 门禁、权限矩阵、request hooks
 │   ├── services/             #   模型资产/本地媒体图库、视频重建、任务队列、自更新、导出、静态文件、文件夹选择
 │   └── routes/               #   auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/updates/files/export/frontend
-├── config.json               # 运行时配置（workspace_folder, photo_gallery_roots_by_workspace, access_control）
+├── config.json               # 旧包配置，默认仅用于首次导入用户全局配置
 ├── install.sh / install.bat  # 一键安装脚本（Python/Git/CUDA/依赖/模型/证书）
 ├── run.sh / run.bat          # 启动脚本（支持 --legacy）
 ├── build.sh / build.bat      # 前端构建脚本
@@ -143,11 +143,13 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 
 ### 项目根状态与依赖
 
+活动配置位于系统用户目录（Windows `%LOCALAPPDATA%/SharpGUI`、macOS `~/Library/Application Support/SharpGUI`、Linux `$XDG_CONFIG_HOME/sharp-gui` 或 `~/.config/sharp-gui`），内容包含 workspace、门禁密钥、相册分桶和默认参数；锁与恢复备份同目录。换包沿用配置指向的原工作区，不复制媒体。可用 `SHARP_CONFIG_HOME` 覆盖目录，或 `SHARP_CONFIG_FILE` 完全隔离。详见 [配置与恢复说明](../../docs/global-configuration.md)。
+
 以下路径位于项目根，不随 workspace 切换。它们也属于运行时或本机环境状态，必须保持 `.gitignore` 覆盖，并按敏感度控制访问。
 
 | 路径 | 内容 | 备注 |
 |------|------|------|
-| `config.json` | 当前 `workspace_folder`、门禁、默认格式、按 workspace 分桶的相册配置 | 包含 session secret / access-code hash，不得通过 `/files/*` 暴露 |
+| `config.json` | 旧安装配置，默认仅作首次导入来源 | 原文件保留不反向同步；包含 session secret / access-code hash，不得通过 `/files/*` 暴露 |
 | `cert.pem` / `key.pem` | 本地 HTTPS 证书与私钥 | 私钥敏感，不得服务、提交或打包进共享示例 |
 | `sharp-gui-verbose.log` / `*.log` | 本地诊断日志 | 可能包含路径和错误上下文，默认忽略 |
 | `venv/` | 主程序 Python 虚拟环境 | 依赖目录，不是用户 workspace 状态 |
@@ -220,6 +222,8 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `SHARP_FRONTEND_MODE` | `react` | 前端模式：`react` 或 `legacy` |
+| `SHARP_CONFIG_FILE` | 不设 | 完全独立的配置文件，优先于全局配置及迁移；建议使用绝对路径 |
+| `SHARP_CONFIG_HOME` | 系统用户目录 | 全局配置目录覆盖，必须为绝对路径；全新默认工作区在其 `workspace/` 下 |
 | `SHARP_DEBUG` | 关闭 | 设为 `1` 开启 Flask 调试器 + 源码热重载（向客户端返回堆栈、暴露交互式调试器、改 `.py` 自动重启）。有安全风险，仅本机排障使用 |
 | `SHARP_VERBOSE` | 关闭 | 设为 `1` 开启详细诊断日志文件，`run.sh --verbose` / `run.bat --verbose` 会设置 |
 | `SHARP_LOG_LEVEL` | `INFO`（verbose 时 `DEBUG`） | 应用日志级别 |
@@ -259,7 +263,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - 模型资产库的运行时数据必须随 Settings 的 `workspace_folder` 切换；切换工作目录保存后需要重启服务以重建 `PathContext`，重启后读取新 workspace 的 `model-assets/` 与 `.model-asset-library/`，切回旧 workspace 应恢复旧 workspace 的资产状态。
 - 模型资产库主区域使用游标式滚动增量加载，不显示分页器或每页数量选择。筛选或排序变化重置查询游标；网格密度只改变展示列数并保留已加载数据、游标和浏览位置，三者都不得触发同步全目录重扫。
 - 模型资产列表应复用按 workspace 维护的摘要快照或增量索引；首次迁移、显式刷新以及生成、导入、删除、资料或封面写入负责建立或失效快照，后续游标页、筛选和排序不得再次逐文件扫描/stat 完整 `outputs/`。
-- `model_format` 用户偏好保存在项目根 `config.json`，只覆盖 PLY/SPZ。模型资产打开、下载和近期模型展示应通过 `resolveModelAssetSource` 或等价逻辑显式传递该偏好，并在首选格式缺失时回退到资产可用文件；后端无 `format` 参数时的兼容优先级与用户偏好是两个不同概念。
+- `model_format` 用户偏好保存在活动配置 `runtime.get_config_file()` 中，只覆盖 PLY/SPZ。模型资产打开、下载和近期模型展示应通过 `resolveModelAssetSource` 或等价逻辑显式传递该偏好，并在首选格式缺失时回退到资产可用文件；后端无 `format` 参数时的兼容优先级与用户偏好是两个不同概念。
 - Viewer 当前模型必须带来源判别：`gallery`、`model-asset-generated`、`model-asset-imported` 或 `temporary`。旧图库或任务刷新只能协调 `gallery` 来源，不能清空正在查看的资产库模型或临时 Blob；所有入口还必须传递真实文件大小和最终打开格式。
 - 旧 `/api/export/<id>` 与分享链路只认识受控生成结果。生成资产可复用旧导出/分享；导入资产和临时预览在没有专用受控导出实现前只能打开、下载或加入资产库，相关导出/分享入口必须禁用或省略，不能把导入 asset id 或 Blob id 传给旧接口。
 - 导入文件的用户可见原始名称与物理存储名必须分离：原始 basename、Unicode 展示名和下载名应保留，受控目录中的物理文件名使用安全唯一名称；稳定 asset id 不由展示名或客户端路径决定。

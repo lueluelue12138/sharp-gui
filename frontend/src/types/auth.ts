@@ -1,4 +1,5 @@
 export interface AuthStatusResponse {
+  server_instance_id?: string;
   authenticated: boolean;
   is_owner: boolean;
   is_local: boolean;

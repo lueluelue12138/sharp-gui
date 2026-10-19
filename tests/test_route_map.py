@@ -44,6 +44,7 @@ EXPECTED_ROUTES = {
     ("/api/photo-thumbnail/<photo_id>", ("GET",)),
     ("/api/restart", ("POST",)),
     ("/api/settings", ("GET", "POST")),
+    ('/api/settings/restore', ('POST',)),
     ("/api/task/<task_id>/cancel", ("POST",)),
     ("/api/tasks", ("GET",)),
     ("/api/thumbnail/<item_id>", ("GET",)),

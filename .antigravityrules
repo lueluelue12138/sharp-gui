@@ -137,7 +137,7 @@ Sharp GUI 是一个 **3D 高斯溅射 (Gaussian Splatting) 图形化界面**，�
 ```
 sharp-gui/
 ├── app.py                    # Flask 后端（单文件，含任务队列与本地照片图库 API）
-├── config.json               # 运行时配置（workspace 路径、照片相册目录）
+├── config.json               # 旧包配置导入来源；活动配置默认存储于系统用户目录
 ├── frontend/src/             # React 前端源码
 │   ├── api/                  #   API 客户端（fetch 封装）
 │   ├── components/           #   组件（common/gallery/photoGallery/layout/viewer）

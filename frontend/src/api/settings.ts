@@ -1,7 +1,11 @@
 import { apiGet, apiPost } from './client';
 import type { ModelFormat, VideoReconstructionConfig } from '@/types';
+import type { AuthStatusResponse } from '@/types/auth';
+import type { ConfigurationPreview, ConfigurationRestoreResult } from '@/types/configuration';
 
 export interface SettingsData {
+  config_file?: string | null;
+  config_scope?: 'global' | 'explicit' | null;
   workspace_folder?: string;
   model_format?: ModelFormat;
   is_local?: boolean;
@@ -37,6 +41,31 @@ function workspaceMatches(actual: string | undefined, expected: string | undefin
  */
 export async function fetchSettings(): Promise<SettingsData> {
   return apiGet<SettingsData>('/api/settings');
+}
+
+export function previewConfiguration(folder: string): Promise<ConfigurationPreview> {
+  return apiPost('/api/settings/restore', { folder });
+}
+
+export function restoreConfiguration(preview: ConfigurationPreview): Promise<ConfigurationRestoreResult> {
+  return apiPost('/api/settings/restore', { ...preview, confirm: true });
+}
+
+export async function waitForConfigurationRestart(previousInstanceId: string): Promise<void> {
+  const deadline = Date.now() + RESTART_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await delay(RESTART_POLL_INTERVAL_MS);
+    try {
+      // Public status stays available if the restored access settings require login.
+      const status = await apiGet<AuthStatusResponse>(`/api/auth/status?restart_probe=${Date.now()}`, {
+        cache: 'no-store', timeout: RESTART_PROBE_TIMEOUT_MS,
+      });
+      if (status.server_instance_id && status.server_instance_id !== previousInstanceId) return;
+    } catch {
+      // The supervisor may be between processes.
+    }
+  }
+  throw new Error('Configuration restart timed out');
 }
 
 /**

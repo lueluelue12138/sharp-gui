@@ -1,7 +1,7 @@
 import datetime
 import time
 
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from backend.config import coerce_bool, coerce_int, load_config, normalize_access_control_config, save_config
@@ -21,7 +21,8 @@ bp = Blueprint("auth", __name__)
 
 @bp.route("/api/auth/status")
 def auth_status():
-    return jsonify(build_auth_status(g.access_control))
+    return jsonify({**build_auth_status(g.access_control),
+                    'server_instance_id': current_app.config['SERVER_INSTANCE_ID']})
 
 
 @bp.route("/api/auth/login", methods=["POST"])

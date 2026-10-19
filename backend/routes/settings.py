@@ -2,9 +2,12 @@ import os
 
 from flask import Blueprint, current_app, g, jsonify, request
 
+from backend import runtime
+from backend.config_storage import ConfigData, ConfigStorageError, read_legacy_config
 from backend.config import (
     load_config,
     normalize_video_reconstruction_config,
+    normalize_access_control_config,
     save_config,
 )
 from backend.services.folder_picker import browse_folder_native
@@ -43,6 +46,8 @@ def settings():
             "input_folder": paths.input_folder if is_local else None,
             "output_folder": paths.output_folder if is_local else None,
             "video_reconstruction": video_config,
+            'config_file': runtime.get_config_file() if is_local else None,
+            'config_scope': ('explicit' if os.environ.get('SHARP_CONFIG_FILE', '').strip() else 'global') if is_local else None,
         })
 
     if not is_local:
@@ -109,6 +114,52 @@ def settings():
         "needs_restart": needs_restart,
         "message": "Settings saved." + (" Restart server to apply changes." if needs_restart else ""),
     })
+
+
+@bp.route('/api/settings/restore', methods=['POST'])
+def restore_configuration():
+    """本机选择旧目录后预览、确认并恢复；不复制或清理旧工作区。"""
+    if not g.is_owner:
+        return jsonify({'error': 'Only localhost can restore configuration.'}), 403
+    data = request.get_json(silent=True)
+    folder = data.get('folder') if isinstance(data, dict) else None
+    if not isinstance(folder, str) or not folder.strip() or '\0' in folder or not os.path.isabs(folder):
+        raise ConfigStorageError('config_source_unavailable', 400)
+    source_path = os.path.join(folder, 'config.json')
+    restored, source_revision = read_legacy_config(source_path)
+    current = load_config()
+    migrate_photo_gallery_roots_config(restored)
+    normalize_video_reconstruction_config(restored)
+    # 门禁信息仅在服务内迁移，不进入预览响应。
+    normalize_access_control_config(restored)
+    summary = {
+        'folder': folder, 'source_revision': source_revision, 'target_revision': current.revision,
+        'workspace_folder': restored['workspace_folder'],
+        'album_count': sum(len(roots) for roots in restored.get('photo_gallery_roots_by_workspace', {}).values() if isinstance(roots, list)),
+    }
+    if data.get('confirm') is not True:
+        return jsonify(summary)
+    if data.get('source_revision') != source_revision or data.get('target_revision') != current.revision:
+        raise ConfigStorageError('config_conflict', 409)
+    manager = current_app.config['TASK_MANAGER']
+    with manager.task_lock:
+        if getattr(manager, '_configuration_enqueuing', 0) or any(
+                task.get('status') in ('pending', 'running', 'processing') for task in manager.task_status.values()):
+            raise ConfigStorageError('config_tasks_active', 409)
+        probe = WorkspaceInstanceLock(restored['workspace_folder'])
+        try:
+            if not _workspace_paths_match(current_app.config['PATH_CONTEXT'].workspace_folder, restored['workspace_folder']):
+                probe.acquire()
+            replacement = ConfigData(restored, current.source_path, current.revision)
+            save_config(replacement, backup=True)
+        except (WorkspaceInUseError, WorkspaceUnavailableError) as exc:
+            raise ConfigStorageError('config_workspace_unavailable', 409) from exc
+        finally:
+            probe.release()
+        manager._configuration_restore_pending = True
+        current_app.config['CONFIG_RESTORE_PENDING'] = True
+    restart_process_later()
+    return jsonify({'success': True, 'server_instance_id': current_app.config['SERVER_INSTANCE_ID']})
 
 
 @bp.route("/api/restart", methods=["POST"])

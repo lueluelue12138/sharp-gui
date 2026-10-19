@@ -7,6 +7,18 @@ from PIL import Image
 from backend.app_factory import create_app
 
 
+@pytest.fixture(autouse=True)
+def isolated_user_configuration(tmp_path, monkeypatch):
+    """所有测试都不能读写真实用户全局配置，包括子进程。"""
+    monkeypatch.setenv('SHARP_CONFIG_HOME', str(tmp_path / 'user-config'))
+    default_config = tmp_path / 'isolated-config.json'
+    default_config.write_text(json.dumps({'workspace_folder': str(tmp_path / 'default-workspace')}), encoding='utf-8')
+    monkeypatch.setenv('SHARP_CONFIG_FILE', str(default_config))
+    from backend import runtime
+    monkeypatch.setattr(runtime, 'CONFIG_FILE', str(tmp_path / 'old-package' / 'config.json'))
+    monkeypatch.setattr(runtime, 'DEFAULT_WORKSPACE_FOLDER', str(tmp_path / 'default-workspace'))
+
+
 @pytest.fixture
 def workspace(tmp_path):
     root = tmp_path / "workspace"

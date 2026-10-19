@@ -1,0 +1,25 @@
+.section {
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.section h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.section p {
+  margin: 6px 0 10px;
+  line-height: 1.5;
+}
+
+.section .path {
+  padding: 10px 12px;
+  color: var(--text-primary);
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  overflow-wrap: anywhere;
+}
