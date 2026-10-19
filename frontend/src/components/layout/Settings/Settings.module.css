@@ -31,8 +31,9 @@
     border-radius: var(--radius-2xl); /* Match sidebar */
     padding: 24px;
     width: 90%;
-    max-width: 560px;
-    max-height: calc(100vh - 48px);
+    max-width: 860px;
+    height: min(700px, calc(100vh - 48px));
+    height: min(700px, calc(100dvh - 48px));
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -42,29 +43,121 @@
     transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
 }
 
-/* 可滚动内容区：标题固定在上，操作栏作为悬浮玻璃卡片浮在内容之上。
-   底部留出 padding，让最后的设置项能滚动到玻璃卡片上方，内容则从卡片下方透过模糊背景。 */
+/* Navigation and footer stay visible while the active category scrolls. */
+.header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-lg);
+    margin-bottom: var(--space-xl);
+}
+
+.layout {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    gap: var(--space-2xl);
+}
+
+.navigation {
+    display: flex;
+    flex: 0 0 180px;
+    flex-direction: column;
+    gap: var(--space-xs);
+    overflow-y: auto;
+}
+
+.navigationButton {
+    justify-content: flex-start;
+    min-height: 42px;
+    padding: 10px 12px;
+    text-align: left;
+    white-space: normal;
+}
+
+.navigation .navigationButton:hover:not(:disabled) {
+    background: rgba(0, 0, 0, 0.04);
+    color: var(--text-primary);
+}
+
+.navigation .navigationButton[aria-selected="true"],
+.navigation .navigationButton[aria-selected="true"]:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.85);
+    color: var(--accent-blue);
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+.navigationButton:focus-visible,
+.section:focus-visible {
+    outline: 2px solid var(--accent-blue);
+    outline-offset: -2px;
+}
+
+.pendingDot {
+    width: 6px;
+    height: 6px;
+    flex-shrink: 0;
+    align-self: center;
+    margin-left: var(--space-sm);
+    border-radius: var(--radius-full);
+    background: var(--accent-blue);
+}
+
+.contentColumn {
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    padding-left: var(--space-2xl);
+    border-left: 1px solid var(--glass-border);
+}
+
 .body {
-    flex: 1 1 auto;
+    flex: 1;
     min-height: 0;
     overflow-y: auto;
     overscroll-behavior: contain;
-    /* 抵消 panel 内边距，让滚动条贴近面板边缘，同时保留内容内边距 */
-    margin: 0 -24px;
-    padding: 0 24px 84px;
+    padding: 0 var(--space-sm) var(--space-lg) 0;
 }
 
-@media (max-width: 768px) {
-    .panel {
-        width: calc(100% - 20px);
-        max-height: calc(100vh - 20px);
-        padding: 16px;
-    }
+.fields {
+    min-width: 0;
+    border: 0;
+    margin: 0;
+    padding: 0;
+}
 
-    .body {
-        margin: 0 -16px;
-        padding: 0 16px 80px;
-    }
+.section[hidden] {
+    display: none;
+}
+
+.sectionHeading {
+    margin-bottom: var(--space-xl);
+}
+
+.sectionHeading h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 16px;
+    font-weight: 600;
+}
+
+.sectionHeading p,
+.saveHint {
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.sectionHeading p {
+    margin: var(--space-sm) 0 0;
+}
+
+.loadError {
+    margin-bottom: var(--space-lg);
+    color: var(--text-secondary);
+    font-size: 13px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -81,7 +174,10 @@
 
 .title {
     flex: 0 0 auto;
-    margin: 0 0 20px 0;
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    margin: 0;
     font-size: 18px;
     font-weight: 600;
 }
@@ -104,6 +200,7 @@
 }
 
 .input {
+    min-width: 0;
     flex: 1;
     padding: 10px 12px;
     background: rgba(255, 255, 255, 0.4);
@@ -676,53 +773,95 @@
 }
 
 .actions {
-    /* 整条底栏：纯透明玻璃模糊渐变。背景只有“透明 → 极淡白”的渐变，
-       模糊本身通过 mask 从上到下淡入，整体保持通透，设置内容可穿透显示。 */
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 3;
     display: flex;
-    gap: 12px;
+    flex-shrink: 0;
+    align-items: center;
     justify-content: flex-end;
-    align-items: flex-end;
-    padding: 48px 24px 20px;
-    border-radius: 0 0 var(--radius-2xl) var(--radius-2xl);
-    /* 白色透明渐变：顶部全透明，底部也仅半透明白，不做成实心白墙 */
-    background: linear-gradient(
-        to bottom,
-        rgba(255, 255, 255, 0) 0%,
-        rgba(255, 255, 255, 0.18) 45%,
-        rgba(255, 255, 255, 0.42) 100%
-    );
-    backdrop-filter: var(--glass-blur);
-    -webkit-backdrop-filter: var(--glass-blur);
-    /* 让模糊与渐变从上到下淡入：顶部无模糊（内容清晰），底部为完整磨砂 */
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 50%);
-    mask-image: linear-gradient(to bottom, transparent 0%, #000 50%);
-    /* 透明渐变区不拦截交互，内容可继续滚动/点击 */
-    pointer-events: none;
+    gap: var(--space-md);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--glass-border);
 }
 
-.actions > button {
-    pointer-events: auto;
-}
-
-@media (max-width: 768px) {
-    .actions {
-        padding: 44px 16px 16px;
-    }
+.saveHint {
+    flex: 1;
+    margin: 0;
+    font-size: 11px;
 }
 
 @media (prefers-color-scheme: dark) {
+    .navigation .navigationButton:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.06);
+    }
+
+    .navigation .navigationButton[aria-selected="true"],
+    .navigation .navigationButton[aria-selected="true"]:hover:not(:disabled) {
+        background: rgba(255, 255, 255, 0.1);
+        color: #5aabff;
+    }
+}
+
+@media (max-width: 768px) {
+    .panel {
+        width: calc(100% - 20px);
+        height: calc(100vh - 20px);
+        height: calc(100dvh - 20px);
+        padding: var(--space-lg);
+    }
+
+    .header {
+        margin-bottom: var(--space-md);
+    }
+
+    .layout {
+        flex-direction: column;
+        gap: var(--space-lg);
+    }
+
+    .navigation {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        flex: 0 0 auto;
+        overflow: visible;
+    }
+
+    .navigationButton {
+        flex-direction: column;
+        justify-content: center;
+        min-width: 0;
+        min-height: 60px;
+        padding: var(--space-sm) var(--space-xs);
+        gap: var(--space-xs);
+        font-size: 12px;
+        white-space: normal;
+        text-align: center;
+    }
+
+    .navigationButton > span {
+        min-width: 0;
+        align-items: center;
+    }
+
+    .contentColumn {
+        padding-left: 0;
+        padding-top: var(--space-lg);
+        border-left: 0;
+        border-top: 1px solid var(--glass-border);
+    }
+
     .actions {
-        background: linear-gradient(
-            to bottom,
-            rgba(20, 20, 24, 0) 0%,
-            rgba(20, 20, 24, 0.22) 45%,
-            rgba(20, 20, 24, 0.5) 100%
-        );
+        flex-wrap: wrap;
+        gap: var(--space-sm);
+    }
+
+    .saveHint {
+        flex-basis: 100%;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .modal,
+    .panel {
+        transition: none;
     }
 }
 

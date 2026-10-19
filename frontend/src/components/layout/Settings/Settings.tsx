@@ -1,5 +1,8 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useId, useRef } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Box, Download, Images, Settings2, ShieldCheck, SlidersHorizontal, Video, X } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useAppStore } from '@/store/useAppStore';
 import {
     ApiError,
@@ -19,6 +22,7 @@ import {
     updateAuthSettings,
 } from '@/api';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
+import { Button } from '@/components/common/Button';
 import { UpdateSettingsSection } from '@/components/layout/Settings/UpdateSettingsSection';
 import { ConfigurationSection } from '@/components/layout/Settings/ConfigurationSection';
 import type {
@@ -50,8 +54,28 @@ const DEFAULT_VIDEO_CONFIG: VideoReconstructionConfig = {
     keep_intermediate_files: false,
 };
 
+type SettingsSection = 'general' | 'viewer' | 'gallery' | 'video' | 'security' | 'updates';
+
+const SETTINGS_SECTIONS: { id: SettingsSection; icon: LucideIcon; ownerOnly?: boolean }[] = [
+    { id: 'general', icon: SlidersHorizontal },
+    { id: 'viewer', icon: Box },
+    { id: 'gallery', icon: Images, ownerOnly: true },
+    { id: 'video', icon: Video },
+    { id: 'security', icon: ShieldCheck },
+    { id: 'updates', icon: Download, ownerOnly: true },
+];
+
 export const Settings: React.FC = () => {
     const { t } = useTranslation();
+    const settingsId = useId();
+    const bodyRef = useRef<HTMLDivElement>(null);
+    const openingRef = useRef(false);
+    const settingsRequestRef = useRef(0);
+    const loadedSections = useRef({ gallery: false, video: false });
+    const [selectedSection, setSelectedSection] = useState<SettingsSection>('general');
+    const [updatesVisited, setUpdatesVisited] = useState(false);
+    const [settingsLoading, setSettingsLoading] = useState(true);
+    const [settingsLoadFailed, setSettingsLoadFailed] = useState(false);
     const {
         settingsModalOpen,
         setSettingsModalOpen,
@@ -157,8 +181,12 @@ export const Settings: React.FC = () => {
     }, [setAuthStatus]);
 
     const loadSettings = useCallback(async () => {
+        const requestId = ++settingsRequestRef.current;
+        setSettingsLoading(true);
+        setSettingsLoadFailed(false);
         try {
-            const data = await fetchSettings();
+            const [data, nextAuthStatus] = await Promise.all([fetchSettings(), fetchAuthStatus()]);
+            if (requestId !== settingsRequestRef.current || !useAppStore.getState().settingsModalOpen) return;
             setConfiguration({ file: data.config_file ?? '', scope: data.config_scope ?? 'global' });
             if (data.workspace_folder) {
                 setWorkspaceFolder(data.workspace_folder);
@@ -169,12 +197,14 @@ export const Settings: React.FC = () => {
                 setVideoConfig(config);
                 setSavedVideoConfig(config);
             }
-            const nextAuthStatus = await fetchAuthStatus();
             applyAccessStatus(nextAuthStatus);
             // We do not overwrite modelFormat here because effectiveModelFormat() 
             // already handles client-side overrides.
         } catch (error) {
             console.error('Failed to load settings:', error);
+            if (requestId === settingsRequestRef.current) setSettingsLoadFailed(true);
+        } finally {
+            if (requestId === settingsRequestRef.current) setSettingsLoading(false);
         }
     }, [applyAccessStatus]);
 
@@ -197,8 +227,6 @@ export const Settings: React.FC = () => {
         setVideoStatusLoading(true);
         try {
             const status = await fetchVideoReconstructionStatus({ refresh: forceRefresh });
-            setVideoConfig(status.config);
-            setSavedVideoConfig(status.config);
             setVideoDependencies(status.dependencies);
             setVideoReconstructionStatus(status.dependencies, status.config);
             setVideoMessage(null);
@@ -212,22 +240,44 @@ export const Settings: React.FC = () => {
 
     // Load settings when modal opens
     useEffect(() => {
-        if (settingsModalOpen) {
+        if (!settingsModalOpen) {
+            openingRef.current = false;
+            settingsRequestRef.current += 1;
+            return;
+        }
+        if (!openingRef.current) {
+            openingRef.current = true;
             setModelFormat(effectiveModelFormat());
             setDefaultRevealEffect(viewerDefaultRevealEffect);
             setAccessMessage(null);
             loadSettings();
-            void loadPhotoCacheStats();
-            void loadVideoReconstructionStatus();
         }
     }, [
         settingsModalOpen,
         effectiveModelFormat,
         viewerDefaultRevealEffect,
         loadSettings,
-        loadPhotoCacheStats,
-        loadVideoReconstructionStatus,
     ]);
+
+    const visibleSections = SETTINGS_SECTIONS.filter((section) => !section.ownerOnly || isLocalAccess);
+    const activeSection = visibleSections.some((section) => section.id === selectedSection) ? selectedSection : 'general';
+
+    useEffect(() => {
+        if (!settingsModalOpen) {
+            loadedSections.current = { gallery: false, video: false };
+            setUpdatesVisited(false);
+            return;
+        }
+        if (activeSection === 'gallery' && !loadedSections.current.gallery) {
+            loadedSections.current.gallery = true;
+            void loadPhotoCacheStats();
+        }
+        if (activeSection === 'video' && !loadedSections.current.video) {
+            loadedSections.current.video = true;
+            void loadVideoReconstructionStatus();
+        }
+        if (activeSection === 'updates') setUpdatesVisited(true);
+    }, [settingsModalOpen, activeSection, loadPhotoCacheStats, loadVideoReconstructionStatus]);
 
     const handleClose = () => {
         setSettingsModalOpen(false);
@@ -241,7 +291,7 @@ export const Settings: React.FC = () => {
 
     const handleBrowse = async () => {
         try {
-            const result = await browseFolder('Select Workspace Folder', workspaceFolder);
+            const result = await browseFolder(t('settingsBrowseWorkspace'), workspaceFolder);
             if (result.path) {
                 setWorkspaceFolder(result.path);
             }
@@ -251,6 +301,7 @@ export const Settings: React.FC = () => {
     };
 
     const handleSave = async () => {
+        if (settingsLoading || settingsLoadFailed) return;
         setIsSaving(true);
         try {
             if (defaultRevealEffect !== viewerDefaultRevealEffect) {
@@ -516,744 +567,825 @@ export const Settings: React.FC = () => {
         }
     };
 
+    const pendingSections: Partial<Record<SettingsSection, boolean>> = {
+        general: workspaceFolder !== originalWorkspace || modelFormat !== effectiveModelFormat(),
+        viewer: defaultRevealEffect !== viewerDefaultRevealEffect,
+        video: hasVideoSettingsChanges,
+        security: hasAccessSettingsChanges,
+    };
+    const hasPendingSettings = Object.values(pendingSections).some(Boolean);
+    const selectSection = (section: SettingsSection) => {
+        setSelectedSection(section);
+        bodyRef.current?.scrollTo({ top: 0 });
+    };
+    const handleSectionKeyDown = (event: KeyboardEvent<HTMLButtonElement>, section: SettingsSection) => {
+        const index = visibleSections.findIndex((item) => item.id === section);
+        const forward = event.key === 'ArrowRight' || event.key === 'ArrowDown';
+        const backward = event.key === 'ArrowLeft' || event.key === 'ArrowUp';
+        if (!forward && !backward && event.key !== 'Home' && event.key !== 'End') return;
+        event.preventDefault();
+        const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? visibleSections.length - 1
+            : (index + (forward ? 1 : -1) + visibleSections.length) % visibleSections.length;
+        const nextSection = visibleSections[nextIndex].id;
+        selectSection(nextSection);
+        document.getElementById(`${settingsId}-tab-${nextSection}`)?.focus();
+    };
+    const renderSection = (section: SettingsSection, children: ReactNode) => (
+        <section
+            id={`${settingsId}-panel-${section}`}
+            role="tabpanel"
+            aria-labelledby={`${settingsId}-tab-${section}`}
+            hidden={activeSection !== section}
+            className={styles.section}
+            tabIndex={0}
+        >
+            {section !== 'updates' && (
+                <div className={styles.sectionHeading}>
+                    <h4>{t(`settingsGroups.${section}`)}</h4>
+                    <p>{t(`settingsGroupHints.${section}`)}</p>
+                </div>
+            )}
+            {children}
+        </section>
+    );
+
     return (
         <div
             className={`${styles.modal} ${settingsModalOpen ? styles.visible : ''}`}
             onClick={handleBackdropClick}
         >
-            <div className={styles.panel}>
-                <h3 className={styles.title}>⚙️ {t('settings')}</h3>
-
-                <div className={styles.body}>
-                <div className={styles.group}>
-                    <label className={styles.label}>{t('accessControlTitle')}</label>
-
-                    {isLocalAccess ? (
-                        <>
-                            {/* 局域网可访问：主开关，置顶。关闭后隐藏全部门禁选项。 */}
-                            <div className={styles.accessToggleCard}>
-                                <div className={styles.accessToggleCopy}>
-                                    <span className={styles.accessToggleTitle}>
-                                        {t('lanBindTitle')}
-                                        <span className={`${styles.toggleStateTag} ${lanBindEnabled ? styles.toggleStateOn : styles.toggleStateOff}`}>
-                                            {lanBindEnabled ? t('toggleStateOn') : t('toggleStateOff')}
-                                        </span>
-                                    </span>
-                                    <p>
-                                        {lanBindEnabled ? t('lanBindEnabledHint') : t('lanBindDisabledHint')}
-                                    </p>
-                                    <p className={styles.fieldHint}>{t('lanBindRestartHint')}</p>
+            <div className={styles.panel} role="dialog" aria-modal="true" aria-labelledby={`${settingsId}-title`}>
+                <header className={styles.header}>
+                    <h3 id={`${settingsId}-title`} className={styles.title}><Settings2 size={19} />{t('settings')}</h3>
+                    <Button variant="ghost" iconOnly icon={<X size={18} />} aria-label={t('close')} onClick={handleClose} />
+                </header>
+                <div className={styles.layout}>
+                    <div className={styles.navigation} role="tablist" aria-label={t('settingsGroupsLabel')}>
+                        {visibleSections.map(({ id, icon: Icon }) => (
+                            <Button
+                                key={id}
+                                id={`${settingsId}-tab-${id}`}
+                                role="tab"
+                                aria-selected={activeSection === id}
+                                aria-controls={`${settingsId}-panel-${id}`}
+                                tabIndex={activeSection === id ? 0 : -1}
+                                variant="ghost"
+                                icon={<Icon size={16} />}
+                                className={styles.navigationButton}
+                                onClick={() => selectSection(id)}
+                                onKeyDown={(event) => handleSectionKeyDown(event, id)}
+                            >
+                                {t(`settingsGroups.${id}`)}
+                                {pendingSections[id] && <span className={styles.pendingDot} aria-label={t('settingsUnsavedChanges')} />}
+                            </Button>
+                        ))}
+                    </div>
+                    <div className={styles.contentColumn}>
+                        <div className={styles.body} ref={bodyRef} aria-busy={settingsLoading}>
+                            {settingsLoading && <p className={styles.message} role="status">{t('settingsLoading')}</p>}
+                            {settingsLoadFailed && (
+                                <div className={styles.loadError} role="alert">
+                                    <p>{t('settingsLoadFailed')}</p>
+                                    <Button variant="secondary" size="sm" onClick={() => void loadSettings()}>{t('settingsRetry')}</Button>
                                 </div>
-                                <button
-                                    type="button"
-                                    className={`${styles.toggleSwitch} ${lanBindEnabled ? styles.toggleSwitchOn : ''}`}
-                                    onClick={() => setLanBindEnabled(!lanBindEnabled)}
-                                    aria-pressed={lanBindEnabled}
-                                    aria-label={t('lanBindToggleLabel')}
-                                >
-                                    <span className={styles.toggleKnob} />
-                                </button>
-                            </div>
-
-                            {/* 门禁相关设置：仅在局域网可访问时展示 */}
-                            {lanBindEnabled && (
-                                <div className={styles.accessDetails}>
-                                    {/* 门禁开关，隐私风险提示合并进卡片内 */}
-                                    <div className={`${styles.accessToggleCard} ${!accessControlEnabled ? styles.accessToggleWarning : ''}`}>
-                                        <div className={styles.accessToggleCopy}>
-                                            <span className={styles.accessToggleTitle}>
-                                                {t('accessControlSwitchTitle')}
-                                                <span className={`${styles.toggleStateTag} ${accessControlEnabled ? styles.toggleStateOn : styles.toggleStateOff}`}>
-                                                    {accessControlEnabled ? t('toggleStateOn') : t('toggleStateOff')}
-                                                </span>
-                                            </span>
-                                            <p>
-                                                {accessControlEnabled ? t('accessControlEnabledHint') : t('accessControlDisabledHint')}
-                                            </p>
-                                            {!accessControlEnabled && (
-                                                <p className={styles.accessRiskNote}>{t('accessControlDisabledWarning')}</p>
-                                            )}
-                                        </div>
-                                        <button
-                                            type="button"
-                                            className={`${styles.toggleSwitch} ${accessControlEnabled ? styles.toggleSwitchOn : ''}`}
-                                            onClick={() => handleAccessControlToggle(!accessControlEnabled)}
-                                            aria-pressed={accessControlEnabled}
-                                            aria-label={t('accessControlToggleLabel')}
-                                        >
-                                            <span className={styles.toggleKnob} />
-                                        </button>
-                                    </div>
-
-                                    {/* 门禁开启后的访问码与会话设置 */}
-                                    {accessControlEnabled && (
-                                        <div className={styles.accessForm}>
-                                            <div className={styles.statusRow}>
-                                                <span className={`${styles.statusPill} ${authStatus?.has_access_code ? styles.statusOk : styles.statusWarn}`}>
-                                                    {authStatus?.has_access_code ? t('accessCodeConfigured') : t('accessCodeMissing')}
-                                                </span>
-                                                <span className={styles.statusPill}>
-                                                    {t('accessOwnerMode')}
-                                                </span>
-                                            </div>
-                                            {authStatus?.setup_required ? (
-                                                <p className={styles.warning}>{t('accessCodeSetupReminder')}</p>
-                                            ) : (
-                                                <p className={styles.hint}>{t('accessControlHint')}</p>
-                                            )}
-
+                            )}
+                            <fieldset className={styles.fields} disabled={settingsLoading || settingsLoadFailed || isSaving}>
+                                {renderSection('general', <>
+                                    {isLocalAccess && (
+                                        <div className={styles.group}>
+                                            <label className={styles.label} htmlFor={`${settingsId}-workspace`}>
+                                                {t('workspaceFolder')}
+                                            </label>
                                             <div className={styles.inputWrapper}>
                                                 <input
-                                                    type="password"
+                                                    id={`${settingsId}-workspace`}
+                                                    type="text"
                                                     className={styles.input}
-                                                    value={accessCode}
-                                                    onChange={(e) => setAccessCodeValue(e.target.value)}
-                                                    placeholder={t('accessCodePlaceholder')}
-                                                    autoComplete="new-password"
+                                                    value={workspaceFolder}
+                                                    onChange={(e) => setWorkspaceFolder(e.target.value)}
+                                                    placeholder="/path/to/workspace"
                                                 />
                                                 <button
-                                                    type="button"
-                                                    className={styles.saveBtn}
-                                                    onClick={handleSaveAccessCode}
-                                                    disabled={isAccessSaving || accessCode.length < 8}
+                                                    className={styles.browseBtn}
+                                                    onClick={handleBrowse}
+                                                    aria-label={t('settingsBrowseWorkspace')}
                                                 >
-                                                    {t('accessCodeSave')}
+                                                    <FolderIcon />
                                                 </button>
                                             </div>
+                                            <p className={styles.hint}>
+                                                📁 inputs/ ({t('images') || '图片'}) &nbsp;&nbsp; 📁 outputs/ ({t('models') || '模型'})
+                                            </p>
+                                        </div>
+                                    )}
 
-                                            <div className={styles.inlineGrid}>
-                                                <div>
-                                                    <label className={styles.label}>{t('sessionDaysLabel')}</label>
-                                                    <input
-                                                        type="number"
-                                                        min={1}
-                                                        max={365}
-                                                        className={styles.input}
-                                                        value={sessionDays}
-                                                        onChange={(e) => setSessionDays(Number(e.target.value))}
-                                                    />
-                                                </div>
-                                                <div>
-                                                    <label className={styles.label}>{t('remoteGenerationLabel')}</label>
-                                                    <div className={styles.segmentedControl}>
-                                                        <button
-                                                            type="button"
-                                                            className={`${styles.segmentBtn} ${!allowRemoteGeneration ? styles.segmentActive : ''}`}
-                                                            onClick={() => setAllowRemoteGeneration(false)}
-                                                        >
-                                                            {t('remoteGenerationOff')}
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            className={`${styles.segmentBtn} ${allowRemoteGeneration ? styles.segmentActive : ''}`}
-                                                            onClick={() => setAllowRemoteGeneration(true)}
-                                                        >
-                                                            {t('remoteGenerationOn')}
-                                                        </button>
-                                                    </div>
-                                                    <p className={styles.fieldHint}>{t('remoteGenerationHint')}</p>
-                                                </div>
-                                            </div>
+                                    {isLocalAccess && configuration.file && (
+                                        <ConfigurationSection configFile={configuration.file} scope={configuration.scope} />
+                                    )}
 
-                                            <div className={styles.securityActions}>
+                                    {/* Model Format Preference */}
+                                    <div className={styles.group}>
+                                        <label className={styles.label}>
+                                            {t('modelFormatLabel')}
+                                        </label>
+                                        <div className={styles.segmentedControl}>
+                                            <button
+                                                className={`${styles.segmentBtn} ${modelFormat === 'spz' ? styles.segmentActive : ''}`}
+                                                onClick={() => setModelFormat('spz')}
+                                            >
+                                                SPZ {t('formatCompact')}
+                                            </button>
+                                            <button
+                                                className={`${styles.segmentBtn} ${modelFormat === 'ply' ? styles.segmentActive : ''}`}
+                                                onClick={() => setModelFormat('ply')}
+                                            >
+                                                PLY {t('formatOriginal')}
+                                            </button>
+                                        </div>
+                                        <p className={styles.hint}>
+                                            {t('modelFormatHint')}
+                                        </p>
+                                    </div>
+
+                                    {/* Batch Convert */}
+                                    {isLocalAccess && (
+                                        <div className={styles.group}>
+                                            <button
+                                                className={styles.convertBtn}
+                                                onClick={handleConvertAll}
+                                                disabled={isConverting}
+                                            >
+                                                {isConverting ? '⏳ ' + t('converting') : '📦 ' + t('convertAllToSpz')}
+                                            </button>
+                                        </div>
+                                    )}
+                                    {isLocalAccess && workspaceFolder !== originalWorkspace && (
+                                        <p className={styles.warning}>
+                                            ⚠️ {t('settingsRestartWarning') || '修改工作目录后需重启服务器生效'}
+                                        </p>
+                                    )}
+
+                                </>)}
+                                {renderSection('viewer', <>
+                                    <div className={styles.group}>
+                                        <label className={styles.label}>
+                                            {t('quickPresetLabel')}
+                                        </label>
+                                        <div className={styles.segmentedControl}>
+                                            <button
+                                                className={`${styles.segmentBtn} ${quickPresetMode === 'performance' ? styles.segmentActive : ''}`}
+                                                onClick={() => handleQuickPresetChange('performance')}
+                                            >
+                                                {t('lodPresetPerformance')}
+                                            </button>
+                                            <button
+                                                className={`${styles.segmentBtn} ${quickPresetMode === 'balanced' ? styles.segmentActive : ''}`}
+                                                onClick={() => handleQuickPresetChange('balanced')}
+                                            >
+                                                {t('lodPresetBalanced')}
+                                            </button>
+                                            <button
+                                                className={`${styles.segmentBtn} ${quickPresetMode === 'detail' ? styles.segmentActive : ''}`}
+                                                onClick={() => handleQuickPresetChange('detail')}
+                                            >
+                                                {t('lodPresetDetail')}
+                                            </button>
+                                            <button
+                                                className={`${styles.segmentBtn} ${quickPresetMode === 'manual' ? styles.segmentActive : ''}`}
+                                                onClick={() => handleQuickPresetChange('manual')}
+                                            >
+                                                {t('quickPresetManual')}
+                                            </button>
+                                        </div>
+                                        <p className={styles.hint}>
+                                            {t('quickPresetHint')}
+                                        </p>
+                                    </div>
+
+                                    <div className={styles.group}>
+                                        <label className={styles.label}>
+                                            {t('defaultRevealEffectLabel')}
+                                        </label>
+                                        <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
+                                            {REVEAL_EFFECT_SETTINGS_OPTIONS.map((effect) => (
                                                 <button
+                                                    key={effect.id}
                                                     type="button"
-                                                    className={styles.dangerBtn}
-                                                    onClick={handleRevokeSessions}
-                                                    disabled={isRevokingSessions}
+                                                    className={`${styles.segmentBtn} ${defaultRevealEffect === effect.id ? styles.segmentActive : ''}`}
+                                                    onClick={() => setDefaultRevealEffect(effect.id)}
                                                 >
-                                                    {isRevokingSessions ? t('saving') : t('revokeAllSessions')}
+                                                    {t(effect.labelKey)}
                                                 </button>
+                                            ))}
+                                        </div>
+                                        <p className={styles.hint}>
+                                            {t('defaultRevealEffectHint')}
+                                        </p>
+                                    </div>
+
+                                    {quickPresetMode === 'manual' ? (
+                                        <>
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>{t('advancedSettingsLabel')}</label>
+                                                <p className={styles.hint}>{t('advancedSettingsHint')}</p>
+                                            </div>
+
+                                            {/* LOD (Level-of-Detail) Toggle */}
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>
+                                                    {t('lodLabel')}
+                                                </label>
+                                                <div className={styles.segmentedControl}>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${!isLodEnabled ? styles.segmentActive : ''}`}
+                                                        onClick={() => {
+                                                            if (isLodEnabled) {
+                                                                applyManualChange(() => {
+                                                                    toggleLod();
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('lodOff')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${isLodEnabled ? styles.segmentActive : ''}`}
+                                                        onClick={() => {
+                                                            if (!isLodEnabled) {
+                                                                applyManualChange(() => {
+                                                                    toggleLod();
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('lodOn')}
+                                                    </button>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {t('lodHint')}
+                                                </p>
+                                            </div>
+
+                                            {/* LOD Presets */}
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>
+                                                    {t('lodPresetLabel')}
+                                                </label>
+                                                <div className={styles.segmentedControl}>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${lodPreset === 'performance' ? styles.segmentActive : ''}`}
+                                                        onClick={() => applyManualChange(() => setLodPreset('performance'))}
+                                                    >
+                                                        {t('lodPresetPerformance')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${lodPreset === 'balanced' ? styles.segmentActive : ''}`}
+                                                        onClick={() => applyManualChange(() => setLodPreset('balanced'))}
+                                                    >
+                                                        {t('lodPresetBalanced')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${lodPreset === 'detail' ? styles.segmentActive : ''}`}
+                                                        onClick={() => applyManualChange(() => setLodPreset('detail'))}
+                                                    >
+                                                        {t('lodPresetDetail')}
+                                                    </button>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {t('lodPresetHint')}
+                                                </p>
+                                            </div>
+
+                                            {/* LoD vs non-LoD Comparison */}
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>
+                                                    {t('lodCompareLabel')}
+                                                </label>
+                                                <div className={styles.segmentedControl}>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${lodCompareMode === 'lod' ? styles.segmentActive : ''}`}
+                                                        onClick={() => applyManualChange(() => setLodCompareMode('lod'))}
+                                                    >
+                                                        {t('lodCompareLod')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${lodCompareMode === 'non-lod' ? styles.segmentActive : ''} ${(!canCompareLod || !isLodEnabled) ? styles.segmentDisabled : ''}`}
+                                                        disabled={!canCompareLod || !isLodEnabled}
+                                                        onClick={() => applyManualChange(() => setLodCompareMode('non-lod'))}
+                                                    >
+                                                        {t('lodCompareNonLod')}
+                                                    </button>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {!canCompareLod || !isLodEnabled
+                                                        ? t('lodCompareUnavailableHint')
+                                                        : t('lodCompareHint')}
+                                                </p>
+                                            </div>
+
+                                            {/* RAD Streaming Mode */}
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>
+                                                    {t('radModeLabel')}
+                                                </label>
+                                                <div className={styles.segmentedControl}>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${!radModeEnabled ? styles.segmentActive : ''}`}
+                                                        onClick={() => {
+                                                            if (radModeEnabled) {
+                                                                applyManualChange(() => {
+                                                                    setRadModeEnabled(false);
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('radModeOff')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${radModeEnabled ? styles.segmentActive : ''}`}
+                                                        onClick={() => {
+                                                            if (!radModeEnabled) {
+                                                                applyManualChange(() => {
+                                                                    setRadModeEnabled(true);
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('radModeOn')}
+                                                    </button>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {t('radModeHint')}
+                                                </p>
+                                            </div>
+
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>
+                                                    {t('radPagedLabel')}
+                                                </label>
+                                                <div className={styles.segmentedControl}>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${!radPagedEnabled ? styles.segmentActive : ''} ${!radModeEnabled ? styles.segmentDisabled : ''}`}
+                                                        disabled={!radModeEnabled}
+                                                        onClick={() => {
+                                                            if (radPagedEnabled) {
+                                                                applyManualChange(() => {
+                                                                    setRadPagedEnabled(false);
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('radPagedOff')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${radPagedEnabled ? styles.segmentActive : ''} ${!radModeEnabled ? styles.segmentDisabled : ''}`}
+                                                        disabled={!radModeEnabled}
+                                                        onClick={() => {
+                                                            if (!radPagedEnabled) {
+                                                                applyManualChange(() => {
+                                                                    setRadPagedEnabled(true);
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('radPagedOn')}
+                                                    </button>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {t('radPagedHint')}
+                                                </p>
+                                            </div>
+
+                                            {/* XR Spark Update Strategy */}
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>
+                                                    {t('xrUpdateLabel')}
+                                                </label>
+                                                <div className={styles.segmentedControl}>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${xrUpdateMode === 'auto' ? styles.segmentActive : ''}`}
+                                                        onClick={() => applyManualChange(() => setXrUpdateMode('auto'))}
+                                                    >
+                                                        {t('xrUpdateAuto')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${xrUpdateMode === 'manual' ? styles.segmentActive : ''}`}
+                                                        onClick={() => applyManualChange(() => setXrUpdateMode('manual'))}
+                                                    >
+                                                        {t('xrUpdateManual')}
+                                                    </button>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {t('xrUpdateHint')}
+                                                </p>
+                                            </div>
+
+                                            {/* High Fidelity Toggle */}
+                                            <div className={styles.group}>
+                                                <label className={styles.label}>
+                                                    {t('highFidelityLabel')}
+                                                </label>
+                                                <div className={styles.segmentedControl}>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${!isHighFidelity ? styles.segmentActive : ''}`}
+                                                        onClick={() => {
+                                                            if (isHighFidelity) {
+                                                                applyManualChange(() => {
+                                                                    toggleHighFidelity();
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('hfOff')}
+                                                    </button>
+                                                    <button
+                                                        className={`${styles.segmentBtn} ${isHighFidelity ? styles.segmentActive : ''}`}
+                                                        onClick={() => {
+                                                            if (!isHighFidelity) {
+                                                                applyManualChange(() => {
+                                                                    toggleHighFidelity();
+                                                                    reloadCurrentModel();
+                                                                });
+                                                            }
+                                                        }}
+                                                    >
+                                                        {t('hfOn')}
+                                                    </button>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {t('hfHint')}
+                                                </p>
+                                            </div>
+                                        </>
+                                    ) : (
+                                        <div className={styles.group}>
+                                            <p className={styles.hint}>{t('advancedSettingsAutoHint')}</p>
+                                        </div>
+                                    )}
+
+                                </>)}
+                                {renderSection('gallery', <>
+                                    {isLocalAccess && (
+                                        <div className={styles.group}>
+                                            <label className={styles.label}>{t('photoCacheTitle')}</label>
+                                            <div className={styles.cacheCard}>
+                                                <div className={styles.cacheHeader}>
+                                                    <div>
+                                                        <span className={styles.cacheTitle}>{t('photoCacheGenerated')}</span>
+                                                        <p>{t('photoCacheDescription')}</p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className={styles.browseBtn}
+                                                        onClick={loadPhotoCacheStats}
+                                                        disabled={isPhotoCacheLoading || isPhotoCacheClearing}
+                                                    >
+                                                        {isPhotoCacheLoading ? t('loading') : t('photoCacheRefresh')}
+                                                    </button>
+                                                </div>
+
+                                                <div className={styles.cacheStats}>
+                                                    <span>
+                                                        <strong>{formatCacheSize(photoCacheStats?.indexes.bytes ?? 0)}</strong>
+                                                        {t('photoCacheIndexes')}
+                                                    </span>
+                                                    <span>
+                                                        <strong>{formatCacheSize(photoCacheStats?.thumbnails.bytes ?? 0)}</strong>
+                                                        {t('photoCacheThumbnails')}
+                                                    </span>
+                                                    <span>
+                                                        <strong>{formatCacheSize(photoCacheStats?.video_posters.bytes ?? 0)}</strong>
+                                                        {t('photoCachePosters')}
+                                                    </span>
+                                                    <span>
+                                                        <strong>{formatCacheSize(photoCacheStats?.downloads.bytes ?? 0)}</strong>
+                                                        {t('photoCacheDownloads')}
+                                                    </span>
+                                                </div>
+
+                                                <div className={styles.cacheFooter}>
+                                                    <span>
+                                                        {photoCacheStats
+                                                            ? t('photoCacheTotal', {
+                                                                files: photoCacheStats.total.files,
+                                                                size: formatCacheSize(photoCacheStats.total.bytes),
+                                                            })
+                                                            : t('photoCacheNotLoaded')}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        className={styles.dangerBtn}
+                                                        onClick={() => setPhotoCacheConfirmOpen(true)}
+                                                        disabled={isPhotoCacheLoading || isPhotoCacheClearing}
+                                                    >
+                                                        {isPhotoCacheClearing ? t('saving') : t('photoCacheClear')}
+                                                    </button>
+                                                </div>
+
+                                                {photoCacheMessage ? <p className={styles.message}>{photoCacheMessage}</p> : null}
                                             </div>
                                         </div>
                                     )}
-                                </div>
-                            )}
 
-                            {/* 门禁设置保存状态提示（保存动作统一由底部“保存”按钮触发） */}
-                            <p className={`${styles.settingState} ${styles.accessStateRow} ${hasAccessSettingsChanges ? styles.settingStatePending : styles.settingStateSaved}`}>
-                                {accessSettingsStateText}
-                            </p>
-                        </>
-                    ) : (
-                        <>
-                            <div className={styles.statusRow}>
-                                <span className={`${styles.statusPill} ${authStatus?.access_control_enabled ? styles.statusOk : styles.statusWarn}`}>
-                                    {authStatus?.access_control_enabled ? t('accessControlEnabled') : t('accessControlDisabled')}
-                                </span>
-                                <span className={styles.statusPill}>
-                                    {t('accessRemoteMode')}
-                                </span>
-                            </div>
-                            <p className={styles.hint}>
-                                {authStatus?.access_control_enabled ? t('accessControlHint') : t('accessControlRemoteDisabledHint')}
-                            </p>
-                            <div className={styles.securityActions}>
-                                <button
-                                    type="button"
-                                    className={styles.convertBtn}
-                                    onClick={handleLogout}
-                                    disabled={isLoggingOut || !authStatus?.access_control_enabled}
-                                >
-                                    {isLoggingOut ? t('saving') : t('logoutCurrentSession')}
-                                </button>
-                            </div>
-                        </>
-                    )}
-                    {accessMessage ? <p className={styles.message}>{accessMessage}</p> : null}
-                </div>
+                                </>)}
+                                {renderSection('video', <>
+                                    <div className={styles.group}>
+                                        <div className={styles.cacheCard}>
+                                            <div className={styles.cacheHeader}>
+                                                <div>
+                                                    <span className={styles.cacheTitle}>{t('videoReconSettingsDefaults')}</span>
+                                                    <p>{t('videoReconSettingsHint')}</p>
+                                                </div>
+                                                <div className={styles.cacheActions}>
+                                                    <button
+                                                        type="button"
+                                                        className={styles.browseBtn}
+                                                        onClick={openVideoReconstructionGuide}
+                                                    >
+                                                        {t('videoReconOpenGuide')}
+                                                    </button>
+                                                </div>
+                                            </div>
 
-                {isLocalAccess && (
-                    <div className={styles.group}>
-                        <label className={styles.label}>
-                            Workspace Folder ({t('workspaceFolder') || '工作目录'})
-                        </label>
-                        <div className={styles.inputWrapper}>
-                            <input
-                                type="text"
-                                className={styles.input}
-                                value={workspaceFolder}
-                                onChange={(e) => setWorkspaceFolder(e.target.value)}
-                                placeholder="/path/to/workspace"
-                            />
-                            <button
-                                className={styles.browseBtn}
-                                onClick={handleBrowse}
-                                title="Browse"
-                            >
-                                <FolderIcon />
-                            </button>
+                                            <div className={styles.videoSettingsGrid}>
+                                                <div>
+                                                    <label className={styles.labelRow}>
+                                                        <span>{t('videoReconDefaultQuality')}</span>
+                                                        <small>{t('videoReconDefaultQualityMeta')}</small>
+                                                    </label>
+                                                    <div className={styles.segmentedControl}>
+                                                        {(['preview', 'high', 'extreme'] as VideoReconstructionPresetQuality[]).map((quality) => (
+                                                            <button
+                                                                key={quality}
+                                                                type="button"
+                                                                className={`${styles.segmentBtn} ${styles.segmentBtnStack} ${videoConfig.default_quality === quality ? styles.segmentActive : ''}`}
+                                                                disabled={!isLocalAccess}
+                                                                onClick={() => updateVideoConfig({ default_quality: quality })}
+                                                            >
+                                                                <span>{t(`videoReconQuality.${quality}`)}</span>
+                                                                <small>{t(`videoReconQualityMetaByEngine.${videoConfig.default_engine}.${quality}`)}</small>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    <p className={styles.optionHint}>{t(`videoReconQualityHintByEngine.${videoConfig.default_engine}.${videoConfig.default_quality}`)}</p>
+                                                </div>
+
+                                                <div>
+                                                    <label className={styles.labelRow}>
+                                                        <span>{t('videoReconVramBudget')}</span>
+                                                        <small>{t('videoReconVramBudgetMeta')}</small>
+                                                    </label>
+                                                    <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
+                                                        {(['auto', '8gb', '12gb', '16gb', '24gb'] as VideoReconstructionVramBudget[]).map((budget) => (
+                                                            <button
+                                                                key={budget}
+                                                                type="button"
+                                                                className={`${styles.segmentBtn} ${videoConfig.vram_budget === budget ? styles.segmentActive : ''}`}
+                                                                disabled={!isLocalAccess}
+                                                                onClick={() => updateVideoConfig({ vram_budget: budget })}
+                                                            >
+                                                                {t(`videoReconVram.${budget}`)}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                <label className={styles.videoToggleRow}>
+                                                    <span>
+                                                        <strong>{t('videoReconKeepIntermediate')}</strong>
+                                                        <small>{t('videoReconKeepIntermediateHint')}</small>
+                                                    </span>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={videoConfig.keep_intermediate_files}
+                                                        disabled={!isLocalAccess}
+                                                        onChange={(event) => updateVideoConfig({ keep_intermediate_files: event.target.checked })}
+                                                    />
+                                                </label>
+                                            </div>
+
+                                            <div className={styles.dependencyList}>
+                                                {renderDependencyGroup('required', videoDependencies?.required)}
+                                                {renderDependencyGroup('brush', videoDependencies?.brush)}
+                                            </div>
+
+                                            <div className={styles.dependencyFooter}>
+                                                <p className={`${styles.settingState} ${hasVideoSettingsChanges ? styles.settingStatePending : styles.settingStateSaved}`}>
+                                                    {hasVideoSettingsChanges ? t('videoReconSettingsUnsaved') : t('videoReconSettingsCurrent')}
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    className={styles.browseBtn}
+                                                    onClick={() => loadVideoReconstructionStatus(true)}
+                                                    disabled={videoStatusLoading}
+                                                >
+                                                    {videoStatusLoading ? t('loading') : t('videoReconRefreshDiagnostics')}
+                                                </button>
+                                            </div>
+                                            {videoMessage ? <p className={styles.message}>{videoMessage}</p> : null}
+                                        </div>
+                                    </div>
+
+                                    {/* Quick Preset */}
+                                </>)}
+                                {renderSection('security', <>
+                                    <div className={styles.group}>
+                                        <label className={styles.label}>{t('accessControlTitle')}</label>
+
+                                        {isLocalAccess ? (
+                                            <>
+                                                {/* 局域网可访问：主开关，置顶。关闭后隐藏全部门禁选项。 */}
+                                                <div className={styles.accessToggleCard}>
+                                                    <div className={styles.accessToggleCopy}>
+                                                        <span className={styles.accessToggleTitle}>
+                                                            {t('lanBindTitle')}
+                                                            <span className={`${styles.toggleStateTag} ${lanBindEnabled ? styles.toggleStateOn : styles.toggleStateOff}`}>
+                                                                {lanBindEnabled ? t('toggleStateOn') : t('toggleStateOff')}
+                                                            </span>
+                                                        </span>
+                                                        <p>
+                                                            {lanBindEnabled ? t('lanBindEnabledHint') : t('lanBindDisabledHint')}
+                                                        </p>
+                                                        <p className={styles.fieldHint}>{t('lanBindRestartHint')}</p>
+                                                    </div>
+                                                    <button
+                                                        type="button"
+                                                        className={`${styles.toggleSwitch} ${lanBindEnabled ? styles.toggleSwitchOn : ''}`}
+                                                        onClick={() => setLanBindEnabled(!lanBindEnabled)}
+                                                        aria-pressed={lanBindEnabled}
+                                                        aria-label={t('lanBindToggleLabel')}
+                                                    >
+                                                        <span className={styles.toggleKnob} />
+                                                    </button>
+                                                </div>
+
+                                                {/* 门禁相关设置：仅在局域网可访问时展示 */}
+                                                {lanBindEnabled && (
+                                                    <div className={styles.accessDetails}>
+                                                        {/* 门禁开关，隐私风险提示合并进卡片内 */}
+                                                        <div className={`${styles.accessToggleCard} ${!accessControlEnabled ? styles.accessToggleWarning : ''}`}>
+                                                            <div className={styles.accessToggleCopy}>
+                                                                <span className={styles.accessToggleTitle}>
+                                                                    {t('accessControlSwitchTitle')}
+                                                                    <span className={`${styles.toggleStateTag} ${accessControlEnabled ? styles.toggleStateOn : styles.toggleStateOff}`}>
+                                                                        {accessControlEnabled ? t('toggleStateOn') : t('toggleStateOff')}
+                                                                    </span>
+                                                                </span>
+                                                                <p>
+                                                                    {accessControlEnabled ? t('accessControlEnabledHint') : t('accessControlDisabledHint')}
+                                                                </p>
+                                                                {!accessControlEnabled && (
+                                                                    <p className={styles.accessRiskNote}>{t('accessControlDisabledWarning')}</p>
+                                                                )}
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                className={`${styles.toggleSwitch} ${accessControlEnabled ? styles.toggleSwitchOn : ''}`}
+                                                                onClick={() => handleAccessControlToggle(!accessControlEnabled)}
+                                                                aria-pressed={accessControlEnabled}
+                                                                aria-label={t('accessControlToggleLabel')}
+                                                            >
+                                                                <span className={styles.toggleKnob} />
+                                                            </button>
+                                                        </div>
+
+                                                        {/* 门禁开启后的访问码与会话设置 */}
+                                                        {accessControlEnabled && (
+                                                            <div className={styles.accessForm}>
+                                                                <div className={styles.statusRow}>
+                                                                    <span className={`${styles.statusPill} ${authStatus?.has_access_code ? styles.statusOk : styles.statusWarn}`}>
+                                                                        {authStatus?.has_access_code ? t('accessCodeConfigured') : t('accessCodeMissing')}
+                                                                    </span>
+                                                                    <span className={styles.statusPill}>
+                                                                        {t('accessOwnerMode')}
+                                                                    </span>
+                                                                </div>
+                                                                {authStatus?.setup_required ? (
+                                                                    <p className={styles.warning}>{t('accessCodeSetupReminder')}</p>
+                                                                ) : (
+                                                                    <p className={styles.hint}>{t('accessControlHint')}</p>
+                                                                )}
+
+                                                                <div className={styles.inputWrapper}>
+                                                                    <input
+                                                                        type="password"
+                                                                        className={styles.input}
+                                                                        value={accessCode}
+                                                                        onChange={(e) => setAccessCodeValue(e.target.value)}
+                                                                        placeholder={t('accessCodePlaceholder')}
+                                                                        autoComplete="new-password"
+                                                                    />
+                                                                    <button
+                                                                        type="button"
+                                                                        className={styles.saveBtn}
+                                                                        onClick={handleSaveAccessCode}
+                                                                        disabled={isAccessSaving || accessCode.length < 8}
+                                                                    >
+                                                                        {t('accessCodeSave')}
+                                                                    </button>
+                                                                </div>
+
+                                                                <div className={styles.inlineGrid}>
+                                                                    <div>
+                                                                        <label className={styles.label}>{t('sessionDaysLabel')}</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            min={1}
+                                                                            max={365}
+                                                                            className={styles.input}
+                                                                            value={sessionDays}
+                                                                            onChange={(e) => setSessionDays(Number(e.target.value))}
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className={styles.label}>{t('remoteGenerationLabel')}</label>
+                                                                        <div className={styles.segmentedControl}>
+                                                                            <button
+                                                                                type="button"
+                                                                                className={`${styles.segmentBtn} ${!allowRemoteGeneration ? styles.segmentActive : ''}`}
+                                                                                onClick={() => setAllowRemoteGeneration(false)}
+                                                                            >
+                                                                                {t('remoteGenerationOff')}
+                                                                            </button>
+                                                                            <button
+                                                                                type="button"
+                                                                                className={`${styles.segmentBtn} ${allowRemoteGeneration ? styles.segmentActive : ''}`}
+                                                                                onClick={() => setAllowRemoteGeneration(true)}
+                                                                            >
+                                                                                {t('remoteGenerationOn')}
+                                                                            </button>
+                                                                        </div>
+                                                                        <p className={styles.fieldHint}>{t('remoteGenerationHint')}</p>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className={styles.securityActions}>
+                                                                    <button
+                                                                        type="button"
+                                                                        className={styles.dangerBtn}
+                                                                        onClick={handleRevokeSessions}
+                                                                        disabled={isRevokingSessions}
+                                                                    >
+                                                                        {isRevokingSessions ? t('saving') : t('revokeAllSessions')}
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+
+                                                {/* 门禁设置保存状态提示（保存动作统一由底部“保存”按钮触发） */}
+                                                <p className={`${styles.settingState} ${styles.accessStateRow} ${hasAccessSettingsChanges ? styles.settingStatePending : styles.settingStateSaved}`}>
+                                                    {accessSettingsStateText}
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <div className={styles.statusRow}>
+                                                    <span className={`${styles.statusPill} ${authStatus?.access_control_enabled ? styles.statusOk : styles.statusWarn}`}>
+                                                        {authStatus?.access_control_enabled ? t('accessControlEnabled') : t('accessControlDisabled')}
+                                                    </span>
+                                                    <span className={styles.statusPill}>
+                                                        {t('accessRemoteMode')}
+                                                    </span>
+                                                </div>
+                                                <p className={styles.hint}>
+                                                    {authStatus?.access_control_enabled ? t('accessControlHint') : t('accessControlRemoteDisabledHint')}
+                                                </p>
+                                                <div className={styles.securityActions}>
+                                                    <button
+                                                        type="button"
+                                                        className={styles.convertBtn}
+                                                        onClick={handleLogout}
+                                                        disabled={isLoggingOut || !authStatus?.access_control_enabled}
+                                                    >
+                                                        {isLoggingOut ? t('saving') : t('logoutCurrentSession')}
+                                                    </button>
+                                                </div>
+                                            </>
+                                        )}
+                                        {accessMessage ? <p className={styles.message}>{accessMessage}</p> : null}
+                                    </div>
+
+                                </>)}
+                                {isLocalAccess && renderSection('updates', <UpdateSettingsSection active={settingsModalOpen && updatesVisited} isOwner={isLocalAccess} />)}
+                            </fieldset>
                         </div>
-                        <p className={styles.hint}>
-                            📁 inputs/ ({t('images') || '图片'}) &nbsp;&nbsp; 📁 outputs/ ({t('models') || '模型'})
-                        </p>
+                        <footer className={styles.actions}>
+                            <p className={styles.saveHint}>{t(hasPendingSettings ? 'settingsUnsavedChanges' : 'settingsSaveAllHint')}</p>
+                            <Button variant="secondary" onClick={handleClose} disabled={isSaving}>{t('cancel')}</Button>
+                            <Button onClick={handleSave} disabled={isSaving || settingsLoading || settingsLoadFailed}>
+                                {isSaving ? '...' : t('settingsSaveAll')}
+                            </Button>
+                        </footer>
                     </div>
-                )}
-
-                {isLocalAccess && configuration.file && (
-                    <ConfigurationSection configFile={configuration.file} scope={configuration.scope} />
-                )}
-
-                {isLocalAccess && (
-                    <div className={styles.group}>
-                        <label className={styles.label}>{t('photoCacheTitle')}</label>
-                        <div className={styles.cacheCard}>
-                            <div className={styles.cacheHeader}>
-                                <div>
-                                    <span className={styles.cacheTitle}>{t('photoCacheGenerated')}</span>
-                                    <p>{t('photoCacheDescription')}</p>
-                                </div>
-                                <button
-                                    type="button"
-                                    className={styles.browseBtn}
-                                    onClick={loadPhotoCacheStats}
-                                    disabled={isPhotoCacheLoading || isPhotoCacheClearing}
-                                >
-                                    {isPhotoCacheLoading ? t('loading') : t('photoCacheRefresh')}
-                                </button>
-                            </div>
-
-                            <div className={styles.cacheStats}>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.indexes.bytes ?? 0)}</strong>
-                                    {t('photoCacheIndexes')}
-                                </span>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.thumbnails.bytes ?? 0)}</strong>
-                                    {t('photoCacheThumbnails')}
-                                </span>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.video_posters.bytes ?? 0)}</strong>
-                                    {t('photoCachePosters')}
-                                </span>
-                                <span>
-                                    <strong>{formatCacheSize(photoCacheStats?.downloads.bytes ?? 0)}</strong>
-                                    {t('photoCacheDownloads')}
-                                </span>
-                            </div>
-
-                            <div className={styles.cacheFooter}>
-                                <span>
-                                    {photoCacheStats
-                                        ? t('photoCacheTotal', {
-                                            files: photoCacheStats.total.files,
-                                            size: formatCacheSize(photoCacheStats.total.bytes),
-                                        })
-                                        : t('photoCacheNotLoaded')}
-                                </span>
-                                <button
-                                    type="button"
-                                    className={styles.dangerBtn}
-                                    onClick={() => setPhotoCacheConfirmOpen(true)}
-                                    disabled={isPhotoCacheLoading || isPhotoCacheClearing}
-                                >
-                                    {isPhotoCacheClearing ? t('saving') : t('photoCacheClear')}
-                                </button>
-                            </div>
-
-                            {photoCacheMessage ? <p className={styles.message}>{photoCacheMessage}</p> : null}
-                        </div>
-                    </div>
-                )}
-
-                <div className={styles.group}>
-                    <label className={styles.label}>{t('videoReconSettingsTitle')}</label>
-                    <div className={styles.cacheCard}>
-                        <div className={styles.cacheHeader}>
-                            <div>
-                                <span className={styles.cacheTitle}>{t('videoReconSettingsDefaults')}</span>
-                                <p>{t('videoReconSettingsHint')}</p>
-                            </div>
-                            <div className={styles.cacheActions}>
-                                <button
-                                    type="button"
-                                    className={styles.browseBtn}
-                                    onClick={openVideoReconstructionGuide}
-                                >
-                                    {t('videoReconOpenGuide')}
-                                </button>
-                            </div>
-                        </div>
-
-                        <div className={styles.videoSettingsGrid}>
-                            <div>
-                                <label className={styles.labelRow}>
-                                    <span>{t('videoReconDefaultQuality')}</span>
-                                    <small>{t('videoReconDefaultQualityMeta')}</small>
-                                </label>
-                                <div className={styles.segmentedControl}>
-                                    {(['preview', 'high', 'extreme'] as VideoReconstructionPresetQuality[]).map((quality) => (
-                                        <button
-                                            key={quality}
-                                            type="button"
-                                            className={`${styles.segmentBtn} ${styles.segmentBtnStack} ${videoConfig.default_quality === quality ? styles.segmentActive : ''}`}
-                                            disabled={!isLocalAccess}
-                                            onClick={() => updateVideoConfig({ default_quality: quality })}
-                                        >
-                                            <span>{t(`videoReconQuality.${quality}`)}</span>
-                                            <small>{t(`videoReconQualityMetaByEngine.${videoConfig.default_engine}.${quality}`)}</small>
-                                        </button>
-                                    ))}
-                                </div>
-                                <p className={styles.optionHint}>{t(`videoReconQualityHintByEngine.${videoConfig.default_engine}.${videoConfig.default_quality}`)}</p>
-                            </div>
-
-                            <div>
-                                <label className={styles.labelRow}>
-                                    <span>{t('videoReconVramBudget')}</span>
-                                    <small>{t('videoReconVramBudgetMeta')}</small>
-                                </label>
-                                <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
-                                    {(['auto', '8gb', '12gb', '16gb', '24gb'] as VideoReconstructionVramBudget[]).map((budget) => (
-                                        <button
-                                            key={budget}
-                                            type="button"
-                                            className={`${styles.segmentBtn} ${videoConfig.vram_budget === budget ? styles.segmentActive : ''}`}
-                                            disabled={!isLocalAccess}
-                                            onClick={() => updateVideoConfig({ vram_budget: budget })}
-                                        >
-                                            {t(`videoReconVram.${budget}`)}
-                                        </button>
-                                    ))}
-                                </div>
-                            </div>
-
-                            <label className={styles.videoToggleRow}>
-                                <span>
-                                    <strong>{t('videoReconKeepIntermediate')}</strong>
-                                    <small>{t('videoReconKeepIntermediateHint')}</small>
-                                </span>
-                                <input
-                                    type="checkbox"
-                                    checked={videoConfig.keep_intermediate_files}
-                                    disabled={!isLocalAccess}
-                                    onChange={(event) => updateVideoConfig({ keep_intermediate_files: event.target.checked })}
-                                />
-                            </label>
-                        </div>
-
-                        <div className={styles.dependencyList}>
-                            {renderDependencyGroup('required', videoDependencies?.required)}
-                            {renderDependencyGroup('brush', videoDependencies?.brush)}
-                        </div>
-
-                        <div className={styles.dependencyFooter}>
-                            <p className={`${styles.settingState} ${hasVideoSettingsChanges ? styles.settingStatePending : styles.settingStateSaved}`}>
-                                {hasVideoSettingsChanges ? t('videoReconSettingsUnsaved') : t('videoReconSettingsCurrent')}
-                            </p>
-                            <button
-                                type="button"
-                                className={styles.browseBtn}
-                                onClick={() => loadVideoReconstructionStatus(true)}
-                                disabled={videoStatusLoading}
-                            >
-                                {videoStatusLoading ? t('loading') : t('videoReconRefreshDiagnostics')}
-                            </button>
-                        </div>
-                        {videoMessage ? <p className={styles.message}>{videoMessage}</p> : null}
-                    </div>
-                </div>
-
-                {/* Quick Preset */}
-                <div className={styles.group}>
-                    <label className={styles.label}>
-                        {t('quickPresetLabel')}
-                    </label>
-                    <div className={styles.segmentedControl}>
-                        <button
-                            className={`${styles.segmentBtn} ${quickPresetMode === 'performance' ? styles.segmentActive : ''}`}
-                            onClick={() => handleQuickPresetChange('performance')}
-                        >
-                            {t('lodPresetPerformance')}
-                        </button>
-                        <button
-                            className={`${styles.segmentBtn} ${quickPresetMode === 'balanced' ? styles.segmentActive : ''}`}
-                            onClick={() => handleQuickPresetChange('balanced')}
-                        >
-                            {t('lodPresetBalanced')}
-                        </button>
-                        <button
-                            className={`${styles.segmentBtn} ${quickPresetMode === 'detail' ? styles.segmentActive : ''}`}
-                            onClick={() => handleQuickPresetChange('detail')}
-                        >
-                            {t('lodPresetDetail')}
-                        </button>
-                        <button
-                            className={`${styles.segmentBtn} ${quickPresetMode === 'manual' ? styles.segmentActive : ''}`}
-                            onClick={() => handleQuickPresetChange('manual')}
-                        >
-                            {t('quickPresetManual')}
-                        </button>
-                    </div>
-                    <p className={styles.hint}>
-                        {t('quickPresetHint')}
-                    </p>
-                </div>
-
-                <div className={styles.group}>
-                    <label className={styles.label}>
-                        {t('defaultRevealEffectLabel')}
-                    </label>
-                    <div className={`${styles.segmentedControl} ${styles.segmentedControlWrap}`}>
-                        {REVEAL_EFFECT_SETTINGS_OPTIONS.map((effect) => (
-                            <button
-                                key={effect.id}
-                                type="button"
-                                className={`${styles.segmentBtn} ${defaultRevealEffect === effect.id ? styles.segmentActive : ''}`}
-                                onClick={() => setDefaultRevealEffect(effect.id)}
-                            >
-                                {t(effect.labelKey)}
-                            </button>
-                        ))}
-                    </div>
-                    <p className={styles.hint}>
-                        {t('defaultRevealEffectHint')}
-                    </p>
-                </div>
-
-                {quickPresetMode === 'manual' ? (
-                    <>
-                        <div className={styles.group}>
-                            <label className={styles.label}>{t('advancedSettingsLabel')}</label>
-                            <p className={styles.hint}>{t('advancedSettingsHint')}</p>
-                        </div>
-
-                        {/* LOD (Level-of-Detail) Toggle */}
-                        <div className={styles.group}>
-                            <label className={styles.label}>
-                                {t('lodLabel')}
-                            </label>
-                            <div className={styles.segmentedControl}>
-                                <button
-                                    className={`${styles.segmentBtn} ${!isLodEnabled ? styles.segmentActive : ''}`}
-                                    onClick={() => {
-                                        if (isLodEnabled) {
-                                            applyManualChange(() => {
-                                                toggleLod();
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('lodOff')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${isLodEnabled ? styles.segmentActive : ''}`}
-                                    onClick={() => {
-                                        if (!isLodEnabled) {
-                                            applyManualChange(() => {
-                                                toggleLod();
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('lodOn')}
-                                </button>
-                            </div>
-                            <p className={styles.hint}>
-                                {t('lodHint')}
-                            </p>
-                        </div>
-
-                        {/* LOD Presets */}
-                        <div className={styles.group}>
-                            <label className={styles.label}>
-                                {t('lodPresetLabel')}
-                            </label>
-                            <div className={styles.segmentedControl}>
-                                <button
-                                    className={`${styles.segmentBtn} ${lodPreset === 'performance' ? styles.segmentActive : ''}`}
-                                    onClick={() => applyManualChange(() => setLodPreset('performance'))}
-                                >
-                                    {t('lodPresetPerformance')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${lodPreset === 'balanced' ? styles.segmentActive : ''}`}
-                                    onClick={() => applyManualChange(() => setLodPreset('balanced'))}
-                                >
-                                    {t('lodPresetBalanced')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${lodPreset === 'detail' ? styles.segmentActive : ''}`}
-                                    onClick={() => applyManualChange(() => setLodPreset('detail'))}
-                                >
-                                    {t('lodPresetDetail')}
-                                </button>
-                            </div>
-                            <p className={styles.hint}>
-                                {t('lodPresetHint')}
-                            </p>
-                        </div>
-
-                        {/* LoD vs non-LoD Comparison */}
-                        <div className={styles.group}>
-                            <label className={styles.label}>
-                                {t('lodCompareLabel')}
-                            </label>
-                            <div className={styles.segmentedControl}>
-                                <button
-                                    className={`${styles.segmentBtn} ${lodCompareMode === 'lod' ? styles.segmentActive : ''}`}
-                                    onClick={() => applyManualChange(() => setLodCompareMode('lod'))}
-                                >
-                                    {t('lodCompareLod')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${lodCompareMode === 'non-lod' ? styles.segmentActive : ''} ${(!canCompareLod || !isLodEnabled) ? styles.segmentDisabled : ''}`}
-                                    disabled={!canCompareLod || !isLodEnabled}
-                                    onClick={() => applyManualChange(() => setLodCompareMode('non-lod'))}
-                                >
-                                    {t('lodCompareNonLod')}
-                                </button>
-                            </div>
-                            <p className={styles.hint}>
-                                {!canCompareLod || !isLodEnabled
-                                    ? t('lodCompareUnavailableHint')
-                                    : t('lodCompareHint')}
-                            </p>
-                        </div>
-
-                        {/* RAD Streaming Mode */}
-                        <div className={styles.group}>
-                            <label className={styles.label}>
-                                {t('radModeLabel')}
-                            </label>
-                            <div className={styles.segmentedControl}>
-                                <button
-                                    className={`${styles.segmentBtn} ${!radModeEnabled ? styles.segmentActive : ''}`}
-                                    onClick={() => {
-                                        if (radModeEnabled) {
-                                            applyManualChange(() => {
-                                                setRadModeEnabled(false);
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('radModeOff')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${radModeEnabled ? styles.segmentActive : ''}`}
-                                    onClick={() => {
-                                        if (!radModeEnabled) {
-                                            applyManualChange(() => {
-                                                setRadModeEnabled(true);
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('radModeOn')}
-                                </button>
-                            </div>
-                            <p className={styles.hint}>
-                                {t('radModeHint')}
-                            </p>
-                        </div>
-
-                        <div className={styles.group}>
-                            <label className={styles.label}>
-                                {t('radPagedLabel')}
-                            </label>
-                            <div className={styles.segmentedControl}>
-                                <button
-                                    className={`${styles.segmentBtn} ${!radPagedEnabled ? styles.segmentActive : ''} ${!radModeEnabled ? styles.segmentDisabled : ''}`}
-                                    disabled={!radModeEnabled}
-                                    onClick={() => {
-                                        if (radPagedEnabled) {
-                                            applyManualChange(() => {
-                                                setRadPagedEnabled(false);
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('radPagedOff')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${radPagedEnabled ? styles.segmentActive : ''} ${!radModeEnabled ? styles.segmentDisabled : ''}`}
-                                    disabled={!radModeEnabled}
-                                    onClick={() => {
-                                        if (!radPagedEnabled) {
-                                            applyManualChange(() => {
-                                                setRadPagedEnabled(true);
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('radPagedOn')}
-                                </button>
-                            </div>
-                            <p className={styles.hint}>
-                                {t('radPagedHint')}
-                            </p>
-                        </div>
-
-                        {/* XR Spark Update Strategy */}
-                        <div className={styles.group}>
-                            <label className={styles.label}>
-                                {t('xrUpdateLabel')}
-                            </label>
-                            <div className={styles.segmentedControl}>
-                                <button
-                                    className={`${styles.segmentBtn} ${xrUpdateMode === 'auto' ? styles.segmentActive : ''}`}
-                                    onClick={() => applyManualChange(() => setXrUpdateMode('auto'))}
-                                >
-                                    {t('xrUpdateAuto')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${xrUpdateMode === 'manual' ? styles.segmentActive : ''}`}
-                                    onClick={() => applyManualChange(() => setXrUpdateMode('manual'))}
-                                >
-                                    {t('xrUpdateManual')}
-                                </button>
-                            </div>
-                            <p className={styles.hint}>
-                                {t('xrUpdateHint')}
-                            </p>
-                        </div>
-
-                        {/* High Fidelity Toggle */}
-                        <div className={styles.group}>
-                            <label className={styles.label}>
-                                {t('highFidelityLabel')}
-                            </label>
-                            <div className={styles.segmentedControl}>
-                                <button
-                                    className={`${styles.segmentBtn} ${!isHighFidelity ? styles.segmentActive : ''}`}
-                                    onClick={() => {
-                                        if (isHighFidelity) {
-                                            applyManualChange(() => {
-                                                toggleHighFidelity();
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('hfOff')}
-                                </button>
-                                <button
-                                    className={`${styles.segmentBtn} ${isHighFidelity ? styles.segmentActive : ''}`}
-                                    onClick={() => {
-                                        if (!isHighFidelity) {
-                                            applyManualChange(() => {
-                                                toggleHighFidelity();
-                                                reloadCurrentModel();
-                                            });
-                                        }
-                                    }}
-                                >
-                                    {t('hfOn')}
-                                </button>
-                            </div>
-                            <p className={styles.hint}>
-                                {t('hfHint')}
-                            </p>
-                        </div>
-                    </>
-                ) : (
-                    <div className={styles.group}>
-                        <p className={styles.hint}>{t('advancedSettingsAutoHint')}</p>
-                    </div>
-                )}
-
-                {/* Model Format Preference */}
-                <div className={styles.group}>
-                    <label className={styles.label}>
-                        {t('modelFormatLabel')}
-                    </label>
-                    <div className={styles.segmentedControl}>
-                        <button
-                            className={`${styles.segmentBtn} ${modelFormat === 'spz' ? styles.segmentActive : ''}`}
-                            onClick={() => setModelFormat('spz')}
-                        >
-                            SPZ {t('formatCompact')}
-                        </button>
-                        <button
-                            className={`${styles.segmentBtn} ${modelFormat === 'ply' ? styles.segmentActive : ''}`}
-                            onClick={() => setModelFormat('ply')}
-                        >
-                            PLY {t('formatOriginal')}
-                        </button>
-                    </div>
-                    <p className={styles.hint}>
-                        {t('modelFormatHint')}
-                    </p>
-                </div>
-
-                {/* Batch Convert */}
-                <div className={styles.group}>
-                    <button
-                        className={styles.convertBtn}
-                        onClick={handleConvertAll}
-                        disabled={isConverting}
-                    >
-                        {isConverting ? '⏳ ' + t('converting') : '📦 ' + t('convertAllToSpz')}
-                    </button>
-                </div>
-
-                {isLocalAccess && workspaceFolder !== originalWorkspace && (
-                    <p className={styles.warning}>
-                        ⚠️ {t('settingsRestartWarning') || '修改工作目录后需重启服务器生效'}
-                    </p>
-                )}
-
-                <UpdateSettingsSection active={settingsModalOpen} isOwner={isLocalAccess} />
-
-                </div>
-
-                <div className={styles.actions}>
-                    <button className={styles.cancelBtn} onClick={handleClose}>
-                        {t('cancel')}
-                    </button>
-                    <button
-                        className={styles.saveBtn}
-                        onClick={handleSave}
-                        disabled={isSaving}
-                    >
-                        {isSaving ? '...' : t('save')}
-                    </button>
                 </div>
 
                 <ConfirmDialog
