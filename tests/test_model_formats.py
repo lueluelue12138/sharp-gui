@@ -130,31 +130,19 @@ def test_build_export_html_reports_the_format_actually_embedded(workspace, tmp_p
 
     base_dir = tmp_path / "runtime"
     asset_contents = {
-        "frontend/node_modules/three/build/three.module.js": "export {};",
-        "frontend/node_modules/three/examples/jsm/controls/OrbitControls.js": "export {};",
-        "frontend/node_modules/three/examples/jsm/postprocessing/Pass.js": "export {};",
-        "frontend/node_modules/@sparkjsdev/spark/dist/spark.module.js": "export {};",
+        "frontend/dist/share/share-viewer.js": "console.log('viewer');",
+        "frontend/dist/share/share-viewer.css": "body { margin: 0; }",
+        "frontend/dist/share/LICENSES.txt": "MIT License",
+        "templates/share_template.html": "|".join([
+            "{{MODEL_DATA}}", "{{MODEL_NAME}}", "{{SCENE_FORMAT}}", "{{VIEWER_MANIFEST}}",
+            "{{VIEWER_SCRIPT}}", "{{VIEWER_STYLE}}", "{{LICENSE_NOTICES}}",
+        ]),
     }
     for relative_path, content in asset_contents.items():
         asset_path = base_dir / relative_path
         asset_path.parent.mkdir(parents=True, exist_ok=True)
         asset_path.write_text(content, encoding="utf-8")
 
-    template_path = base_dir / "templates/share_template.html"
-    template_path.parent.mkdir(parents=True, exist_ok=True)
-    template_path.write_text(
-        "|".join([
-            "{{MODEL_DATA}}",
-            "{{MODEL_NAME}}",
-            "{{SCENE_FORMAT}}",
-            "{{THREE_DATA_URL}}",
-            "{{THREE_CORE_DATA_URL}}",
-            "{{ORBIT_CONTROLS_DATA_URL}}",
-            "{{PASS_DATA_URL}}",
-            "{{SPARK_DATA_URL}}",
-        ]),
-        encoding="utf-8",
-    )
     monkeypatch.setattr(runtime, "BASE_DIR", str(base_dir))
 
     legacy_stdout = io.TextIOWrapper(io.BytesIO(), encoding="cp936")

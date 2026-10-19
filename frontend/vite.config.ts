@@ -2,6 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import path from 'path'
 import fs from 'fs'
+import { shareViewerBuild } from './build/shareViewer'
 
 // 检查证书文件是否存在（用于开发模式 HTTPS）
 const keyPath = path.resolve(__dirname, '../key.pem')
@@ -10,7 +11,7 @@ const hasHttpsCerts = fs.existsSync(keyPath) && fs.existsSync(certPath)
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), shareViewerBuild(__dirname)],
   
   // 路径别名
   resolve: {

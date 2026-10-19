@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import * as THREE from 'three';
 
 import { canEditModelAsset, resolveModelAssetSource } from './modelAssets.js';
+import { getShareBoundsView } from './shareFraming.js';
 import { getNextModelReloadToken } from './modelPreviewState.js';
 import { resolveViewerOrientation } from './viewerOrientation.js';
 import {
@@ -406,5 +407,33 @@ describe('viewer runtime isolation', () => {
       context,
       activeContext: context,
     }), true);
+  });
+});
+
+
+describe('standalone sharing full-model framing', () => {
+  for (const aspect of [0.4, 1, 16 / 9, 4]) {
+    for (const direction of [new THREE.Vector3(0, 0, 1), new THREE.Vector3(1, 2, 3)]) {
+      it(`keeps all corners visible at aspect ${aspect} and direction ${direction.toArray()}`, () => {
+        const bounds = new THREE.Box3(new THREE.Vector3(-8, 2, -30), new THREE.Vector3(12, 6, 20));
+        const view = getShareBoundsView(bounds, aspect, 50, direction, new THREE.Vector3(0.2, 1, 0.3))!;
+        const camera = new THREE.PerspectiveCamera(view.fov, aspect, 0.0001, 10000);
+        camera.position.copy(view.position); camera.up.copy(view.up); camera.lookAt(view.target); camera.updateMatrixWorld(true);
+        assert.ok(view.target.distanceTo(new THREE.Vector3(2, 4, -5)) < 1e-8);
+        for (const x of [-8, 12]) for (const y of [2, 6]) for (const z of [-30, 20]) {
+          const clip = new THREE.Vector3(x, y, z).project(camera);
+          assert.ok(Math.abs(clip.x) < 1 && Math.abs(clip.y) < 1 && clip.z > -1 && clip.z < 1);
+        }
+      });
+    }
+  }
+  it('keeps depth-only models in front of the camera and rejects invalid bounds', () => {
+    const bounds = new THREE.Box3(new THREE.Vector3(0, 0, -5), new THREE.Vector3(0, 0, 5));
+    const view = getShareBoundsView(bounds, 1, 50)!;
+    assert.ok(view.position.z > 5);
+    assert.equal(getShareBoundsView(new THREE.Box3(), 1, 50), null);
+    assert.equal(getShareBoundsView(bounds, 0, 50), null);
+    assert.equal(getShareBoundsView(bounds, 1, NaN), null);
+    assert.equal(getShareBoundsView(new THREE.Box3(new THREE.Vector3(NaN, 0, 0), new THREE.Vector3(1, 1, 1)), 1, 50), null);
   });
 });

@@ -10,3 +10,6 @@
 
 # Frontend HTML is generated and diff-checked; keep it LF on Windows too
 *.html text eol=lf
+
+# Generated share bundle embeds upstream GLSL/worker strings with intentional whitespace.
+frontend/dist/share/*.js text eol=lf -whitespace

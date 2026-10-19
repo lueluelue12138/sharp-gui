@@ -1,22 +1,21 @@
 import base64
 import html
+import json
 import os
+import re
 
 from backend import runtime
 from backend.services import model_gallery
+from backend.services.model_orientation import (
+    normalize_source_media_type, normalize_viewer_camera, normalize_viewer_transform,
+    resolve_viewer_orientation,
+)
 from backend.services.model_convert import ply_to_splat, ply_to_spz
 from backend.services.model_gallery import (
     MODEL_FORMAT_PRIORITY,
     collect_model_variants,
     normalize_model_item_id,
 )
-
-
-def _pick_existing_path(candidates):
-    for path in candidates:
-        if os.path.exists(path):
-            return path
-    raise FileNotFoundError(f"No available asset found in candidates: {candidates}")
 
 
 def _read_model_file(paths, filename):
@@ -59,6 +58,22 @@ def build_export_html(paths, model_id, fmt):
     if fmt not in MODEL_FORMAT_PRIORITY:
         fmt = "spz"
 
+    item_id = normalize_model_item_id(model_id)
+    if not item_id or not collect_model_variants(paths, item_id):
+        return None, {"error": "Model not found"}, 404
+
+    # The exact bundled viewer ships in dist with every application update.
+    viewer_dir = os.path.join(runtime.BASE_DIR, "frontend", "dist", "share")
+    assets = {}
+    for key, filename in (("VIEWER_SCRIPT", "share-viewer.js"), ("VIEWER_STYLE", "share-viewer.css"),
+                          ("LICENSE_NOTICES", "LICENSES.txt")):
+        try:
+            with open(os.path.join(viewer_dir, filename), encoding="utf-8") as file:
+                assets[key] = file.read()
+        except FileNotFoundError:
+            return None, {"error": "Standalone viewer files are missing. Build the frontend and retry.",
+                          "code": "share_viewer_unavailable"}, 503
+
     resolved_payload = _resolve_export_payload(paths, model_id, fmt)
     if not resolved_payload:
         return None, {"error": "Model not found"}, 404
@@ -71,75 +86,16 @@ def build_export_html(paths, model_id, fmt):
     # legacy code page such as GBK/CP936.
     print(f"[export] {model_id} as {scene_format} ({model_size / 1024 / 1024:.1f}MB)...")
 
-    three_js_candidates = [
-        os.path.join(runtime.BASE_DIR, "frontend", "node_modules", "three", "build", "three.module.js"),
-        os.path.join(runtime.BASE_DIR, "static", "lib", "three.module.js"),
-    ]
-    orbit_controls_candidates = [
-        os.path.join(
-            runtime.BASE_DIR,
-            "frontend",
-            "node_modules",
-            "three",
-            "examples",
-            "jsm",
-            "controls",
-            "OrbitControls.js",
-        ),
-    ]
-    spark_js_candidates = [
-        os.path.join(
-            runtime.BASE_DIR,
-            "frontend",
-            "node_modules",
-            "@sparkjsdev",
-            "spark",
-            "dist",
-            "spark.module.js",
-        ),
-    ]
-    pass_js_candidates = [
-        os.path.join(
-            runtime.BASE_DIR,
-            "frontend",
-            "node_modules",
-            "three",
-            "examples",
-            "jsm",
-            "postprocessing",
-            "Pass.js",
-        ),
-    ]
-
-    three_js_path = _pick_existing_path(three_js_candidates)
-    orbit_controls_path = _pick_existing_path(orbit_controls_candidates)
-    spark_js_path = _pick_existing_path(spark_js_candidates)
-    pass_js_path = _pick_existing_path(pass_js_candidates)
-
-    with open(three_js_path, "r", encoding="utf-8") as f:
-        three_module_text = f.read()
-
-    three_core_path = os.path.join(os.path.dirname(three_js_path), "three.core.js")
-    three_core_data_url = "data:text/javascript,export%20{};"
-    if os.path.exists(three_core_path):
-        with open(three_core_path, "rb") as f:
-            three_core_b64 = base64.b64encode(f.read()).decode("utf-8")
-        three_core_data_url = f"data:text/javascript;base64,{three_core_b64}"
-        three_module_text = three_module_text.replace("'./three.core.js'", "'three-core'")
-        three_module_text = three_module_text.replace('"./three.core.js"', '"three-core"')
-
-    three_js_b64 = base64.b64encode(three_module_text.encode("utf-8")).decode("utf-8")
-    with open(orbit_controls_path, "rb") as f:
-        orbit_controls_b64 = base64.b64encode(f.read()).decode("utf-8")
-    with open(spark_js_path, "rb") as f:
-        spark_js_b64 = base64.b64encode(f.read()).decode("utf-8")
-    with open(pass_js_path, "rb") as f:
-        pass_js_b64 = base64.b64encode(f.read()).decode("utf-8")
-
-    three_data_url = f"data:text/javascript;base64,{three_js_b64}"
-    orbit_controls_data_url = f"data:text/javascript;base64,{orbit_controls_b64}"
-    spark_data_url = f"data:text/javascript;base64,{spark_js_b64}"
-    pass_data_url = f"data:text/javascript;base64,{pass_js_b64}"
+    metadata = model_gallery.read_model_metadata(paths, item_id)
+    source_type = normalize_source_media_type(metadata.get("source_media_type"))
+    manifest = {
+        "version": 1, "format": actual_format, "sourceMediaType": source_type,
+        "viewerOrientation": resolve_viewer_orientation(metadata.get("viewer_orientation"),
+                                                        source_media_type=source_type),
+        "viewerTransform": normalize_viewer_transform(metadata.get("viewer_transform")),
+        "viewerCamera": normalize_viewer_camera(metadata.get("viewer_camera")),
+    }
+    manifest_json = json.dumps(manifest, ensure_ascii=True, allow_nan=False).replace("<", "\\u003c")
 
     template_path = os.path.join(runtime.BASE_DIR, "templates", "share_template.html")
     with open(template_path, "r", encoding="utf-8") as f:
@@ -152,14 +108,17 @@ def build_export_html(paths, model_id, fmt):
         ".html",
         suffix="_share",
     )
-    html_content = template.replace("{{MODEL_DATA}}", model_data)
-    html_content = html_content.replace("{{MODEL_NAME}}", html.escape(display_name))
-    html_content = html_content.replace("{{SCENE_FORMAT}}", scene_format)
-    html_content = html_content.replace("{{THREE_DATA_URL}}", three_data_url)
-    html_content = html_content.replace("{{THREE_CORE_DATA_URL}}", three_core_data_url)
-    html_content = html_content.replace("{{ORBIT_CONTROLS_DATA_URL}}", orbit_controls_data_url)
-    html_content = html_content.replace("{{SPARK_DATA_URL}}", spark_data_url)
-    html_content = html_content.replace("{{PASS_DATA_URL}}", pass_data_url)
+    replacements = {
+        **assets,
+        "MODEL_DATA": model_data,
+        "MODEL_NAME": html.escape(display_name),
+        "SCENE_FORMAT": scene_format,
+        "VIEWER_MANIFEST": manifest_json,
+    }
+    replacements["VIEWER_SCRIPT"] = re.sub(r"</script", r"<\\/script", assets["VIEWER_SCRIPT"], flags=re.I)
+    replacements["LICENSE_NOTICES"] = html.escape(assets["LICENSE_NOTICES"])
+    # One pass: user names containing placeholder text must stay literal.
+    html_content = re.sub(r"\{\{([A-Z_]+)\}\}", lambda match: replacements[match[1]], template)
 
     html_size = len(html_content.encode("utf-8"))
     print(
