@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useViewer } from '@/hooks/useViewer';
 import { useAppStore } from '@/store/useAppStore';
 import { fetchEditorSource } from '@/api/modelEditor';
@@ -7,6 +7,7 @@ import { Help } from '@/components/layout/Help/Help';
 import { GyroIndicator } from '@/components/viewer/GyroIndicator/GyroIndicator';
 import { QuickControls } from '@/components/viewer/QuickControls';
 import { ModelEditor } from '@/components/viewer/ModelEditor';
+import { CameraAnimationPanel } from '@/components/viewer/CameraAnimationPanel';
 import { ViewerRevealEffectsRail } from '@/components/viewer/ViewerRevealEffectsRail';
 import { VirtualJoystick } from '@/components/viewer/VirtualJoystick/VirtualJoystick';
 import { SpeedTooltip } from '@/components/viewer/SpeedTooltip';
@@ -31,6 +32,11 @@ export const ViewerCanvas: React.FC = () => {
 // Internal component to handle the actual viewer lifecycle
 const ViewerInstance: React.FC = () => {
   const [editorOpen, setEditorOpen] = useState(false);
+  const [animationOpen, setAnimationOpen] = useState(false);
+  const [portrait, setPortrait] = useState(false);
+  const [stageSize, setStageSize] = useState<{ width: number; height: number } | null>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
   const [editorCheck, setEditorCheck] = useState<{ assetId: string; supported: boolean } | null>(null);
   const currentModelId = useAppStore((state) => state.currentModelId);
   const currentModelSource = useAppStore((state) => state.currentModelSource);
@@ -45,10 +51,23 @@ const ViewerInstance: React.FC = () => {
   );
   const [replayToken, setReplayToken] = useState(0);
   const viewerHook = useViewer(containerRef, {
-    revealEffect: editorOpen ? 'none' : activeEffect,
+    revealEffect: editorOpen || animationOpen ? 'none' : activeEffect,
     replayToken,
   });
   const { viewerRef, toggleGyro, xr: { isInXR } } = viewerHook;
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const resize = () => {
+      if (!animationOpen) { setStageSize(null); return; }
+      const aspect = portrait ? 9 / 16 : 16 / 9;
+      const width = Math.min(stage.clientWidth, stage.clientHeight * aspect);
+      setStageSize({ width, height: width / aspect });
+    };
+    const observer = new ResizeObserver(resize); observer.observe(stage); resize();
+    return () => observer.disconnect();
+  }, [animationOpen, portrait]);
 
   useEffect(() => {
     setActiveEffect(resolveRevealEffectPreference(viewerDefaultRevealEffect));
@@ -81,23 +100,32 @@ const ViewerInstance: React.FC = () => {
     if (isLoading || !viewerRef.current?.splatMesh || isInXR) return;
     if (useAppStore.getState().isGyroEnabled) toggleGyro();
     clearModelEditorRequest();
+    setAnimationOpen(false);
     setEditorOpen(true);
   }, [clearModelEditorRequest, currentModelId, currentModelSource, isInXR, isLoading, isOwnerAccess,
     pendingModelEditorId, toggleGyro, viewerRef, editorCheck]);
 
   return (
-    <>
-      <div ref={containerRef} className={styles.viewerTarget} />
+    <div className={[styles.layout, animationOpen && !sidebarCollapsed && styles.animationSidebarExpanded].filter(Boolean).join(' ')}>
+      <div ref={stageRef} className={[styles.stage, animationOpen && styles.animationStage].filter(Boolean).join(' ')}>
+        <div ref={containerRef} className={styles.viewerTarget} style={stageSize ? { ...stageSize, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } : undefined} />
+      </div>
+      <CameraAnimationPanel open={animationOpen} viewerRef={viewerRef} portrait={portrait} onPortraitChange={setPortrait} onClose={() => setAnimationOpen(false)} />
       {editorOpen && currentModelId ? (
         <ModelEditor
           viewerRef={viewerHook.viewerRef}
           assetId={currentModelId}
           onClose={() => setEditorOpen(false)}
         />
-      ) : (
+      ) : !animationOpen ? (
         <>
           <ControlsBar
             viewerHook={viewerHook}
+            onAnimate={!isLoading && !isInXR ? () => {
+              if (useAppStore.getState().isGyroEnabled) toggleGyro();
+              useAppStore.getState().setQuickControlsOpen(false);
+              setAnimationOpen(true);
+            } : undefined}
             onEdit={
               isOwnerAccess &&
               currentModelId &&
@@ -130,7 +158,7 @@ const ViewerInstance: React.FC = () => {
           <QuickControls debugInfo={viewerHook.debugInfo} isInXr={viewerHook.xr.isInXR} />
           <Help />
         </>
-      )}
-    </>
+      ) : null}
+    </div>
   );
 };

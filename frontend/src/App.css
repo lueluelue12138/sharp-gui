@@ -109,6 +109,7 @@ body:has([data-model-editor]) .mobile-menu-btn { display: none; }
 
 /* Viewer container */
 .viewer-container:has([data-model-editor]) .viewer-library-actions { display: none; }
+.viewer-container:has([data-camera-animation]) .viewer-library-actions { display: none; }
 .viewer-container {
   flex: 1;
   position: relative;

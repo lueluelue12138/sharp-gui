@@ -18,6 +18,7 @@ interface KeyState {
 }
 
 interface KeyboardViewerControls {
+  enabled?: boolean;
   target?: THREE.Vector3;
   update?: () => void;
   zoomSpeed: number;
@@ -55,7 +56,11 @@ export const useKeyboard = (
     const camera = viewer.camera;
     const controls = viewer.controls;
     
-    if (!camera || !controls) return;
+    if (!camera || !controls || controls.enabled === false) {
+      animationFrameId.current = null;
+      Object.keys(keyState.current).forEach(key => { keyState.current[key] = false; });
+      return;
+    }
 
     const keys = keyState.current;
     const hasMovement = keys.w || keys.a || keys.s || keys.d || keys.q || keys.e;
@@ -114,7 +119,8 @@ export const useKeyboard = (
       const key = e.key.toLowerCase();
       
       // Prevent handling if typing in input
-      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'TEXTAREA') return;
+      if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (viewerRef.current?.controls?.enabled === false) return;
 
       if (['w', 'a', 's', 'd', 'q', 'e'].includes(key)) {
         // e.preventDefault(); // Optional: prevent scrolling if any

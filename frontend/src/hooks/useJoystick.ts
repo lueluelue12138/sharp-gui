@@ -3,6 +3,7 @@ import type { RefObject } from 'react';
 import * as THREE from 'three';
 
 interface JoystickViewer {
+    animationActive?: boolean;
     camera?: THREE.Camera;
     controls?: {
         target?: THREE.Vector3;
@@ -48,7 +49,7 @@ export const useJoystick = ({ viewerRef }: UseJoystickProps) => {
         if (isActive) {
             const updateMovement = () => {
                 const viewer = viewerRef.current;
-                if (!viewer || !isActiveRef.current) {
+                if (!viewer || viewer.animationActive || !isActiveRef.current) {
                     return;
                 }
 

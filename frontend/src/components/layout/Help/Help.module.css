@@ -21,7 +21,9 @@
 }
 
 :global(body:has([data-model-editor])) .helpBtn,
-:global(body:has([data-model-editor])) .helpPanel {
+:global(body:has([data-model-editor])) .helpPanel,
+:global(body:has([data-camera-animation])) .helpBtn,
+:global(body:has([data-camera-animation])) .helpPanel {
     display: none;
 }
 

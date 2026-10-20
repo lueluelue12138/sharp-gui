@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Pencil } from 'lucide-react';
+import { Film, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAppStore } from '@/store/useAppStore';
 import { exportModel } from '@/api/gallery';
@@ -11,9 +11,10 @@ import styles from './ControlsBar.module.css';
 interface ControlsBarProps {
     viewerHook: ReturnType<typeof useViewer>;
     onEdit?: () => void;
+    onAnimate?: () => void;
 }
 
-export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook, onEdit }) => {
+export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook, onEdit, onAnimate }) => {
     const { t } = useTranslation();
     const { 
         isLimitsOn, 
@@ -151,6 +152,10 @@ export const ControlsBar: React.FC<ControlsBarProps> = ({ viewerHook, onEdit }) 
             {/* Controls Bar */}
             <div className={styles.controlsContainer}>
                 <div className={styles.glassPanel}>
+                    {onAnimate && <button className={styles.controlBtn} onClick={onAnimate}>
+                        <Film size={18} />
+                        <span>{t('animationTitle')}</span>
+                    </button>}
                     {onEdit && <button className={styles.controlBtn} onClick={onEdit}>
                         <Pencil size={18} />
                         <span>{t('modelEditorTitle')}</span>

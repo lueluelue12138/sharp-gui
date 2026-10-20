@@ -1,0 +1,1 @@
+export { CameraAnimationPanel } from './CameraAnimationPanel';

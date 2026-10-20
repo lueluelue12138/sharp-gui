@@ -259,7 +259,11 @@ function showFocusRing(x: number, y: number, container: HTMLElement) {
  * Child hooks access: viewerRef.current.camera, .controls, .renderer, etc.
  */
 export interface ViewerContext {
+  disposed?: boolean;
   editorActive?: boolean;
+  animationActive?: boolean;
+  animationExporting?: boolean;
+  cameraPlayback?: (now: number) => void;
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   renderer: THREE.WebGLRenderer;
@@ -448,6 +452,7 @@ export const useViewer = (
 
   // ── Reset Camera (defined early so child hooks can reference it) ────
   const resetCamera = useCallback((animated = true) => {
+    if (viewerRef.current?.animationActive) return;
     const ctx = viewerRef.current;
     if (!ctx) return;
 
@@ -464,6 +469,7 @@ export const useViewer = (
     })
       && activeCtx.loadGeneration === resetLoadGeneration
       && !activeCtx.editorActive
+      && !activeCtx.animationActive
       && getViewerModelLoadKey(
         useAppStore.getState().currentModelDescriptor,
       ) === resetModelLoadKey;
@@ -695,6 +701,7 @@ export const useViewer = (
         // Render loop
         renderer.setAnimationLoop(() => {
           const now = performance.now();
+          if (viewerRef.current?.animationExporting) return;
           const activeMesh = viewerRef.current?.splatMesh;
           if (
             activeMesh
@@ -705,7 +712,8 @@ export const useViewer = (
               activeMesh.updateVersion();
             }
           }
-          controls.update();
+          if (viewerRef.current?.cameraPlayback) viewerRef.current.cameraPlayback(now);
+          else controls.update();
 
           const activeContext = viewerRef.current;
           if (
@@ -733,7 +741,7 @@ export const useViewer = (
         };
 
         const onPointerUp = (e: PointerEvent) => {
-          if (viewerRef.current?.editorActive) return;
+          if (viewerRef.current?.editorActive || viewerRef.current?.animationActive) return;
           // Only treat as click if pointer didn't move (not drag)
           const dx = e.clientX - pointerDownPos.x;
           const dy = e.clientY - pointerDownPos.y;
@@ -752,6 +760,7 @@ export const useViewer = (
           })
             && ctx.loadGeneration === focusLoadGeneration
             && !ctx.editorActive
+            && !ctx.animationActive
             && getViewerModelLoadKey(
               useAppStore.getState().currentModelDescriptor,
             ) === focusModelLoadKey;
@@ -819,12 +828,14 @@ export const useViewer = (
       const ctx = viewerRef.current;
       if (!ctx) return;
       if (ctx.renderer.xr.isPresenting) return;
+      if (ctx.animationExporting) return;
       requestAnimationFrame(() => {
+        if (ctx.animationExporting || viewerRef.current !== ctx) return;
         const w = container.clientWidth;
         const h = container.clientHeight;
         if (w === 0 || h === 0) return;
         ctx.camera.aspect = w / h;
-        if (ctx.lastFramingMode === 'reconstruction-camera' && ctx.splatMesh) {
+        if (!ctx.animationActive && ctx.lastFramingMode === 'reconstruction-camera' && ctx.splatMesh) {
           const view = getReconstructionCameraView(
             useAppStore.getState().currentModelDescriptor?.viewerCamera,
             ctx.splatMesh.matrixWorld,
@@ -846,6 +857,7 @@ export const useViewer = (
         lastHF = newHF;
         // Hard tear-down and re-init to apply new pixelRatio properly
         if (viewerRef.current) {
+          viewerRef.current.disposed = true;
           viewerRef.current.renderer.domElement.removeEventListener('pointerdown', () => { });
           viewerRef.current.renderer.domElement.removeEventListener('pointerup', () => { });
           viewerRef.current.renderer.setAnimationLoop(null);
@@ -938,6 +950,7 @@ export const useViewer = (
 
       const ctx = viewerRef.current;
       if (ctx) {
+        ctx.disposed = true;
         ctx.renderer.domElement.removeEventListener('pointerdown', () => { });
         ctx.renderer.domElement.removeEventListener('pointerup', () => { });
         ctx.renderer.setAnimationLoop(null);
