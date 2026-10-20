@@ -4,6 +4,8 @@
 
 Architecture, source development and release details live here. Ordinary installations already include the built frontend. Before contributing, read the repository [agent rules](../.antigravityrules) and [commit/release convention](../.agents/skills/commit-and-release/SKILL.md).
 
+Related audit (Chinese): [default preview behavior for imported models](imported-model-preview.md).
+
 ## 🏗️ Architecture
 
 ### Project Structure

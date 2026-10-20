@@ -4,6 +4,8 @@
 
 这里保留架构、源码开发和发布说明；普通安装已包含前端构建产物。参与开发前请阅读仓库[统一规范](../.antigravityrules)及[提交与发布规范](../.agents/skills/commit-and-release/SKILL.md)。
 
+相关核查：[外部模型默认预览逻辑](imported-model-preview.md)。
+
 ## 🏗️ 技术架构
 
 ### 项目结构
