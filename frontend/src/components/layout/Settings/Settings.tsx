@@ -54,14 +54,14 @@ const DEFAULT_VIDEO_CONFIG: VideoReconstructionConfig = {
     keep_intermediate_files: false,
 };
 
-type SettingsSection = 'general' | 'viewer' | 'gallery' | 'video' | 'security' | 'updates';
+type SettingsSection = 'general' | 'security' | 'viewer' | 'gallery' | 'video' | 'updates';
 
 const SETTINGS_SECTIONS: { id: SettingsSection; icon: LucideIcon; ownerOnly?: boolean }[] = [
     { id: 'general', icon: SlidersHorizontal },
+    { id: 'security', icon: ShieldCheck },
     { id: 'viewer', icon: Box },
     { id: 'gallery', icon: Images, ownerOnly: true },
     { id: 'video', icon: Video },
-    { id: 'security', icon: ShieldCheck },
     { id: 'updates', icon: Download, ownerOnly: true },
 ];
 

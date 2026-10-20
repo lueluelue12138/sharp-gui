@@ -139,7 +139,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 **📦 Windows Full Portable Bundles** — Core bundles `cu128-rtx50` and `cu126-mainstream` ship Python + PyTorch + model cache out of the box, with an additional `cu128-rtx50-video-recon` bundle for RTX 50 video reconstruction (downloaded from the cloud-drive link in the Release notes, with matching `.sha256.txt`).
 
-**⚙️ Grouped Settings and Persistent Configuration** — Settings are grouped into General, Viewer, Gallery, Video Reconstruction, Access & Security, and Updates. System-user configuration lets a new complete package reuse the original workspace, models, and albums; recovery from an older package is also available. See the [configuration and recovery guide (Chinese)](docs/global-configuration.md).
+**⚙️ Grouped Settings and Persistent Configuration** — Settings are grouped into General, Access & Security, Viewer, Gallery, Video Reconstruction, and Updates. System-user configuration lets a new complete package reuse the original workspace, models, and albums; recovery from an older package is also available. See the [configuration and recovery guide (Chinese)](docs/global-configuration.md).
 
 **🔐 Safer LAN Access** — Optional access-code gate, real LAN bind toggle, sensitive-file protection, and debug mode off by default make long-running home LAN use safer.
 
