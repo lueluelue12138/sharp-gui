@@ -123,19 +123,25 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 <br>
 
-**🗂️ Local Media Gallery** — Configure local, external-drive, or NAS folders as albums. Browse, filter, preview, and download photos and videos together; photos can be converted to 3D one by one or in batches, while videos can be played, scrubbed, and viewed fullscreen.
+**🎥 Rebuilt Video Pipeline · Better Quality and Efficiency** — Frame extraction, camera alignment, training, and export have been rebuilt around fixed source-frame planning, COLMAP, and official Brush. Compared with the old route, this substantially improves detail and edges while reducing processing time. High retains a 1920-pixel long edge; Extreme retains 3840 pixels with a 12 GB budget. High-quality resolution is not sacrificed for speed. Includes quality presets, alignment checks, source replay, and PLY / SPZ export. The [same-footage quality and timing review (Chinese)](docs/video-reconstruction-quality.md) records the validation scope; runtime varies with footage, settings, and hardware.
+
+**✂️ Model Editing** — Open the editor from the asset library or viewer. Clean up splats with rectangle, sphere, and box selections; drag selection boundaries, calibrate the origin and orientation, undo / redo, and save a copy or overwrite the model. See the [editing guide and supported formats (Chinese)](docs/model-editor.md).
+
+**🎬 Export Animation** — Record camera keyframes, choose a motion curve, inspect the camera path and viewing angles in a 3D overview, and export 1080p / 4K video. See the [animation export guide (Chinese)](docs/camera-animation.md).
+
+**🔗 Linked Media and Models** — Blue 3D badges lead from source media to generated models, with version selection and a default result. The pinned Model Sources album gathers linked photos and videos. See the [linking guide (Chinese)](docs/model-source-gallery.md).
 
 **📦 Model Asset Library** — Browse generated models and imported `.ply/.spz/.splat/.rad` assets together with filters, sorting, cursor-based incremental loading, recent models, a details panel, batch import, download, and delete. The preferred open/download format follows Settings and falls back to available files.
 
-**🎥 Video 3DGS Reconstruction** — Videos use COLMAP + Brush. Includes quality presets, reliable-alignment checks, optional subject cropping, video thumbnails, source replay and `.ply/.spz` export.
+**🗂️ Local Media Gallery** — Configure local, external-drive, or NAS folders as albums. Browse, filter, preview, and download photos and videos together; photos can be converted to 3D one by one or in batches, while videos can be played, scrubbed, and viewed fullscreen.
 
-**📥 Upload Into Current Album** — Add photos directly to the current album with file picker or drag-and-drop; the album refreshes automatically after upload.
-
-**⚡ Faster Gallery Startup** — Gallery indexing now loads on demand, so startup no longer waits for a full album scan and large libraries show the first screen faster.
-
-**🔐 Safer LAN Access** — Optional access-code gate, real LAN bind toggle, sensitive-file protection, and debug mode off by default make long-running home LAN use safer.
+**📤 Upgraded Standalone HTML Sharing** — The rebuilt viewer preserves model orientation and the saved initial view, with full-model framing, orbit, background switching, mobile controls, and bilingual help. The model and viewer are embedded in one offline HTML file. See the [sharing guide (Chinese)](docs/standalone-sharing.md).
 
 **📦 Windows Full Portable Bundles** — Core bundles `cu128-rtx50` and `cu126-mainstream` ship Python + PyTorch + model cache out of the box, with an additional `cu128-rtx50-video-recon` bundle for RTX 50 video reconstruction (downloaded from the cloud-drive link in the Release notes, with matching `.sha256.txt`).
+
+**⚙️ Grouped Settings and Persistent Configuration** — Settings are grouped into General, Viewer, Gallery, Video Reconstruction, Access & Security, and Updates. System-user configuration lets a new complete package reuse the original workspace, models, and albums; recovery from an older package is also available. See the [configuration and recovery guide (Chinese)](docs/global-configuration.md).
+
+**🔐 Safer LAN Access** — Optional access-code gate, real LAN bind toggle, sensitive-file protection, and debug mode off by default make long-running home LAN use safer.
 
 Full release notes → **[Latest Release](https://github.com/lueluelue12138/sharp-gui/releases/latest)**
 
@@ -159,10 +165,13 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | **📦 Model Asset Library** | Browse generated and imported models together, with `.ply/.spz/.splat/.rad`, filters, sorting, details metadata, recent models, batch import, and cursor-based incremental loading. |
 | **🗂️ Local Media Gallery** | Configure multiple local/NAS folders as albums, browse and filter photos/videos together, preview and download media, convert photos to 3D, play videos, and start video reconstruction. |
 | **👁️ Real-time Viewer**    | Three.js + Spark 2.0 WASM-accelerated viewer with mouse / touch / keyboard (WASD) / gyroscope controls, click-to-focus with a GPU focus ring, quick transform panel.     |
+| **✂️ Model Editing**       | Rectangle / sphere / box selection, draggable values and boundaries, splat cleanup, origin and orientation calibration, undo / redo, and copy or overwrite saving with source links retained. |
+| **🎬 Export Animation**    | Camera keyframes, five motion curves, 3D path and frustum preview, and silent WebM export at 1080p / 4K, landscape / portrait, and 24 / 30 / 60 fps. |
+| **🔗 Linked Source Media** | Blue 3D badges, linked-model navigation, multiple versions and default results, plus a pinned Model Sources album grouped by source. |
 | **🎭 Reveal Effects**      | Magic / Spread / Unroll / Twister / Rain entrance animations with replay support.                                                                                        |
 | **📱 Mobile Optimized**    | Phones / tablets get gyroscope controls (iOS-style indicator ball), virtual joystick, touch gestures, and a drawer-style sidebar.                                        |
 | **🥽 VR/AR Preview**       | WebXR VR mode + AR Passthrough on Quest 3/Pro and similar headsets, with controller / touch input.                                                                       |
-| **📤 One-Click Share**     | Export a standalone HTML file powered by Spark 2.0; the compact SPZ payload is embedded by default, double-click to open anywhere.                                       |
+| **📤 One-Click Share**     | Export one offline HTML containing the model and Spark 2.0 viewer, preserving orientation and the initial view, with full-model framing, orbit, backgrounds, and mobile controls. |
 | **🎮 GPU Acceleration**    | Auto-detects NVIDIA GPUs and matches a CUDA-enabled PyTorch (cu118 / cu126 / cu128) for noticeably faster inference.                                                     |
 | **🔄 Safe Self-Update**    | Settings shows the release and exact commit, with Stable / Latest checks and compatible one-click code updates; failures restore automatically and portable bundles need no system Git. |
 | **🔐 Security & Privacy**  | Fully local data, one-click self-signed SSL, optional LAN access gate (HttpOnly cookie + access code + brute-force backoff).                                             |
@@ -225,6 +234,22 @@ Built with Apple Human Interface Guidelines for a premium feel:
 </p>
 
 <p align="center"><i>Choose a video → configure settings → watch task progress / live preview → open the model result and source-video replay</i></p>
+
+### Model Editing
+
+<p align="center">
+  <img src="docs/images/model-editor.jpg" width="800" alt="Model editor with box selection, draggable boundaries, and live parameters">
+</p>
+
+<p align="center"><i>Clean up splats, drag selection boundaries, calibrate the origin and orientation, and save a copy or overwrite the model</i></p>
+
+### Export Animation
+
+<p align="center">
+  <img src="docs/images/animation-path.jpg" width="800" alt="Export animation with a multi-keyframe orbit, height and distance changes, camera frustums, and playback timeline">
+</p>
+
+<p align="center"><i>Seven shots combine orbit, height, and distance changes; blue marks keyframes and the path, while the white frustum follows the timeline. Helpers stay out of the exported video</i></p>
 
 ### Mobile Adaptation
 
@@ -453,13 +478,33 @@ rm -rf sharp-gui/
 5. **Details metadata** - File name, format, source, timestamps, and size come from the index and filesystem. PLY/SPLAT can expose some point count or property data; SPZ/RAD bounding boxes, coordinate systems, LoD, and similar advanced fields only appear when the source file or sidecar metadata provides them, so unknown fields are not fabricated.
 6. **View source media** - The details-panel thumbnail opens the linked source image or video when one exists. Without a linked source, it only acts as the model cover.
 
+### Edit Models
+
+1. **Open the editor** — Use Edit Model on an asset card or in its details, or open the model and use the bottom toolbar.
+2. **Select and clean up** — Select splats with rectangle, sphere, or box tools, then delete the selection or keep only it. Drag numeric values or selection boundaries, with fine adjustment and undo / redo.
+3. **Calibrate coordinates** — Set Origin moves the proposed zero point while the model stays still; Rotate levels the model around that point. Saving writes this calibration into the model file. The initial viewing camera can be set separately.
+4. **Save the result** — Save as New Model is the default; the adjacent menu also offers Overwrite Original Model. The list refreshes after saving, and source image / video links are retained.
+
+Editing is available to the local owner for standard Gaussian PLY, supported SPZ versions, and SPLAT. RAD, ordinary point clouds, and original ml-sharp PLY files with extra camera elements are currently unsupported; their entry is disabled or hidden. Deletion removes whole Gaussians. See the [editing guide and limits (Chinese)](docs/model-editor.md).
+
+### Export Animation
+
+1. **Open the tool** — Open a model and choose Export animation in the bottom toolbar.
+2. **Record shots** — Adjust the viewing angle, position, and zoom, then record the current view. Record at least two shots and set transition durations. Shots can be replaced, reordered, or deleted.
+3. **Preview motion** — Choose Continuous glide, Standard ease, Sine ease, Soft landing, or Linear motion, then play or scrub the timeline. Path overview independently shows numbered keyframes, the camera route, and viewing frustums; return to Shot preview to record more views.
+4. **Export video** — Choose landscape / portrait, 1080p / 4K, and 24 / 30 / 60 fps. Export, then download the silent WebM. Path helpers stay out of the video.
+
+Export requires browser WebCodecs support and HTTPS or a localhost address; available encoding settings depend on the device. Save shots as JSON before refreshing or switching models, and load them to resume later. See the [animation export guide, curves, and limits (Chinese)](docs/camera-animation.md).
+
 ### Browse Local Media Albums
 
-1. **Switch to Gallery** - Use the sidebar `Models / Photos` entry to open the local media gallery
+1. **Switch to Gallery** - Use the sidebar `Models / Gallery` entry to open the local media gallery
 2. **Add Folder** - From localhost, add Windows / Linux / macOS paths; each folder is shown as an album
 3. **Browse Media** - Photos use cached thumbnails and open originals on demand; videos can be previewed, scrubbed, viewed fullscreen, and downloaded
 4. **Upload to Album** - Pick or drag photos into the current album; the album refreshes automatically
 5. **Convert to 3D** - Convert photos from cards or the preview layer, or multi-select and queue a batch into the existing workflow
+6. **Open existing models** — Blue 3D badges identify media with models. View 3D in the preview opens the result; multiple results offer version selection, a default model, and another generation action.
+7. **Browse model sources** — The pinned Model Sources album gathers photos / videos linked to generated models. Each source appears once, with edited copies and repeat reconstructions grouped together. Unavailable album paths remain listed with a message, while existing models can still be viewed. See the [linking guide (Chinese)](docs/model-source-gallery.md).
 
 ### Generate 3D Models from Video
 
@@ -531,7 +576,10 @@ Click **Share** button to generate a standalone HTML file:
 - 📦 Complete 3D viewer included (Three.js + Spark 2.0)
 - 🌐 No server needed, double-click to open in browser
 - 📉 Embeds compact SPZ by default; the legacy PLY/Splat export path remains available for compatibility
+- 🎥 Preserves orientation and the saved view, with full-model framing, auto-orbit, backgrounds, fullscreen, and mobile controls
 - 🔒 Includes disclaimer about content responsibility
+
+The HTML contains the model data and cannot be recalled through the original app once sent. See the [standalone sharing guide (Chinese)](docs/standalone-sharing.md) for scope and offline usage.
 
 ---
 

@@ -1144,7 +1144,7 @@
   "sourceMediaUnavailable": "原片暂不可用，仍可查看关联模型。",
   "sourceRepairing": "正在恢复已有模型的原片关联…",
   "sourceModelOptions": "模型选项",
-  "animationTitle": "镜头动画",
+  "animationTitle": "导出动画",
   "animationViewMode": "动画观察模式",
   "animationShotView": "镜头预览",
   "animationPathView": "轨迹总览",

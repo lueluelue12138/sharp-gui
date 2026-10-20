@@ -1144,7 +1144,7 @@
   "sourceMediaUnavailable": "Source media is unavailable. Associated models can still be opened.",
   "sourceRepairing": "Restoring source links for existing models…",
   "sourceModelOptions": "Model options",
-  "animationTitle": "Camera animation",
+  "animationTitle": "Export animation",
   "animationViewMode": "Animation view mode",
   "animationShotView": "Shot preview",
   "animationPathView": "Path overview",
