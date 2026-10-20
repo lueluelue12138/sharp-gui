@@ -22,6 +22,7 @@ html {
 
 /* 全局禁止图片拖动，提升 App 质感 */
 img {
+    height: auto;
     -webkit-user-drag: none;
     -khtml-user-drag: none;
     -moz-user-drag: none;
@@ -172,6 +173,8 @@ a {
 .logo {
     display: flex;
     align-items: center;
+    flex-shrink: 0;
+    white-space: nowrap;
     gap: 10px;
     font-weight: 700;
     font-size: 1.2rem;
@@ -179,12 +182,14 @@ a {
 
 .logo img {
     height: 32px;
+    width: auto;
 }
 
 .nav-links {
     display: flex;
     gap: 30px;
     align-items: center;
+    white-space: nowrap;
 }
 
 .nav-links a {
@@ -223,6 +228,8 @@ a {
     cursor: pointer;
     transition: all 0.3s ease;
     font-family: inherit;
+    flex-shrink: 0;
+    white-space: nowrap;
 }
 
 .lang-btn:hover {
@@ -3390,6 +3397,14 @@ footer {
 
 /* 中等屏幕适配 */
 @media (max-width: 1024px) and (min-width: 769px) {
+    .nav-links {
+        gap: 16px;
+    }
+
+    .nav-links a {
+        font-size: 0.88rem;
+    }
+
     .arch-layer {
         max-width: 550px;
     }
@@ -3412,6 +3427,34 @@ footer {
 }
 
 /* Product creation flow — shared surfaces and type from the existing homepage. */
+.creation-links {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 14px 28px;
+    margin-top: 36px;
+    font-size: 0.88rem;
+}
+
+.creation-links a {
+    color: #93c5fd;
+    text-decoration: none;
+    text-underline-offset: 5px;
+}
+
+.creation-links a:hover {
+    color: #dbeafe;
+    text-decoration: underline;
+}
+
+.joystick-video {
+    display: block;
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1004 / 696;
+    border-radius: inherit;
+}
+
 section[id] {
     scroll-margin-top: 112px;
 }
@@ -3870,12 +3913,6 @@ summary:focus-visible {
 
     .nav-links .lang-btn {
         padding: 6px 10px;
-    }
-}
-
-@media (max-width: 360px) {
-    .nav-links > a[href="#reconstruction"] {
-        display: none;
     }
 }
 

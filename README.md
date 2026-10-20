@@ -17,7 +17,7 @@
 
 iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅限于苹果生态。
 
-作为一个 Web 技术爱好者，我开发了 Sharp GUI，旨在通过浏览器打破设备界限。无论你使用 Android、Windows、Mac 还是 VR 设备，都能 **[一键部署](#-快速开始)**，并在局域网内轻松生成并分享你的 3D 空间记忆。这是一个探索性的开源项目，希望能为你带来乐趣。
+作为一个 Web 技术爱好者，我开发了 Sharp GUI，旨在通过浏览器打破设备界限。在电脑上 **[一键部署](#-快速开始)** 后，即可通过局域网内 Android、Windows、Mac 或 VR 设备的浏览器，轻松生成、探索并分享你的 3D 空间记忆。这是一个探索性的开源项目，希望能为你带来乐趣。
 
 <br>
 
@@ -39,9 +39,9 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 </div>
 
 > [!WARNING]
-> **本地部署无内容限制** - 模型完全在本地生成，内容由用户自行负责，请遵守法律法规。详见 [免责声明](#-免责声明)。
+> **本地部署无内容限制** - 模型完全在本地生成，内容由用户自行负责，请遵守法律法规。详见 [免责声明](#disclaimer)。
 >
-> **No content restrictions for local deployment** - Users are responsible for generated content. See [Disclaimer](#-免责声明).
+> **No content restrictions for local deployment** - Users are responsible for generated content. See [Disclaimer](#disclaimer).
 
 ---
 
@@ -113,7 +113,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 </tr>
 </table>
 
-<div align="center"><sub>📄 <a href="#-许可证">许可证</a> &nbsp;·&nbsp; ⚠️ <a href="#-免责声明">免责声明</a></sub></div>
+<div align="center"><sub>📄 <a href="#-许可证">许可证</a> &nbsp;·&nbsp; ⚠️ <a href="#disclaimer">免责声明</a></sub></div>
 
 ---
 
@@ -154,13 +154,13 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 ### 🏠 一次部署，全屋访问
 
-无需在每台设备上安装 App。只需在一台电脑上运行 Sharp GUI，局域网内的手机、平板和 VR 设备均可通过浏览器直接访问，即刻享受 3D 视觉盛宴。HTTPS 支持确保了陀螺仪等传感器功能在任何设备上都能完美调用。
+无需在每台设备上安装 App。只需在一台电脑上运行 Sharp GUI，局域网内的手机、平板和 VR 设备均可通过浏览器直接访问，即刻享受 3D 视觉盛宴。HTTPS 为陀螺仪等功能提供所需的安全上下文，实际可用性取决于浏览器、设备和授权。
 
 ### 🚀 核心功能
 
 | 功能                | 描述                                                                                                                                            |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| **📸 空间影像生成** | 上传任意图片，基于 Apple ML-Sharp 自动生成 3D 高斯溅射模型，安装时预下载约 2.62 GiB 模型                                                        |
+| **📸 空间影像生成** | 上传单张图片，基于 Apple ML-Sharp 自动生成 3D 高斯溅射模型，安装时预下载约 2.62 GiB 模型                                                        |
 | **🎥 视频 3DGS 重建** | 从本地相册视频或拖入视频创建静态 Gaussian Splat 模型，使用 COLMAP + Brush，支持质量档、任务阶段、缩略图和原视频回看 |
 | **🖼️ 现代工作流**   | 多选/拖拽批量上传、虚拟滚动图库、站内原图对比、智能任务队列（活跃 2s / 空闲 10s 轮询），删除滑出动画、可取消的待处理任务                          |
 | **📦 模型资产库**   | 统一浏览生成与导入模型，支持 `.ply/.spz/.splat/.rad`、筛选排序、详情元数据、近期模型、批量导入和游标式滚动加载                              |
@@ -212,7 +212,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
   <img src="docs/images/main.png" width="800" alt="主界面">
 </p>
 
-<p align="center"><i>模型资产库 / 近期模型 + 3D 模型预览区域 + 底部毛玻璃控制栏</i></p>
+<p align="center"><i>近期模型 + 3D 空间预览区域 + 底部毛玻璃控制栏</i></p>
 
 ### 本地媒体图库
 
@@ -225,16 +225,16 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ### 视频 3DGS 重建
 
 <p align="center">
-  <img src="docs/images/video-reconstruction-dialog.png" width="800" alt="视频重建参数选择界面">
+  <img src="docs/images/video-reconstruction-current.jpg" width="572" alt="视频重建参数选择界面">
 </p>
 
 <p align="center"><i>从相册视频或拖入视频进入重建弹窗，选择模式、质量、自定义参数和依赖状态</i></p>
 
 <p align="center">
-  <img src="docs/images/demo-video-reconstruction.gif" width="800" alt="视频重建全流程演示">
+  <img src="docs/images/reconstructed-model.jpg" width="800" alt="重建模型在当前查看器中的预览">
 </p>
 
-<p align="center"><i>选择视频 → 配置参数 → 任务队列实时进度 / 预览 → 模型图库结果与原视频回看</i></p>
+<p align="center"><i>重建结果进入模型查看器，可继续探索、编辑、导出动画与分享</i></p>
 
 ### 模型编辑
 
@@ -244,7 +244,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 <p align="center"><i>清理多余高斯点、拖动选区边界、校准原点和朝向，保存副本或覆盖原模型</i></p>
 
-### 导出动画
+### 导出动画与轨迹预览
 
 <p align="center">
   <img src="docs/images/animation-path.jpg" width="800" alt="导出动画：多关键帧环绕升降轨迹、相机视锥和播放时间轴">
@@ -266,12 +266,12 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ### 🎬 相机移动控制
 
 <p align="center">
-  <img src="docs/images/demo-wasd.gif" height="300" alt="WASD键盘控制">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/demo-joystick.gif" height="300" alt="虚拟摇杆">
+  <img src="docs/images/demo-wasd.gif" width="380" alt="WASD键盘控制">&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="docs/images/demo-joystick-2.mp4"><img src="docs/images/joystick-preview.jpg" width="380" alt="虚拟摇杆"></a>
 </p>
 
 <p align="center">
-  <i>左：WASD/QE 键盘移动 (Shift 精细) | 右：移动端虚拟摇杆</i>
+  <i>WASD/QE 键盘移动与移动端虚拟摇杆；点击摇杆图示查看 MP4 演示</i>
 </p>
 
 ### 🎬 批量上传 + 队列处理
@@ -293,10 +293,10 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ### 🎬 一键导出分享
 
 <p align="center">
-  <img src="docs/images/demo-share.gif" width="600" alt="导出分享演示">
+  <img src="docs/images/share-preview.jpg" width="800" alt="当前独立 HTML 分享查看器">
 </p>
 
-<p align="center"><i>点击 Share 导出独立 HTML，双击即可在任何浏览器打开</i></p>
+<p align="center"><i>导出单个 HTML，在支持 WebGL2 的浏览器离线打开，保留初始视角并支持环绕与背景切换</i></p>
 
 ---
 
@@ -464,9 +464,11 @@ rm -rf sharp-gui/
 
 ## 📖 使用指南
 
+[单图生成](#生成-3d-模型) · [视频重建](#从视频生成-3d-模型) · [编辑模型](#编辑模型) · [导出动画](#导出动画) · [媒体相册](#浏览本地媒体相册)
+
 ### 生成 3D 模型
 
-1. **上传图片** - 点击「Generate New」按钮或直接拖拽图片到侧边栏
+1. **上传图片** - 点击「生成 / 导入模型」按钮或直接拖拽图片到侧边栏
 2. **等待处理** - 观察队列区域的任务阶段（若安装阶段未完成下载，首次推理会下载约 2.62 GiB 的模型）
 3. **预览模型** - 点击图库中的项目即可查看 3D 效果
 
@@ -572,15 +574,15 @@ Brush 档位：
 
 ### 导出分享
 
-点击 **Share** 按钮，生成独立的 HTML 文件：
+在生成模型的查看器中点击 **分享**，或在模型资产库详情中点击 **导出**，生成独立的 HTML 文件：
 
 - 📦 包含完整的 3D 查看器（Three.js + Spark 2.0）
-- 🌐 无需服务器，双击即可在浏览器打开
+- 🌐 无需服务器，可在支持 WebGL2 的浏览器离线打开
 - 📉 默认嵌入 SPZ 紧凑模型；需要兼容旧流程时仍可导出 PLY/Splat 路径
 - 🎥 同步模型方向和保存视角，支持全模型取景、自动环绕、背景切换、全屏与移动控制
 - 🔒 包含免责声明，说明内容责任归属
 
-HTML 内含模型数据，发出后无法通过原项目撤回。功能范围和离线使用说明见[独立分享指南](docs/standalone-sharing.md)。
+独立 HTML 分享当前面向生成模型，直接导入或临时打开的资产暂不支持。HTML 内含模型数据，发出后无法通过原项目撤回。功能范围和离线使用说明见[独立分享指南](docs/standalone-sharing.md)。
 
 ---
 
@@ -907,6 +909,8 @@ npm run build
 - 🧪 **[Pre-release 通道](https://github.com/lueluelue12138/sharp-gui/releases?q=prerelease%3Atrue)** — 抢先体验未稳定的功能
 
 ---
+
+<a name="disclaimer"></a>
 
 ## ⚠️ 免责声明
 

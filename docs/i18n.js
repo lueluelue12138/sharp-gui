@@ -34,7 +34,7 @@ const i18n = {
     "workflow.step1.title": "导入素材",
     "workflow.step1.desc": "拖入照片或视频，也可从本地相册开始；已有模型可直接导入",
     "workflow.step2.title": "本地重建",
-    "workflow.step2.desc": "单图使用 Apple SHARP，视频使用 COLMAP + Brush，按素材选择",
+    "workflow.step2.desc": "单图使用 Apple SHARP，视频使用 COLMAP + Brush",
     "workflow.step3.title": "探索与创作",
     "workflow.step3.desc": "在浏览器中漫游、编辑模型，进一步导出动画或分享作品",
 
@@ -82,7 +82,7 @@ const i18n = {
     // === Share Section ===
     "share.tag": "独立 HTML 分享",
     "share.title": "一键导出，<br>让作品自由流动",
-    "share.desc": "把模型与查看器封装成一个 HTML 文件。无需另建服务，发送文件后即可在支持 WebGL2 的浏览器中离线打开。",
+    "share.desc": "把生成的模型与查看器封装成一个 HTML 文件。无需另建服务，发送文件后即可在支持 WebGL2 的浏览器中离线打开。",
     "share.feature1.title": "一个文件，完整作品",
     "share.feature1.desc": "内嵌模型、查看器与依赖，使用 SPZ 压缩保存模型",
     "share.feature2.title": "打开，就是你选好的角度",
@@ -93,7 +93,7 @@ const i18n = {
     // === Showcase Section ===
     "showcase.title": "功能演示",
     "showcase.wasd.title": "WASD 漫游",
-    "showcase.wasd.desc": "Shift 加速/微调，精准控制视角",
+    "showcase.wasd.desc": "WASD / QE 移动，Shift 加速，Alt 精调",
     "showcase.upload.title": "批量处理队列",
     "showcase.upload.desc": "拖拽上传，并支持批量处理和任务中断",
     "showcase.share.title": "一键导出分享",
@@ -163,7 +163,7 @@ const i18n = {
     "features.update.desc": "受支持的 Git 安装与受管便携包可在更新中心选择稳定版或最新代码，保留模型、配置与运行环境。",
     "features.library.title": "作品，有序收藏",
     "features.library.desc": "生成、视频和导入模型统一管理，支持排序筛选、详情与元数据查看，以及直接进入编辑。",
-    "share.alt": "独立 HTML 分享演示",
+    "share.alt": "独立 HTML 分享查看器",
     "arch.ai.video": "视频配准与训练",
     "arch.metric.resolution": "动画导出分辨率",
     "arch.metric.framerate": "动画导出帧率",
@@ -193,6 +193,11 @@ const i18n = {
     "singlePhoto.point2.desc": "拖动、缩放或键盘移动视角；手机也能通过触摸与体感观察。",
     "singlePhoto.point3.title": "从相册，直接生成",
     "singlePhoto.point3.desc": "电脑与 NAS 中的照片可直接加入生成队列，支持批量处理与原片回看。",
+    "shortcuts.label": "创作功能导航",
+    "shortcuts.photo": "单图重建",
+    "shortcuts.video": "视频重建",
+    "shortcuts.library": "媒体与模型资产",
+    "features.joystick.video": "移动端虚拟摇杆演示",
   },
 
   en: {
@@ -268,7 +273,7 @@ const i18n = {
     // === Share Section ===
     "share.tag": "Standalone HTML sharing",
     "share.title": "One-Click Export,<br>Let Your Work Flow",
-    "share.desc": "Package the model and viewer in one HTML file. Send the file and open it offline in a WebGL2-capable browser, with no separate server.",
+    "share.desc": "Package a generated model and its viewer in one HTML file. Send the file and open it offline in a WebGL2-capable browser, with no separate server.",
     "share.feature1.title": "One file. The full scene.",
     "share.feature1.desc": "Embedded model, viewer and dependencies, with SPZ model compression",
     "share.feature2.title": "Open at the view you chose",
@@ -279,7 +284,7 @@ const i18n = {
     // === Showcase Section ===
     "showcase.title": "Feature Demos",
     "showcase.wasd.title": "WASD Navigation",
-    "showcase.wasd.desc": "Shift to speed up/fine-tune, precise camera control",
+    "showcase.wasd.desc": "Move with WASD / QE. Shift speeds up; Alt fine-tunes.",
     "showcase.upload.title": "Batch Processing",
     "showcase.upload.desc":
       "Drag & drop upload, with task queue and cancellation",
@@ -351,7 +356,7 @@ const i18n = {
     "features.update.desc": "Supported Git installs and managed portable packages offer Stable and Latest channels, preserving models, configuration and the runtime.",
     "features.library.title": "A home for every creation",
     "features.library.desc": "Organize generated, video and imported models together. Sort, filter, inspect metadata and open the editor directly.",
-    "share.alt": "Standalone HTML sharing demo",
+    "share.alt": "Standalone HTML sharing viewer",
     "arch.ai.video": "Video alignment & training",
     "arch.metric.resolution": "Animation export resolution",
     "arch.metric.framerate": "Animation export frame rates",
@@ -381,6 +386,11 @@ const i18n = {
     "singlePhoto.point2.desc": "Drag, zoom or move with the keyboard. On mobile, explore with touch and gyroscope controls.",
     "singlePhoto.point3.title": "Create straight from an album",
     "singlePhoto.point3.desc": "Queue photos from your local or NAS albums, process them in batches and revisit their source images.",
+    "shortcuts.label": "Creation feature navigation",
+    "shortcuts.photo": "Single-photo 3D",
+    "shortcuts.video": "Video reconstruction",
+    "shortcuts.library": "Media & model library",
+    "features.joystick.video": "Mobile virtual joystick demo",
   },
 };
 

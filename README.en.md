@@ -18,7 +18,7 @@ Homepage: https://lueluelue12138.github.io/sharp-gui/
 
 The "Spatial Photos" feature in iOS 26 offers an amazing immersive experience, but is currently limited to the Apple ecosystem.
 
-As a Web enthusiast, I built Sharp GUI to bridge this gap. My goal is to let anyone—whether on Android, Windows, Mac or VR device—**[deploy with one click](#-quick-start)** and create and share 3D spatial memories directly via a browser on their local network. This is a hobbyist exploration, built for everyone to enjoy.
+As a Web enthusiast, I built Sharp GUI to bridge this gap. Run **[a one-click deployment](#-quick-start)** on a computer, then use browsers on Android, Windows, Mac or VR devices on your local network to create, explore and share 3D spatial memories. This is a hobbyist exploration, built for everyone to enjoy.
 
 <br>
 
@@ -40,7 +40,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 </div>
 
 > [!WARNING]
-> **No content restrictions for local deployment** - Users are fully responsible for generated content. Please comply with local laws and regulations. See [Disclaimer](#-disclaimer).
+> **No content restrictions for local deployment** - Users are fully responsible for generated content. Please comply with local laws and regulations. See [Disclaimer](#disclaimer).
 
 ---
 
@@ -89,7 +89,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 <br>
 
 [Configuration](#%EF%B8%8F-configuration)<br>
-[Video Reconstruction Settings](#video-reconstruction-settings)<br>
+[Video Reconstruction Settings](#video-reconstruction-configuration)<br>
 [LAN Access Gate](#-lan-access-gate-and-privacy-boundary)
 
 </td>
@@ -112,7 +112,7 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 </tr>
 </table>
 
-<div align="center"><sub>📄 <a href="#-license">License</a> &nbsp;·&nbsp; ⚠️ <a href="#-disclaimer">Disclaimer</a></sub></div>
+<div align="center"><sub>📄 <a href="#-license">License</a> &nbsp;·&nbsp; ⚠️ <a href="#disclaimer">Disclaimer</a></sub></div>
 
 ---
 
@@ -153,13 +153,13 @@ Full release notes → **[Latest Release](https://github.com/lueluelue12138/shar
 
 ### 🏠 Host Once, Access Anywhere
 
-No need to install apps on every device. Run Sharp GUI on one computer, and any phone, tablet or VR device on your LAN can access it instantly via browser. Full HTTPS support ensures features like gyroscope work perfectly on all devices.
+No need to install apps on every device. Run Sharp GUI on one computer, and any phone, tablet or VR device on your LAN can access it instantly via browser. HTTPS provides the secure context required by features such as gyroscope controls; availability depends on the browser, device and permissions.
 
 ### 🚀 Core Features
 
 | Feature                    | Description                                                                                                                                                              |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **📸 Image to 3D**         | Upload any image; Apple ML-Sharp generates a 3D Gaussian Splatting model. The 2.62 GiB model is pre-downloaded during install.                                          |
+| **📸 Image to 3D**         | Upload a single image; Apple ML-Sharp generates a 3D Gaussian Splatting model. The 2.62 GiB model is pre-downloaded during install.                                          |
 | **🎥 Video 3DGS Reconstruction** | Create static Gaussian Splat models from album or dropped videos using COLMAP + Brush, with quality presets, task stages, thumbnails and source replay. |
 | **🖼️ Modern Workflow**     | Multi-select / drag-and-drop upload, virtualized gallery, in-app original viewer, smart task queue (2s while active, 10s idle), slide-out delete, cancellable jobs.      |
 | **📦 Model Asset Library** | Browse generated and imported models together, with `.ply/.spz/.splat/.rad`, filters, sorting, details metadata, recent models, batch import, and cursor-based incremental loading. |
@@ -211,7 +211,7 @@ Built with Apple Human Interface Guidelines for a premium feel:
   <img src="docs/images/main.png" width="800" alt="Main Interface">
 </p>
 
-<p align="center"><i>Model asset library / recent models + 3D model preview + glassmorphism control bar</i></p>
+<p align="center"><i>Recent models + 3D spatial preview + glassmorphism control bar</i></p>
 
 ### Local Media Gallery
 
@@ -224,16 +224,16 @@ Built with Apple Human Interface Guidelines for a premium feel:
 ### Video 3DGS Reconstruction
 
 <p align="center">
-  <img src="docs/images/video-reconstruction-dialog.png" width="800" alt="Video reconstruction settings dialog">
+  <img src="docs/images/video-reconstruction-current.jpg" width="572" alt="Video reconstruction settings dialog">
 </p>
 
 <p align="center"><i>Open the reconstruction dialog from an album video or dropped video, then choose mode, quality, custom parameters, and dependency status</i></p>
 
 <p align="center">
-  <img src="docs/images/demo-video-reconstruction.gif" width="800" alt="Video reconstruction workflow demo">
+  <img src="docs/images/reconstructed-model.jpg" width="800" alt="A reconstructed model in the current viewer">
 </p>
 
-<p align="center"><i>Choose a video → configure settings → watch task progress / live preview → open the model result and source-video replay</i></p>
+<p align="center"><i>Reconstructed results open in the model viewer for exploration, editing, animation export and sharing</i></p>
 
 ### Model Editing
 
@@ -243,7 +243,7 @@ Built with Apple Human Interface Guidelines for a premium feel:
 
 <p align="center"><i>Clean up splats, drag selection boundaries, calibrate the origin and orientation, and save a copy or overwrite the model</i></p>
 
-### Export Animation
+### Animation Export and Path Preview
 
 <p align="center">
   <img src="docs/images/animation-path.jpg" width="800" alt="Export animation with a multi-keyframe orbit, height and distance changes, camera frustums, and playback timeline">
@@ -265,12 +265,12 @@ Built with Apple Human Interface Guidelines for a premium feel:
 ### 🎬 Camera Movement Controls
 
 <p align="center">
-  <img src="docs/images/demo-wasd.gif" height="300" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/images/demo-joystick.gif" height="300" alt="Virtual Joystick">
+  <img src="docs/images/demo-wasd.gif" width="380" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="docs/images/demo-joystick-2.mp4"><img src="docs/images/joystick-preview.jpg" width="380" alt="Virtual Joystick"></a>
 </p>
 
 <p align="center">
-  <i>Left: WASD/QE keyboard movement (Shift for precision) | Right: Mobile virtual joystick</i>
+  <i>WASD/QE keyboard movement and mobile virtual joystick — click the joystick image for the MP4 demo</i>
 </p>
 
 ### 🎬 Batch Upload + Queue Processing
@@ -292,10 +292,10 @@ Built with Apple Human Interface Guidelines for a premium feel:
 ### 🎬 One-Click Export & Share
 
 <p align="center">
-  <img src="docs/images/demo-share.gif" width="600" alt="Share Demo">
+  <img src="docs/images/share-preview.jpg" width="800" alt="Current standalone HTML sharing viewer">
 </p>
 
-<p align="center"><i>Click Share to export standalone HTML, double-click to open in any browser</i></p>
+<p align="center"><i>Export one HTML file for offline viewing in a WebGL2-capable browser, with saved framing, orbit and background controls</i></p>
 
 ---
 
@@ -463,9 +463,11 @@ rm -rf sharp-gui/
 
 ## 📖 Usage
 
+[Image to 3D](#generate-3d-models) · [Video reconstruction](#generate-3d-models-from-video) · [Model editing](#edit-models) · [Export animation](#export-animation) · [Media albums](#browse-local-media-albums)
+
 ### Generate 3D Models
 
-1. **Upload Image** - Click "Generate New" or drag images to sidebar
+1. **Upload Image** - Click "Generate / Import Model" or drag images to the sidebar
 2. **Wait for Processing** - Watch the queue stages (if installation did not finish the download, first inference downloads the approximately 2.62 GiB model)
 3. **Preview Model** - Click gallery items to view 3D
 
@@ -571,15 +573,15 @@ Preview, High and Extreme initially sample about 6 / 8 / 12 frames per second, w
 
 ### Export & Share
 
-Click **Share** button to generate a standalone HTML file:
+For a generated model, click **Share** in the viewer or **Export** in its asset library details to generate a standalone HTML file:
 
 - 📦 Complete 3D viewer included (Three.js + Spark 2.0)
-- 🌐 No server needed, double-click to open in browser
+- 🌐 No server needed; open offline in a WebGL2-capable browser
 - 📉 Embeds compact SPZ by default; the legacy PLY/Splat export path remains available for compatibility
 - 🎥 Preserves orientation and the saved view, with full-model framing, auto-orbit, backgrounds, fullscreen, and mobile controls
 - 🔒 Includes disclaimer about content responsibility
 
-The HTML contains the model data and cannot be recalled through the original app once sent. See the [standalone sharing guide (Chinese)](docs/standalone-sharing.md) for scope and offline usage.
+Standalone HTML sharing currently supports generated models; directly imported or temporarily opened assets are not supported. The HTML contains the model data and cannot be recalled through the original app once sent. See the [standalone sharing guide (Chinese)](docs/standalone-sharing.md) for scope and offline usage.
 
 ---
 
@@ -906,6 +908,8 @@ Full release notes, feature evolution, pre-release channel, and download links:
 - 🧪 **[Pre-release Channel](https://github.com/lueluelue12138/sharp-gui/releases?q=prerelease%3Atrue)** — early access to upcoming features
 
 ---
+
+<a name="disclaimer"></a>
 
 ## ⚠️ Disclaimer
 
