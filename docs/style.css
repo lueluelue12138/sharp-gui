@@ -1031,7 +1031,6 @@ footer {
     z-index: 2;
 }
 
-
 /* ----------------------------------
    3. VR / Vision (头显) - Ultimate Realism
    ---------------------------------- */
@@ -1170,7 +1169,6 @@ footer {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.5);
     border: 1px solid rgba(255, 255, 255, 0.1);
 }
-
 
 /* ----------------------------------
    4. Mobile (手机)
@@ -1860,7 +1858,7 @@ footer {
 }
 
 .video-reconstruction-visual {
-    min-height: 590px;
+    min-height: 610px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1911,18 +1909,18 @@ footer {
 
 .video-settings-panel {
     position: absolute;
-    right: -12px;
-    top: 42px;
+    right: -8px;
+    top: 8px;
     z-index: 3;
     width: 360px;
     padding: 16px;
     border-radius: 22px;
     background:
         linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.035)),
-        rgba(24, 25, 31, 0.9);
+        rgba(24, 25, 31, 0.76);
     backdrop-filter: blur(22px);
     -webkit-backdrop-filter: blur(22px);
-    transform: perspective(1000px) rotateY(-4deg) rotateX(2deg) scale(0.78);
+    transform: perspective(1000px) rotateY(-4deg) rotateX(2deg) scale(0.88);
     transform-origin: top right;
     box-shadow:
         0 34px 86px rgba(0, 0, 0, 0.62),
@@ -1989,7 +1987,8 @@ footer {
     font-size: 0.66rem;
 }
 
-.video-settings-panel label {
+.video-settings-panel label,
+.video-settings-label {
     display: block;
     margin: 10px 0 6px;
     color: rgba(255, 255, 255, 0.62);
@@ -2031,9 +2030,9 @@ footer {
 }
 
 .video-settings-segment span.active {
-    color: #fff;
-    background: linear-gradient(135deg, #2563eb, #3b82f6);
-    box-shadow: 0 8px 20px rgba(37, 99, 235, 0.32);
+    color: #60a5fa;
+    background: rgba(255, 255, 255, 0.16);
+    box-shadow: 0 3px 12px rgba(0, 0, 0, 0.12);
 }
 
 .video-settings-segment.tall span {
@@ -2052,7 +2051,7 @@ footer {
 }
 
 .video-settings-segment span.active small {
-    color: rgba(255, 255, 255, 0.74);
+    color: #60a5fa;
 }
 
 .video-settings-select,
@@ -2203,7 +2202,7 @@ footer {
     margin-top: 10px;
 }
 
-.video-settings-actions > span {
+.video-settings-actions > a {
     display: inline-flex;
     align-items: center;
     gap: 5px;
@@ -2218,7 +2217,7 @@ footer {
     gap: 8px;
 }
 
-.video-settings-actions button {
+.video-settings-actions > div > span {
     height: 34px;
     display: inline-flex;
     align-items: center;
@@ -2286,7 +2285,7 @@ footer {
     .video-reconstruction-visual:has(.video-settings-panel:focus-within) .video-settings-panel {
         z-index: 4;
         opacity: 1;
-        transform: perspective(1000px) rotateY(-3deg) rotateX(1.5deg) translateY(-8px) scale(0.8);
+        transform: perspective(1000px) rotateY(-3deg) rotateX(1.5deg) translateY(-8px) scale(0.9);
         box-shadow:
             0 42px 96px rgba(0, 0, 0, 0.68),
             0 0 0 1px rgba(147, 197, 253, 0.12),
@@ -2318,7 +2317,7 @@ footer {
         z-index: 2;
         opacity: 0.72;
         filter: saturate(0.9) brightness(0.88);
-        transform: perspective(1000px) rotateY(-2deg) rotateX(1deg) translate(28px, -6px) scale(0.72);
+        transform: perspective(1000px) rotateY(-2deg) rotateX(1deg) translate(20px, -6px) scale(0.8);
         box-shadow:
             0 24px 64px rgba(0, 0, 0, 0.5),
             0 0 0 1px rgba(147, 197, 253, 0.06);
@@ -3427,26 +3426,6 @@ footer {
 }
 
 /* Product creation flow — shared surfaces and type from the existing homepage. */
-.creation-links {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 14px 28px;
-    margin-top: 36px;
-    font-size: 0.88rem;
-}
-
-.creation-links a {
-    color: #93c5fd;
-    text-decoration: none;
-    text-underline-offset: 5px;
-}
-
-.creation-links a:hover {
-    color: #dbeafe;
-    text-decoration: underline;
-}
-
 .joystick-video {
     display: block;
     width: 100%;
@@ -3523,43 +3502,38 @@ summary:focus-visible {
     min-width: 0;
 }
 
-.reconstruction-preview .product-window {
-    transform: perspective(1200px) rotateY(-4deg);
+/* The launch panel is drawn in HTML above the recorded training preview. */
+.video-settings-segment b {
+    font: inherit;
 }
 
-.reconstruction-route {
-    display: grid;
-    grid-template-columns: 1fr auto 1fr auto 1fr;
-    align-items: center;
-    gap: 12px;
-    margin-top: 28px;
-    padding: 22px 18px;
-    border-top: 1px solid var(--glass-border);
-    border-bottom: 1px solid var(--glass-border);
-}
-
-.reconstruction-route > div {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-
-.route-number {
-    color: #60a5fa;
-    font-size: 0.7rem;
-    letter-spacing: 0.1em;
-}
-
-.reconstruction-route strong {
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.reconstruction-route > i,
-.reconstruction-route div > span:last-child {
+.video-settings-hint {
+    margin: 7px 0 0;
     color: var(--text-secondary);
-    font-size: 0.78rem;
+    font-size: 0.62rem;
+    line-height: 1.5;
+}
+
+.video-settings-details > summary {
+    list-style: none;
+    cursor: pointer;
+}
+
+.video-settings-details > summary::-webkit-details-marker {
+    display: none;
+}
+
+.video-settings-details[open] > summary i {
+    transform: rotate(180deg);
+}
+
+.video-settings-check {
+    margin-top: 0;
+}
+
+.video-settings-check > i {
+    background: rgba(0, 0, 0, 0.22);
+    border: 1px solid rgba(255, 255, 255, 0.24);
 }
 
 .product-note {
@@ -3787,10 +3761,6 @@ summary:focus-visible {
         gap: 30px;
     }
 
-    .reconstruction-preview .product-window {
-        transform: none;
-    }
-
     .creation-heading {
         align-items: start;
     }
@@ -3848,19 +3818,6 @@ summary:focus-visible {
     }
 
     .window-caption {
-        font-size: 0.65rem;
-    }
-
-    .reconstruction-route {
-        gap: 7px;
-        padding: 18px 0;
-    }
-
-    .reconstruction-route strong {
-        font-size: 0.88rem;
-    }
-
-    .reconstruction-route div > span:last-child {
         font-size: 0.65rem;
     }
 
@@ -4036,7 +3993,38 @@ summary:focus-visible {
 
     .window-frame,
     .photo-gallery-window,
-    .reconstruction-preview .product-window {
+    .video-settings-panel,
+    .video-dialog-window {
         transform: none !important;
+    }
+}
+
+@media (max-width: 1060px) {
+    .video-reconstruction-card {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .reconstruction-preview {
+        width: 100%;
+        max-width: 700px;
+        margin-inline: auto;
+    }
+
+    .video-settings-panel {
+        transform: scale(0.88);
+    }
+}
+
+@media (max-width: 768px) {
+    .video-reconstruction-visual {
+        margin-top: 0;
+    }
+
+    .video-settings-panel {
+        transform: none;
+    }
+
+    .video-settings-segment.four {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }

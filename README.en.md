@@ -224,16 +224,16 @@ Built with Apple Human Interface Guidelines for a premium feel:
 ### Video 3DGS Reconstruction
 
 <p align="center">
-  <img src="docs/images/video-reconstruction-current.jpg" width="572" alt="Video reconstruction settings dialog">
+  <img src="docs/images/video-reconstruction-current.jpg" width="800" alt="Video reconstruction settings dialog">
 </p>
 
 <p align="center"><i>Open the reconstruction dialog from an album video or dropped video, then choose mode, quality, custom parameters, and dependency status</i></p>
 
 <p align="center">
-  <img src="docs/images/reconstructed-model.jpg" width="800" alt="A reconstructed model in the current viewer">
+  <img src="docs/images/demo-video-reconstruction.webp" width="800" alt="Animated training preview">
 </p>
 
-<p align="center"><i>Reconstructed results open in the model viewer for exploration, editing, animation export and sharing</i></p>
+<p align="center"><i>Recorded training preview; reconstruction settings are shown in the current launch panel above</i></p>
 
 ### Model Editing
 
@@ -254,7 +254,7 @@ Built with Apple Human Interface Guidelines for a premium feel:
 ### Mobile Adaptation
 
 <p align="center">
-  <img src="docs/images/mobile.png" height="400" alt="Mobile">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/mobile.webp" height="400" alt="Mobile">&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="docs/images/pad.png" height="400" alt="Tablet">
 </p>
 
@@ -265,7 +265,7 @@ Built with Apple Human Interface Guidelines for a premium feel:
 ### 🎬 Camera Movement Controls
 
 <p align="center">
-  <img src="docs/images/demo-wasd.gif" width="380" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/demo-wasd.webp" width="380" alt="WASD Controls">&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="docs/images/demo-joystick-2.mp4"><img src="docs/images/joystick-preview.jpg" width="380" alt="Virtual Joystick"></a>
 </p>
 
@@ -284,7 +284,7 @@ Built with Apple Human Interface Guidelines for a premium feel:
 ### 🎬 Gyroscope Control (Mobile)
 
 <p align="center">
-  <img src="docs/images/demo-gyro.gif" height="400" alt="Gyro Demo">
+  <img src="docs/images/demo-gyro.webp" height="400" alt="Gyro Demo">
 </p>
 
 <p align="center"><i>Tilt phone to control view, iOS-style real-time indicator ball</i></p>

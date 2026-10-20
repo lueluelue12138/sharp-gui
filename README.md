@@ -225,16 +225,16 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ### 视频 3DGS 重建
 
 <p align="center">
-  <img src="docs/images/video-reconstruction-current.jpg" width="572" alt="视频重建参数选择界面">
+  <img src="docs/images/video-reconstruction-current.jpg" width="800" alt="视频重建参数选择界面">
 </p>
 
 <p align="center"><i>从相册视频或拖入视频进入重建弹窗，选择模式、质量、自定义参数和依赖状态</i></p>
 
 <p align="center">
-  <img src="docs/images/reconstructed-model.jpg" width="800" alt="重建模型在当前查看器中的预览">
+  <img src="docs/images/demo-video-reconstruction.webp" width="800" alt="训练过程动态预览">
 </p>
 
-<p align="center"><i>重建结果进入模型查看器，可继续探索、编辑、导出动画与分享</i></p>
+<p align="center"><i>训练过程动态录屏示意；重建参数以当前版本的发起面板为准</i></p>
 
 ### 模型编辑
 
@@ -255,7 +255,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ### 移动端适配
 
 <p align="center">
-  <img src="docs/images/mobile.png" height="400" alt="手机端">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/mobile.webp" height="400" alt="手机端">&nbsp;&nbsp;&nbsp;&nbsp;
   <img src="docs/images/pad.png" height="400" alt="平板端">
 </p>
 
@@ -266,7 +266,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ### 🎬 相机移动控制
 
 <p align="center">
-  <img src="docs/images/demo-wasd.gif" width="380" alt="WASD键盘控制">&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/images/demo-wasd.webp" width="380" alt="WASD键盘控制">&nbsp;&nbsp;&nbsp;&nbsp;
   <a href="docs/images/demo-joystick-2.mp4"><img src="docs/images/joystick-preview.jpg" width="380" alt="虚拟摇杆"></a>
 </p>
 
@@ -285,7 +285,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 ### 🎬 陀螺仪体感控制 (移动端)
 
 <p align="center">
-  <img src="docs/images/demo-gyro.gif" height="400" alt="陀螺仪演示">
+  <img src="docs/images/demo-gyro.webp" height="400" alt="陀螺仪演示">
 </p>
 
 <p align="center"><i>倾斜手机控制视角，iOS 风格实时指示球反馈</i></p>
