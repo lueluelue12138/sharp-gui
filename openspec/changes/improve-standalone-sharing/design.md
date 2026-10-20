@@ -34,3 +34,7 @@
 - https://sparkjs.dev/docs/splat-mesh/
 - https://sparkjs.dev/docs/controls/
 - 项目已安装 @sparkjsdev/spark 2.0.0 与 Three.js 0.180.0 源码/类型。
+
+## 2026-10-21 小项补齐
+
+分享模板通过 data URI 内嵌 frontend/dist 中已有的 96px PNG favicon，与应用使用同一品牌资源，避免将大型 raster-in-SVG 再嵌入每个分享文件。缺图标时沿用 share_viewer_unavailable 并在模型转换前退出。自动环绕系数由0.65调整为1.5，继续由 OrbitControls.update(delta) 按时间更新，约40秒一圈；只影响新导出的文件。

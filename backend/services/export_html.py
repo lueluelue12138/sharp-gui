@@ -65,14 +65,16 @@ def build_export_html(paths, model_id, fmt):
     # The exact bundled viewer ships in dist with every application update.
     viewer_dir = os.path.join(runtime.BASE_DIR, "frontend", "dist", "share")
     assets = {}
-    for key, filename in (("VIEWER_SCRIPT", "share-viewer.js"), ("VIEWER_STYLE", "share-viewer.css"),
-                          ("LICENSE_NOTICES", "LICENSES.txt")):
-        try:
+    try:
+        for key, filename in (("VIEWER_SCRIPT", "share-viewer.js"), ("VIEWER_STYLE", "share-viewer.css"),
+                              ("LICENSE_NOTICES", "LICENSES.txt")):
             with open(os.path.join(viewer_dir, filename), encoding="utf-8") as file:
                 assets[key] = file.read()
-        except FileNotFoundError:
-            return None, {"error": "Standalone viewer files are missing. Build the frontend and retry.",
-                          "code": "share_viewer_unavailable"}, 503
+        with open(os.path.join(runtime.BASE_DIR, "frontend", "dist", "favicon-96x96.png"), "rb") as file:
+            assets["FAVICON_DATA"] = "data:image/png;base64," + base64.b64encode(file.read()).decode("ascii")
+    except FileNotFoundError:
+        return None, {"error": "Standalone viewer files are missing. Build the frontend and retry.",
+                      "code": "share_viewer_unavailable"}, 503
 
     resolved_payload = _resolve_export_payload(paths, model_id, fmt)
     if not resolved_payload:

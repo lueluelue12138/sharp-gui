@@ -71,7 +71,7 @@ export function createShareScene(
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.05;
-  controls.autoRotateSpeed = 0.65;
+  controls.autoRotateSpeed = 1.5; // Approximately 40 seconds per orbit; deltaTime keeps it refresh-rate independent.
   controls.mouseButtons = { LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.DOLLY, RIGHT: THREE.MOUSE.PAN };
   controls.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN };
   let spark: SparkRenderer;

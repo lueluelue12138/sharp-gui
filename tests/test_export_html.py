@@ -22,6 +22,8 @@ def export_workspace(workspace, tmp_path, monkeypatch):
     (assets / 'share-viewer.js').write_text('console.log("</script><b>must stay in JS</b>");', encoding='utf-8')
     (assets / 'share-viewer.css').write_text('body{margin:0}', encoding='utf-8')
     (assets / 'LICENSES.txt').write_text('MIT <license>', encoding='utf-8')
+    (assets.parent / 'favicon-96x96.png').write_bytes(
+        (Path(runtime.BASE_DIR) / 'frontend/public/favicon-96x96.png').read_bytes())
     (base / 'templates').mkdir()
     (base / 'templates/share_template.html').write_text(
         (Path(runtime.BASE_DIR) / 'templates/share_template.html').read_text(encoding='utf-8'), encoding='utf-8')
@@ -48,6 +50,8 @@ def test_export_only_needs_dist_and_preserves_model_bytes(export_workspace, form
     assert result['html_size'] == len(result['html'].encode('utf-8'))
     assert 'console.log("<\\/script>' in result['html']
     assert 'MIT &lt;license&gt;' in result['html']
+    icon = re.search(r'<link rel="icon"[^>]+href="data:image/png;base64,([^"]+)"', result['html'])[1]
+    assert base64.b64decode(icon) == (base / 'frontend/dist/favicon-96x96.png').read_bytes()
 
 
 def test_export_only_embeds_normalized_preview_metadata(export_workspace):
@@ -83,10 +87,11 @@ def test_invalid_camera_and_transform_are_not_exported(export_workspace):
     assert manifest['viewerOrientation'] == 'unknown'
 
 
-def test_missing_built_viewer_has_explicit_error(export_workspace, monkeypatch):
+@pytest.mark.parametrize('missing_asset', ['share/share-viewer.js', 'share/share-viewer.css', 'share/LICENSES.txt', 'favicon-96x96.png'])
+def test_missing_built_viewer_has_explicit_error(export_workspace, monkeypatch, missing_asset):
     paths, base = export_workspace
     Path(paths.output_folder, 'model.ply').write_bytes(b'ply')
-    (base / 'frontend/dist/share/share-viewer.js').unlink()
+    (base / 'frontend/dist' / missing_asset).unlink()
     def unexpected_conversion(*args):
         pytest.fail('Missing viewer must not trigger model conversion')
     monkeypatch.setattr(export_html, 'ply_to_spz', unexpected_conversion)

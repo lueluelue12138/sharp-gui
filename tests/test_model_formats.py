@@ -142,6 +142,7 @@ def test_build_export_html_reports_the_format_actually_embedded(workspace, tmp_p
         asset_path = base_dir / relative_path
         asset_path.parent.mkdir(parents=True, exist_ok=True)
         asset_path.write_text(content, encoding="utf-8")
+    (base_dir / 'frontend/dist/favicon-96x96.png').write_bytes(b'fixture-icon')
 
     monkeypatch.setattr(runtime, "BASE_DIR", str(base_dir))
 
