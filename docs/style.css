@@ -3859,7 +3859,7 @@ summary:focus-visible {
         height: 24px;
     }
 
-    .nav-links > a:not([href="#single-photo"]):not([href="#install"]) {
+    .nav-links > a:not([href="#reconstruction"]):not([href="#install"]) {
         display: none;
     }
 
@@ -3874,30 +3874,12 @@ summary:focus-visible {
 }
 
 @media (max-width: 360px) {
-    .nav-links > a[href="#single-photo"] {
+    .nav-links > a[href="#reconstruction"] {
         display: none;
     }
 }
 
-/* The photo-to-space experience is the primary product story. */
-.hero-capabilities {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 10px 28px;
-    margin-top: 28px;
-    color: #a1a1aa;
-    font-size: 0.8rem;
-    letter-spacing: 0.02em;
-}
-
-.hero-capabilities span + span::before {
-    content: '·';
-    color: #60a5fa;
-    position: relative;
-    left: -14px;
-}
-
+/* Photo reconstruction feature. */
 .single-photo-section {
     padding: 88px 0 32px;
 }

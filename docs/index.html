@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Sharp GUI" />
 
-    <link rel="stylesheet" href="style.css?v=53e488ceae">
+    <link rel="stylesheet" href="style.css?v=9598a32cc0">
     <!-- 引入 Remix Icon 图标库 -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <!-- 引入 Google Fonts (Inter) -->
@@ -39,7 +39,7 @@
                 <span>Sharp GUI</span>
             </div>
             <div class="nav-links">
-                <a href="#single-photo" data-i18n="nav.create">空间照片</a>
+                <a href="#reconstruction" data-i18n="nav.create">创作</a>
                 <a href="#features" data-i18n="nav.features">特性</a>
                 <a href="#showcase" data-i18n="nav.showcase">演示</a>
                 <a href="#architecture" data-i18n="nav.architecture">架构</a>
@@ -56,9 +56,9 @@
     <header class="hero-section">
         <div class="container">
             <div class="hero-text fade-in-up">
-                <div class="badge" data-i18n="hero.badge">✨ 从一张照片，走进 3D 空间</div>
-                <h1 data-i18n="hero.title">一张照片。<br>换个角度，再看。</h1>
-                <p class="subtitle" data-i18n="hero.subtitle">把已有的照片变成可交互的 3D 空间，从不同角度重访你记录的风景、物品与瞬间。本地生成，在浏览器中探索，让记忆不止停留在一个视角。</p>
+                <div class="badge" data-i18n="hero.badge">✨ 自托管 3D 空间相册</div>
+                <h1 data-i18n="hero.title">你的空间记忆<br>触手可及</h1>
+                <p class="subtitle" data-i18n="hero.subtitle">打破设备界限，一次部署，全屋访问。无需云端上传，在浏览器中即可生成并漫游令人惊叹的 3D 场景。</p>
                 <div class="cta-group">
                     <a href="#install" class="btn btn-primary">
                         <i class="ri-rocket-line"></i> <span data-i18n="hero.cta.start">快速开始</span>
@@ -70,9 +70,6 @@
                         </span>
                         <span data-i18n="hero.cta.github">Star on GitHub</span>
                     </a>
-                </div>
-                <div class="hero-capabilities" aria-label="核心体验" data-i18n-aria="hero.capabilities">
-                    <span data-i18n="hero.single">单图重建</span><span data-i18n="hero.local">本地创作</span><span data-i18n="hero.devices">多端探索</span>
                 </div>
             </div>
 
@@ -90,35 +87,12 @@
         </div>
     </header>
 
-    <!-- 从一张照片开始 -->
-    <section class="single-photo-section" id="single-photo">
-        <div class="container">
-            <div class="single-photo-card glass reveal">
-                <div class="single-photo-copy">
-                    <div class="mini-tag"><i class="ri-image-line" aria-hidden="true"></i><span data-i18n="singlePhoto.tag">单张照片 · 空间重建</span></div>
-                    <h2 data-i18n="singlePhoto.title">熟悉的照片，<br>值得换个角度看。</h2>
-                    <p data-i18n="singlePhoto.desc">不必重新拍摄一圈，也不必收集多张照片。一张已有的照片，经过 Apple SHARP 推理，就能成为可交互的 3D 空间照片。移动视角，看见画面中的远近与层次，让记录过的瞬间多一种打开方式。</p>
-                    <a class="text-link" href="#install"><span data-i18n="singlePhoto.cta">从你的第一张照片开始</span><i class="ri-arrow-right-line" aria-hidden="true"></i></a>
-                </div>
-                <div class="single-photo-visual product-window">
-                    <div class="window-header"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="window-caption" data-i18n="singlePhoto.window">空间照片 · 视角探索</span></div>
-                    <img src="./images/demo-wasd.gif" width="800" height="381" alt="移动观察视角，探索单图生成场景中的空间层次" data-i18n-alt="singlePhoto.alt" loading="lazy">
-                </div>
-                <div class="single-photo-points">
-                    <div><i class="ri-image-add-line" aria-hidden="true"></i><h3 data-i18n="singlePhoto.point1.title">已有照片，就能开始</h3><p data-i18n="singlePhoto.point1.desc">风景、物品、生活片段，从本地文件或相册选一张照片即可生成。</p></div>
-                    <div><i class="ri-drag-move-2-line" aria-hidden="true"></i><h3 data-i18n="singlePhoto.point2.title">从观看，到探索</h3><p data-i18n="singlePhoto.point2.desc">拖动、缩放或键盘移动视角；手机也能通过触摸与体感观察。</p></div>
-                    <div><i class="ri-home-wifi-line" aria-hidden="true"></i><h3 data-i18n="singlePhoto.point3.title">记忆留在自己手中</h3><p data-i18n="singlePhoto.point3.desc">本地推理与存储，局域网多端浏览，也能导出独立作品分享。</p></div>
-                </div>
-            </div>
-        </div>
-    </section>
-
-    <!-- 单图创作工作流 -->
-    <section class="workflow-section">
+    <!-- 照片与视频的共同创作流程 -->
+    <section class="workflow-section" id="reconstruction">
         <div class="container">
             <div class="section-header text-center">
                 <h2 data-i18n="workflow.title">极简工作流</h2>
-                <p class="subtitle" data-i18n="workflow.subtitle">一张照片，三步走进空间</p>
+                <p class="subtitle" data-i18n="workflow.subtitle">从照片或视频，到可探索的 3D 空间</p>
             </div>
 
             <div class="workflow-steps fade-in-up delay-200">
@@ -128,8 +102,8 @@
                         <i class="ri-image-add-line"></i>
                         <div class="step-number">1</div>
                     </div>
-                    <h3 data-i18n="workflow.step1.title">选一张照片</h3>
-                    <p data-i18n="workflow.step1.desc">拖入已有照片，或从电脑、NAS 的本地相册中挑选</p>
+                    <h3 data-i18n="workflow.step1.title">导入素材</h3>
+                    <p data-i18n="workflow.step1.desc">拖入照片或视频，也可从本地相册开始；已有模型可直接导入</p>
                 </div>
 
 
@@ -141,8 +115,8 @@
                         <div class="pulse-ring"></div> <!-- 脉冲动画 -->
                         <div class="step-number">2</div>
                     </div>
-                    <h3 data-i18n="workflow.step2.title">本地生成 3D</h3>
-                    <p data-i18n="workflow.step2.desc">Apple SHARP 从单图推理空间结构，支持批量加入队列</p>
+                    <h3 data-i18n="workflow.step2.title">本地重建</h3>
+                    <p data-i18n="workflow.step2.desc">单图使用 Apple SHARP，视频使用 COLMAP + Brush，按素材选择</p>
                 </div>
 
 
@@ -153,22 +127,45 @@
                         <i class="ri-box-3-line"></i>
                         <div class="step-number">3</div>
                     </div>
-                    <h3 data-i18n="workflow.step3.title">换个角度再看</h3>
-                    <p data-i18n="workflow.step3.desc">在浏览器中移动视角，进一步编辑、导出动画或分享</p>
+                    <h3 data-i18n="workflow.step3.title">探索与创作</h3>
+                    <p data-i18n="workflow.step3.desc">在浏览器中漫游、编辑模型，进一步导出动画或分享作品</p>
                 </div>
             </div>
         </div>
     </section>
 
 
+    <!-- 单图重建 -->
+    <section class="single-photo-section" id="single-photo">
+        <div class="container">
+            <div class="single-photo-card glass reveal">
+                <div class="single-photo-copy">
+                    <div class="mini-tag"><i class="ri-image-line" aria-hidden="true"></i><span data-i18n="singlePhoto.tag">单张照片 · 空间重建</span></div>
+                    <h2 data-i18n="singlePhoto.title">熟悉的照片，<br>值得换个角度看。</h2>
+                    <p data-i18n="singlePhoto.desc">将已有的一张照片，通过 Apple SHARP 转换为可交互的 3D 空间照片。移动视角，看见画面中的远近与层次，让记录过的风景、物品与瞬间多一种打开方式。</p>
+                    <a class="text-link" href="#install"><span data-i18n="singlePhoto.cta">从你的第一张照片开始</span><i class="ri-arrow-right-line" aria-hidden="true"></i></a>
+                </div>
+                <div class="single-photo-visual product-window">
+                    <div class="window-header"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span><span class="window-caption" data-i18n="singlePhoto.window">空间照片 · 视角探索</span></div>
+                    <img src="./images/demo-wasd.gif" width="800" height="381" alt="移动观察视角，探索单图生成场景中的空间层次" data-i18n-alt="singlePhoto.alt" loading="lazy">
+                </div>
+                <div class="single-photo-points">
+                    <div><i class="ri-image-add-line" aria-hidden="true"></i><h3 data-i18n="singlePhoto.point1.title">已有照片，就能开始</h3><p data-i18n="singlePhoto.point1.desc">风景、物品、生活片段，从本地文件或相册选一张照片即可生成。</p></div>
+                    <div><i class="ri-drag-move-2-line" aria-hidden="true"></i><h3 data-i18n="singlePhoto.point2.title">从观看，到探索</h3><p data-i18n="singlePhoto.point2.desc">拖动、缩放或键盘移动视角；手机也能通过触摸与体感观察。</p></div>
+                    <div><i class="ri-home-wifi-line" aria-hidden="true"></i><h3 data-i18n="singlePhoto.point3.title">从相册，直接生成</h3><p data-i18n="singlePhoto.point3.desc">电脑与 NAS 中的照片可直接加入生成队列，支持批量处理与原片回看。</p></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <!-- 视频重建 -->
     <section class="video-reconstruction-section" id="video-reconstruction">
         <div class="container">
             <div class="video-reconstruction-card glass reveal">
                 <div class="video-reconstruction-copy">
-                    <div class="mini-tag video-tag"><i class="ri-movie-2-line" aria-hidden="true"></i><span data-i18n="videoRecon.tag">更多创作方式 · 视频重建</span></div>
-                    <h2 data-i18n="videoRecon.title">有一段视频？<br>也能重建成空间。</h2>
-                    <p data-i18n="videoRecon.desc">除了单张照片，也可以用环绕拍摄的视频重建物品或场景。固定源帧规划、COLMAP 相机配准和 Brush 训练，让连续画面汇成静态 3D 模型。</p>
+                    <div class="mini-tag video-tag"><i class="ri-movie-2-line" aria-hidden="true"></i><span data-i18n="videoRecon.tag">视频 3DGS 重建</span></div>
+                    <h2 data-i18n="videoRecon.title">从视频重建<br>可漫游 3D 场景</h2>
+                    <p data-i18n="videoRecon.desc">用环绕拍摄的视频重建物品或场景。固定源帧规划、COLMAP 相机配准和 Brush 训练，让连续画面汇成有细节、有层次的静态 3D 模型。</p>
                     <ul class="video-reconstruction-list">
                         <li><span class="video-reconstruction-icon"><i class="ri-focus-3-line" aria-hidden="true"></i></span><div><strong data-i18n="videoRecon.point1.title">细节优先的质量档</strong><span data-i18n="videoRecon.point1.desc">高质量保留 1920 长边；极致档在 12 GB 预算下保留 3840 长边。</span></div></li>
                         <li><span class="video-reconstruction-icon"><i class="ri-pulse-line" aria-hidden="true"></i></span><div><strong data-i18n="videoRecon.point2.title">每一步，都看得见</strong><span data-i18n="videoRecon.point2.desc">从抽帧、配准到训练，阶段进度与配准检查清晰呈现，训练中可预览。</span></div></li>
@@ -707,7 +704,7 @@ cd sharp-gui
     </footer>
 
     <!-- i18n Script -->
-    <script src="i18n.js?v=ef7af68344"></script>
+    <script src="i18n.js?v=13285f43e7"></script>
 
     <script>
         // 简单的滚动显现动画脚本

@@ -15,28 +15,28 @@ const i18n = {
     "meta.description": "Sharp GUI：本地生成图片与视频 3D 高斯模型，编辑、管理并导出动画或独立 HTML。在浏览器中探索你的空间记忆。",
 
     // === Navbar ===
-    "nav.create": "空间照片",
+    "nav.create": "创作",
     "nav.features": "特性",
     "nav.showcase": "演示",
     "nav.architecture": "架构",
     "nav.install": "安装",
 
     // === Hero Section ===
-    "hero.badge": "✨ 从一张照片，走进 3D 空间",
-    "hero.title": "一张照片。<br>换个角度，再看。",
-    "hero.subtitle": "把已有的照片变成可交互的 3D 空间，从不同角度重访你记录的风景、物品与瞬间。本地生成，在浏览器中探索，让记忆不止停留在一个视角。",
+    "hero.badge": "✨ 自托管 3D 空间相册",
+    "hero.title": "你的空间记忆<br>触手可及",
+    "hero.subtitle": "打破设备界限，一次部署，全屋访问。无需云端上传，在浏览器中即可生成并漫游令人惊叹的 3D 场景。",
     "hero.cta.start": "快速开始",
     "hero.cta.github": "Star on GitHub",
 
     // === Workflow Section ===
     "workflow.title": "极简工作流",
-    "workflow.subtitle": "一张照片，三步走进空间",
-    "workflow.step1.title": "选一张照片",
-    "workflow.step1.desc": "拖入已有照片，或从电脑、NAS 的本地相册中挑选",
-    "workflow.step2.title": "本地生成 3D",
-    "workflow.step2.desc": "Apple SHARP 从单图推理空间结构，支持批量加入队列",
-    "workflow.step3.title": "换个角度再看",
-    "workflow.step3.desc": "在浏览器中移动视角，进一步编辑、导出动画或分享",
+    "workflow.subtitle": "从照片或视频，到可探索的 3D 空间",
+    "workflow.step1.title": "导入素材",
+    "workflow.step1.desc": "拖入照片或视频，也可从本地相册开始；已有模型可直接导入",
+    "workflow.step2.title": "本地重建",
+    "workflow.step2.desc": "单图使用 Apple SHARP，视频使用 COLMAP + Brush，按素材选择",
+    "workflow.step3.title": "探索与创作",
+    "workflow.step3.desc": "在浏览器中漫游、编辑模型，进一步导出动画或分享作品",
 
     // === Photo Gallery Section ===
     "photoGallery.tag": "媒体与模型资产",
@@ -48,9 +48,9 @@ const i18n = {
     "photoGallery.point4": "模型资产统一管理",
 
     // === Video Reconstruction Section ===
-    "videoRecon.tag": "更多创作方式 · 视频重建",
-    "videoRecon.title": "有一段视频？<br>也能重建成空间。",
-    "videoRecon.desc": "除了单张照片，也可以用环绕拍摄的视频重建物品或场景。固定源帧规划、COLMAP 相机配准和 Brush 训练，让连续画面汇成静态 3D 模型。",
+    "videoRecon.tag": "视频 3DGS 重建",
+    "videoRecon.title": "从视频重建<br>可漫游 3D 场景",
+    "videoRecon.desc": "用环绕拍摄的视频重建物品或场景。固定源帧规划、COLMAP 相机配准和 Brush 训练，让连续画面汇成有细节、有层次的静态 3D 模型。",
     "videoRecon.point1.title": "细节优先的质量档",
     "videoRecon.point1.desc": "高质量保留 1920 长边；极致档在 12 GB 预算下保留 3840 长边。",
     "videoRecon.point2.title": "每一步，都看得见",
@@ -181,13 +181,9 @@ const i18n = {
     "install.copy.error": "无法自动复制，请选择上方命令手动复制。",
     "install.tip": "完整便携包面向 NVIDIA GPU。视频路线当前验证平台为 Windows + RTX 5070 Ti Laptop；请先按安装指南检查设备与依赖。",
     "lang.aria": "Switch to English",
-    "hero.capabilities": "核心体验",
-    "hero.single": "单图重建",
-    "hero.local": "本地创作",
-    "hero.devices": "多端探索",
     "singlePhoto.tag": "单张照片 · 空间重建",
     "singlePhoto.title": "熟悉的照片，<br>值得换个角度看。",
-    "singlePhoto.desc": "不必重新拍摄一圈，也不必收集多张照片。一张已有的照片，经过 Apple SHARP 推理，就能成为可交互的 3D 空间照片。移动视角，看见画面中的远近与层次，让记录过的瞬间多一种打开方式。",
+    "singlePhoto.desc": "将已有的一张照片，通过 Apple SHARP 转换为可交互的 3D 空间照片。移动视角，看见画面中的远近与层次，让记录过的风景、物品与瞬间多一种打开方式。",
     "singlePhoto.cta": "从你的第一张照片开始",
     "singlePhoto.window": "空间照片 · 视角探索",
     "singlePhoto.alt": "移动观察视角，探索单图生成场景中的空间层次",
@@ -195,8 +191,8 @@ const i18n = {
     "singlePhoto.point1.desc": "风景、物品、生活片段，从本地文件或相册选一张照片即可生成。",
     "singlePhoto.point2.title": "从观看，到探索",
     "singlePhoto.point2.desc": "拖动、缩放或键盘移动视角；手机也能通过触摸与体感观察。",
-    "singlePhoto.point3.title": "记忆留在自己手中",
-    "singlePhoto.point3.desc": "本地推理与存储，局域网多端浏览，也能导出独立作品分享。",
+    "singlePhoto.point3.title": "从相册，直接生成",
+    "singlePhoto.point3.desc": "电脑与 NAS 中的照片可直接加入生成队列，支持批量处理与原片回看。",
   },
 
   en: {
@@ -205,28 +201,28 @@ const i18n = {
     "meta.description": "Sharp GUI turns photos and videos into local 3D Gaussian models. Edit, organize, export animations and share standalone HTML scenes in your browser.",
 
     // === Navbar ===
-    "nav.create": "Spatial photos",
+    "nav.create": "Create",
     "nav.features": "Features",
     "nav.showcase": "Showcase",
     "nav.architecture": "Architecture",
     "nav.install": "Install",
 
     // === Hero Section ===
-    "hero.badge": "✨ One photo. A new sense of space.",
-    "hero.title": "One photo.<br>A fresh perspective.",
-    "hero.subtitle": "Turn a photo you already have into an interactive 3D space. Revisit the places, objects and moments you captured from new angles. Generate locally and explore in your browser.",
+    "hero.badge": "✨ Self-Hosted 3D Spatial Gallery",
+    "hero.title": "Your Spatial Memories<br>At Your Fingertips",
+    "hero.subtitle": "Break device barriers. Deploy once, access everywhere. Generate and explore stunning 3D scenes right in your browser—no cloud upload needed.",
     "hero.cta.start": "Get Started",
     "hero.cta.github": "Star on GitHub",
 
     // === Workflow Section ===
     "workflow.title": "Simple Workflow",
-    "workflow.subtitle": "One photo. Three steps into space.",
-    "workflow.step1.title": "Choose a photo",
-    "workflow.step1.desc": "Drop a photo you already have, or choose one from a local or NAS album.",
-    "workflow.step2.title": "Generate locally",
-    "workflow.step2.desc": "Apple SHARP infers a 3D scene from a single image. Queue several photos at once.",
-    "workflow.step3.title": "Explore a new perspective",
-    "workflow.step3.desc": "Move through the scene in your browser, then edit, export an animation or share.",
+    "workflow.subtitle": "From photos or video to a 3D space to explore",
+    "workflow.step1.title": "Bring your media",
+    "workflow.step1.desc": "Drop photos or a video, start from a local album, or import an existing model.",
+    "workflow.step2.title": "Reconstruct locally",
+    "workflow.step2.desc": "Apple SHARP for a single photo. COLMAP + Brush for video.",
+    "workflow.step3.title": "Explore and create",
+    "workflow.step3.desc": "Explore in your browser, edit the model, export an animation or share the scene.",
 
     // === Photo Gallery Section ===
     "photoGallery.tag": "Media & model library",
@@ -238,9 +234,9 @@ const i18n = {
     "photoGallery.point4": "One model library",
 
     // === Video Reconstruction Section ===
-    "videoRecon.tag": "More ways to create · Video",
-    "videoRecon.title": "Have a video?<br>Build a scene from it, too.",
-    "videoRecon.desc": "Alongside single photos, use a video captured around an object or scene. Planned source frames, COLMAP camera registration and Brush training bring those views together in a static 3D model.",
+    "videoRecon.tag": "Video 3DGS reconstruction",
+    "videoRecon.title": "Video to 3D,<br>ready to explore.",
+    "videoRecon.desc": "Reconstruct an object or scene from a video captured around it. Planned source frames, COLMAP camera registration and Brush training bring those views together in a detailed, static 3D model.",
     "videoRecon.point1.title": "Quality that keeps the detail",
     "videoRecon.point1.desc": "High quality keeps a 1920 px long edge; Ultra keeps 3840 px with a 12 GB budget.",
     "videoRecon.point2.title": "See every stage",
@@ -373,13 +369,9 @@ const i18n = {
     "install.copy.error": "Could not copy automatically. Select and copy the commands above.",
     "install.tip": "Portable packages target NVIDIA GPUs. Video is validated on Windows + RTX 5070 Ti Laptop. Check device and dependency requirements in the guide.",
     "lang.aria": "切换为中文",
-    "hero.capabilities": "Core experience",
-    "hero.single": "Single-photo 3D",
-    "hero.local": "Local creation",
-    "hero.devices": "Explore across devices",
     "singlePhoto.tag": "Single-photo reconstruction",
     "singlePhoto.title": "A familiar photo.<br>A different point of view.",
-    "singlePhoto.desc": "No new capture session or collection of views needed. Apple SHARP turns one existing photo into an interactive 3D spatial photo. Move your viewpoint to explore depth and rediscover a moment you have already captured.",
+    "singlePhoto.desc": "Turn one existing photo into an interactive 3D spatial photo with Apple SHARP. Move your viewpoint to explore depth and rediscover the places, objects and moments you have captured.",
     "singlePhoto.cta": "Start with your first photo",
     "singlePhoto.window": "Spatial photo · Explore the view",
     "singlePhoto.alt": "Exploring depth by moving the viewpoint through a scene generated from a single photo",
@@ -387,8 +379,8 @@ const i18n = {
     "singlePhoto.point1.desc": "A place, an object, a moment. Choose a photo from your files or albums to begin.",
     "singlePhoto.point2.title": "From viewing to exploring",
     "singlePhoto.point2.desc": "Drag, zoom or move with the keyboard. On mobile, explore with touch and gyroscope controls.",
-    "singlePhoto.point3.title": "Keep your memories close",
-    "singlePhoto.point3.desc": "Generate and store locally, view across your LAN or export a standalone scene to share.",
+    "singlePhoto.point3.title": "Create straight from an album",
+    "singlePhoto.point3.desc": "Queue photos from your local or NAS albums, process them in batches and revisit their source images.",
   },
 };
 
