@@ -32,9 +32,9 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 [功能特性](#-功能特性) •
 [界面预览](#-界面预览) •
 [快速开始](#-快速开始) •
-[使用指南](#-使用指南) •
+[3D 控制](#3d-交互控制) •
 [局域网门禁](#-局域网门禁与隐私边界) •
-[技术架构](#%EF%B8%8F-技术架构)
+[文档导航](#-文档导航)
 
 </div>
 
@@ -47,73 +47,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 ## 📑 目录
 
-<table align="center">
-<tr>
-<td width="190" align="center" valign="top">
-
-### 🚀
-
-**开始上手**
-
-<sub>几分钟跑起来</sub>
-
-<br>
-
-[近期重点更新](#-近期重点更新)<br>
-[快速开始](#-快速开始)<br>
-[使用指南](#-使用指南)<br>
-[版本与更新](#版本与更新)
-
-</td>
-<td width="190" align="center" valign="top">
-
-### ✨
-
-**功能与设计**
-
-<sub>看看它能做什么</sub>
-
-<br>
-
-[功能特性](#-功能特性)<br>
-[界面预览](#-界面预览)
-
-</td>
-<td width="190" align="center" valign="top">
-
-### ⚙️
-
-**配置与安全**
-
-<sub>自定义与隐私边界</sub>
-
-<br>
-
-[配置选项](#%EF%B8%8F-配置选项)<br>
-[视频重建配置](#视频重建配置)<br>
-[局域网门禁](#-局域网门禁与隐私边界)
-
-</td>
-<td width="190" align="center" valign="top">
-
-### 🛠️
-
-**开发与社区**
-
-<sub>动手改造、参与贡献</sub>
-
-<br>
-
-[技术架构](#%EF%B8%8F-技术架构)<br>
-[开发者指南](#%EF%B8%8F-开发者指南)<br>
-[版本历史](#-版本历史)<br>
-[参与贡献](#-参与贡献) · [致谢](#-致谢)
-
-</td>
-</tr>
-</table>
-
-<div align="center"><sub>📄 <a href="#-许可证">许可证</a> &nbsp;·&nbsp; ⚠️ <a href="#disclaimer">免责声明</a></sub></div>
+[近期重点更新](#-近期重点更新) · [功能特性](#-功能特性) · [界面预览](#-界面预览) · [快速开始](#-快速开始) · [3D 控制](#3d-交互控制) · [文档导航](#-文档导航)
 
 ---
 
@@ -178,29 +112,9 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | **🔐 安全与隐私**   | 数据完全本地化、自签名 SSL 一键生成、可选局域网门禁（HttpOnly Cookie + 访问码 + 抗暴力猜测）                                                      |
 | **🚀 一键部署运行** | 自动配置 Python/Git 环境、下载依赖、预下载模型、生成 HTTPS 证书、骨架屏加载进度，开箱即用                                                        |
 
-### 🎨 Apple 风格界面设计
+### 🎨 Apple 风格界面
 
-采用 Apple Human Interface Guidelines 设计理念：
-
-| 设计元素             | 描述                                                                                            |
-| -------------------- | ----------------------------------------------------------------------------------------------- |
-| **🪟 Glass Morphism** | 全局 `backdrop-filter: blur(30px)` + 半透明面板，控制栏、Toolbar、Modal 统一玻璃质感           |
-| **🔤 SF Pro 字体**    | 苹果系统字体栈，原生级渲染体验                                                                  |
-| **✨ 动态粒子背景**   | Canvas 浮动粒子，默认渐显避免首屏闪现                                                           |
-| **🎬 流畅过渡动画**   | `cubic-bezier` 调校的交互缓动，遵循 `prefers-reduced-motion`                                    |
-| **🌗 深色模式**       | 自适应系统深色偏好                                                                              |
-| **🎯 沉浸细节**       | 折叠式底部控制栏、模型加载进度条只前进、骨架屏渐变加载、删除滑出，多选浮动操作条                |
-
-### 🔧 高级特性
-
-- **🔒 HTTPS 支持** - 自动生成自签名证书，保障局域网传输安全（陀螺仪等传感器 API 需要安全上下文）
-- **📦 文件优化** - 自动生成 SPZ 紧凑模型，通常比 PLY 小 **5-10 倍**，仍可保留 PLY 原始文件
-- **🧹 自动清理** - 已完成任务 1 小时后自动从内存移除，防止内存泄漏
-- **⚙️ 可配置路径** - 自定义工作区文件夹，支持 Windows / Linux / macOS
-- **🖥️ 全屏模式** - 沉浸式 3D 预览
-- **🥽 WebXR** - VR 预览 + AR 透视，Quest 3/Pro 等头显原生支持
-- **🎯 点击聚焦** - WASM 加速射线检测 + GPU 聚焦光环动画
-- **🌐 国际化** - 中英双语界面，自动检测浏览器语言，支持手动切换
+通透玻璃面板、系统字体、深浅主题、自然过渡与响应式控件，在电脑和移动设备上保持一致的操作体验。
 
 ---
 
@@ -302,244 +216,55 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 ## 🚀 快速开始
 
-### 系统要求
+单图重建支持 Windows、macOS 和 Linux 安装，可使用 NVIDIA CUDA、Apple Silicon MPS 或 CPU；各平台验证状态见[完整安装指南](docs/deployment.md#系统要求)。视频重建当前完成端到端验证的平台为 **Windows + RTX 5070 Ti Laptop（12 GB）**。
 
-| 平台                        | 推理后端  | 状态      |
-| --------------------------- | --------- | --------- |
-| **macOS Apple Silicon**     | ✅ MPS    | ✅ 已验证 |
-| **Windows x86_64**          | ✅ CPU    | ✅ 已验证 |
-| **Windows x86_64 + NVIDIA** | ✅ CUDA   | ✅ 已验证 |
-| **Linux x86_64**            | ✅ CPU    | ✅ 已验证 |
-| **Linux x86_64 + NVIDIA**   | ✅ CUDA   | ❓ 未验证 |
-| **macOS Intel**             | ✅ CPU    | ❓ 未验证 |
+### Windows 完整便携包
 
-> 🎥 **视频推理当前验证平台**：视频 3DGS 重建目前仅在 **Windows + NVIDIA RTX 5070 Ti Laptop GPU（12GB 显存）** 上完成端到端验证。其他 Windows NVIDIA 显卡可作为兼容方向尝试，但 Linux、macOS、CPU/MPS 视频重建暂未验证。
->
-> 🚀 **推荐使用 NVIDIA GPU**：3D 高斯溅射推理是计算密集型任务，CUDA 加速通常比纯 CPU 快 **数倍到十数倍**，体验差距明显。
->
-> 💡 **没有 GPU 也能跑**：纯 CPU 环境下推理也能完成，只是单张图片生成耗时更长；Apple Silicon 用户可享受 MPS 后端的近 GPU 体验。
->
-> 🛠️ **零手动配置**：有 NVIDIA GPU 时，安装脚本会自动检测驱动并匹配对应的 PyTorch CUDA 版本（cu118 / cu126 / cu128）。
->
-> 🎥 **视频重建环境需单独确认**：常规安装和核心便携包会先保证主程序和图片 3D 推理可用；如果要从视频生成 3D 模型，请下载 `cu128-rtx50-video-recon` 包，或按 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南) 安装固定版本 Brush CLI、COLMAP 和 `ffmpeg/ffprobe`。
->
-> 👉 未验证平台理论上可正常工作，如遇问题欢迎在 [Issues](https://github.com/lueluelue12138/sharp-gui/issues) 反馈。
+在 [GitHub Releases](https://github.com/lueluelue12138/sharp-gui/releases) 查看版本、网盘入口和 SHA256，也可直接打开[便携包网盘](https://pan.quark.cn/s/94f4acaada40)。按显卡和用途选择：
 
-### 方式一：Windows 完整便携包 (推荐 NVIDIA 用户)
+| 用途 | 包名 |
+| --- | --- |
+| RTX 50 系列，单图与核心功能 | `cu128-rtx50` |
+| RTX 50 系列，包含视频重建环境 | `cu128-rtx50-video-recon` |
+| RTX 50 以下主流 NVIDIA，单图与核心功能 | `cu126-mainstream` |
 
-Windows RTX 50 / 主流 NVIDIA 用户可直接下载完整便携包，无需手动配置 Python、PyTorch 或模型缓存。需要视频重建时，请选择专门的视频重建完整包。
+下载 ZIP 和同名 `.sha256.txt`，核对校验值后解压，双击 `portable-run.bat`。完整便携包面向 NVIDIA GPU；无 NVIDIA 的设备可从源码安装。
 
-固定网盘入口：[点击打开网盘文件夹](https://pan.quark.cn/s/94f4acaada40)
+### 从源码安装
 
-网盘文件夹会持续更新到最新版本，请按显卡和用途选择：
-
-- **RTX 50 系列（核心功能）**：下载 `cu128-rtx50` 包
-- **RTX 50 系列（视频 3DGS 重建）**：下载 `cu128-rtx50-video-recon` 包
-- **RTX 50 以下主流 NVIDIA（核心功能）**：下载 `cu126-mainstream` 包
-
-下载 ZIP 和同名 `.sha256.txt` 后先校验 SHA256，解压后双击 `portable-run.bat` 启动。
-
-> 💡 完整便携包目前面向 NVIDIA GPU，不提供纯 CPU 包；视频重建完整包当前只按 RTX 50 / CUDA 12.8 路线发布，不代表所有 NVIDIA GPU 都已完成验证。
->
-> 🔄 **自更新 bootstrap 边界**：包含新更新系统的下一版完整便携包是首个 bootstrap 包。`v1.3.0` 及更早便携包没有受管 Git 工作树和内置 MinGit，必须最后下载一次新的完整包；从 bootstrap 包开始，兼容的代码 hotfix 才能直接增量更新。
-
-### 方式二：从源码安装 (推荐 macOS / Linux / 开发者)
-
-源码仓库已包含最新前端构建产物，普通使用不需要安装 Node.js 或手动构建前端；运行安装脚本配置 Python 环境后即可启动。
+仓库已包含前端构建产物，普通使用无需安装 Node.js。
 
 ```bash
-# 1. 克隆项目
 git clone https://github.com/lueluelue12138/sharp-gui.git
 cd sharp-gui
-
-# 2. 运行安装脚本 (自动拉取 ml-sharp 并配置环境)
-./install.sh      # Linux/macOS
-# 或
-install.bat       # Windows
-
-# 3. 启动服务
-./run.sh          # Linux/macOS
-# 或
-run.bat           # Windows
 ```
 
-> 💡 只有需要修改前端源码时，才需要安装 Node.js 并运行 `./build.sh` / `build.bat` 重新生成 `frontend/dist/`。
->
-> 💡 安装脚本会自动生成 HTTPS 证书，建议使用 HTTPS 模式以获得完整功能。
->
-> 🎥 需要视频重建功能时，先完成常规安装，再参考 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南) 准备独立依赖。
+| 平台 | 安装 | 启动 |
+| --- | --- | --- |
+| Windows | `install.bat` | `run.bat` |
+| Linux / macOS | `./install.sh` | `./run.sh` |
 
-### 方式三：通用 Release 包 (免 git clone)
+通用 Release ZIP 也需要运行安装脚本，它与完整便携包不同。首次安装会下载依赖及约 2.62 GiB 的单图推理模型。完整步骤见[安装、配置与局域网访问](docs/deployment.md)。
 
-GitHub Release ZIP 是源码仓库的发布快照，也包含已构建好的前端。它适合不想使用 `git clone` 的用户；功能和源码安装方式基本一致，仍需要运行安装脚本配置 Python 环境、下载依赖和模型。
+<a id="视频重建环境手动搭建指南"></a>
 
-从 [Releases](https://github.com/lueluelue12138/sharp-gui/releases) 页面下载最新版本：
+视频重建另需 COLMAP、Brush 和 FFmpeg；请选视频完整包，或阅读[视频环境搭建指南](docs/deployment.md#视频重建环境手动搭建指南)。
 
-```bash
-# 1. 下载并解压
-unzip sharp-gui-vX.Y.Z.zip
-cd sharp-gui
+### 打开与更新
 
-# 2. 运行安装脚本
-./install.sh      # Linux/macOS
-# 或
-install.bat       # Windows
+启动后访问 **https://127.0.0.1:5050**，同一局域网的其它设备使用部署电脑的 IP。HTTPS / 陀螺仪准备见[访问说明](docs/deployment.md#启用-https-推荐)。
 
-# 3. 启动服务
-./run.sh          # Linux/macOS
-# 或
-run.bat           # Windows
-```
+<a id="版本与更新"></a>
 
-> 💡 想尝鲜最新功能？可下载 [Pre-release](https://github.com/lueluelue12138/sharp-gui/releases) 版本（标记为 `Pre-release` 的版本）。
->
-> 🎥 Release ZIP 的常规安装同样先覆盖主程序环境；视频重建依赖请参考 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南) 单独确认。
-
-### 安装脚本做了什么？
-
-安装脚本会自动完成以下步骤，无需手动配置：
-
-- 🐍 **检测/安装 Python** - 自动查找兼容版本 (3.10~3.13)，缺失时自动安装 (Windows)
-- 📦 **检测/安装 Git** - 缺失时自动安装 (Windows)
-- 🎮 **检测 NVIDIA GPU** - 有 GPU 时自动安装匹配驱动的 CUDA 版 PyTorch（cu118 / cu126 / cu128）
-- 🧩 **安装依赖** - 创建虚拟环境，安装 ml-sharp 核心和 GUI 依赖
-- 🎥 **视频重建环境需单独准备** - Brush CLI、COLMAP 和 `ffmpeg/ffprobe` 不作为常规安装的必需项；需要视频重建时请参考 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南)
-- 📥 **预下载模型** - 安装阶段即下载约 2.62 GiB 的推理模型，避免首次运行等待
-- 🔐 **生成 HTTPS 证书** - 自动生成自签名证书，支持局域网安全访问
-
-### 启动服务
-
-```bash
-./run.sh          # Linux/macOS (React 版本)
-./run.sh --legacy # 使用原始单文件版本
-# 或
-run.bat           # Windows
-```
-
-访问 **https://127.0.0.1:5050 (推荐)** 或 **http://127.0.0.1:5050** 即可使用 🎉
-
-> 🩺 反馈问题时可使用 verbose 模式：`./run_verbose.sh` / `run_verbose.bat`，会同步记录运行环境、命令路径、PATH 与完整异常栈到 `sharp-gui-verbose.log`。
-
-### 版本与更新
-
-在 **Settings** 底部打开“应用更新”，即可查看当前版本、选择通道、检查并安装更新。更新时应用会自动重启；如果新版本验证失败，会自动恢复上一版本。
-
-- **Stable（推荐）**：仓库中版本号最高的正式 `vX.Y.Z` 标签。
-- **Latest**：`main` 分支的最新提交，可更早获得 hotfix，但测试程度低于 Stable。
-
-便携包会使用包内 Python 和 Git；干净且位于 `main` 的源码安装也可使用。代码更新会保留 workspace、模型、配置和 Python/CUDA 等大型运行环境；如目标版本需要更换运行环境，应用会提示下载新的完整便携包。`v1.3.0` 及更早便携包需要先升级到包含新更新系统的完整包。
-
-不熟悉命令行时直接使用 Settings 即可；脚本提供等价操作：
-
-```bash
-# Linux / macOS
-./update.sh --channel stable --check
-./update.sh --channel stable
-```
-
-```bat
-:: Windows
-update.bat --channel stable --check
-update.bat --channel stable
-```
-
-将 `stable` 换成 `latest` 即可检查或安装 Latest。开发分支或存在本地代码修改时，请继续使用正常 Git 工作流。
-
-开发与维护细节见中文文档：[自更新系统开发规范](.agents/rules/self-update.md)。
-
-### 卸载
-
-主程序依赖安装在项目内的 `venv/` 虚拟环境中；如果启用了视频重建，原生工具位于 `.sharp-gui-tools/`。它们都不会影响系统环境，卸载只需删除项目文件夹：
-
-```bash
-# 删除项目 (包含 venv、.sharp-gui-tools、ml-sharp、模型等)
-rm -rf sharp-gui/
-
-# (可选) 清理模型缓存
-# Windows: del %USERPROFILE%\.cache\torch\hub\checkpoints\sharp_*.pt
-# macOS/Linux: rm ~/.cache/torch/hub/checkpoints/sharp_*.pt
-```
+在 **设置 → 更新中心** 检查更新：**Stable** 使用正式版，**Latest** 使用较新的主分支代码、测试程度较低。支持的源码安装和受管便携包可直接安装兼容更新；旧便携包需先换新版完整包。工作区、模型和配置保留，运行环境变更可能要求下载新完整包。详见[更新与命令行方式](docs/deployment.md#版本与更新)。
 
 ---
 
-## 📖 使用指南
+<a id="3d-交互控制"></a>
 
-[单图生成](#生成-3d-模型) · [视频重建](#从视频生成-3d-模型) · [编辑模型](#编辑模型) · [导出动画](#导出动画) · [媒体相册](#浏览本地媒体相册)
+## 🎮 3D 交互控制
 
-### 生成 3D 模型
-
-1. **上传图片** - 点击「生成 / 导入模型」按钮或直接拖拽图片到侧边栏
-2. **等待处理** - 观察队列区域的任务阶段（若安装阶段未完成下载，首次推理会下载约 2.62 GiB 的模型）
-3. **预览模型** - 点击图库中的项目即可查看 3D 效果
-
-### 管理模型资产库
-
-1. **浏览资产** - 生成结果和导入模型会统一进入模型资产库；主区域按游标滚动增量加载，不再使用分页器或每页数量选择。
-2. **打开与详情** - 点击模型卡片空白区域直接打开预览；桌面端 hover 后的详情按钮打开右侧详情面板，移动端点击卡片打开详情卡片。
-3. **导入模型** - 可通过「导入模型」选择或拖入 `.ply/.spz/.splat/.rad`；拖入单个模型会优先临时预览，拖入多个模型会批量导入资产库。
-4. **格式偏好** - Settings 中的「默认模型格式」会影响近期模型、资产库打开和下载时优先使用 SPZ 或 PLY；目标格式不存在时自动回退到资产可用文件。
-5. **详情元数据** - 文件名、格式、来源、时间和大小来自索引与文件系统；PLY/SPLAT 可解析部分点数或属性，SPZ/RAD 的包围盒、坐标系、LoD 等高级信息只有在源文件或 sidecar 元数据提供时才会显示，否则保持未知，避免伪造计算结果。
-6. **查看源媒体** - 详情面板顶部缩略图可打开关联的原图或视频；没有源媒体时只作为模型封面展示。
-
-### 编辑模型
-
-1. **进入编辑器** - 使用资产库卡片 / 详情中的「编辑模型」，或打开模型后从底部工具栏进入。
-2. **选择与清理** - 用矩形、球形或盒形选区选中高斯点，再「删除选中」或「仅保留选中」；数值与选区边界均可拖动，支持精调和撤销 / 重做。
-3. **校准坐标** -「设置原点」只移动待保存的零点；「旋转」绕它调平模型。保存时将校准写入模型文件，可单独设置初始观察视角。
-4. **保存结果** - 默认「保存为新模型」，也可从保存按钮旁的菜单选择「覆盖原模型」。保存后列表自动更新，保留原图 / 原视频关联。
-
-编辑仅对本机用户开放，支持标准高斯 PLY、支持版本的 SPZ 和 SPLAT。RAD、普通点云及带额外相机元素的 ml-sharp 原始 PLY 当前不可编辑，对应入口会禁用或隐藏。删除以整颗高斯为单位。详见[模型编辑说明与限制](docs/model-editor.md)。
-
-### 导出动画
-
-1. **打开入口** - 打开模型，在底部工具栏点击「导出动画」。
-2. **记录镜头** - 调整观察角度、位置和缩放后点击「记录当前镜头」；至少记录两个镜头，设置各段过渡时间。列表可替换、排序和删除镜头。
-3. **预览运镜** - 选择连续平滑、标准缓入缓出、正弦、柔和停靠或匀速曲线；播放或拖动时间轴。切到「轨迹总览」可独立观察编号关键帧、运动路线和拍摄视锥，切回「镜头预览」继续记录。
-4. **导出视频** - 选择横屏 / 竖屏、1080p / 4K 和 24 / 30 / 60 fps，点击「导出视频」，完成后下载无音轨 WebM 或 MP4。轨迹辅助物不会进入成片。
-
-导出需要浏览器支持 WebCodecs，并使用 HTTPS 或本机地址；编码能力以当前设备检测为准。刷新或切换模型前可用「保存镜头」下载 JSON，之后「载入镜头」继续制作。详见[动画导出说明、曲线选择与边界](docs/camera-animation.md)。
-
-### 浏览本地媒体相册
-
-1. **切换到图库** - 在侧栏的「模型 / 图库」入口切换到本地媒体图库
-2. **添加目录** - 本机访问时添加 Windows / Linux / macOS 路径，每个目录会作为一个相册
-3. **浏览媒体** - 照片使用缓存缩略图，点击加载原图；视频可直接预览、拖动进度、全屏和下载
-4. **上传到相册** - 在当前相册中选择或拖拽照片上传，完成后自动刷新
-5. **转换为 3D** - 照片可在卡片、预览层中单张转换，也可多选后一批加入任务队列
-6. **打开已有模型** - 蓝色「3D」标识表示已有模型，预览中的「查看 3D」可打开结果；同一原片有多个模型时可选择版本、设定默认结果或再次生成。
-7. **汇总原片** - 固定「模型原片」相册汇总已生成模型对应的图片 / 视频，同一来源只显示一次，编辑副本与多次重建归入同组。原相册路径不可用时保留相册并提示，已有模型仍可查看。详见[图库与模型联动](docs/model-source-gallery.md)。
-
-### 从视频生成 3D 模型
-
-开始前在 Settings > 视频重建中检查依赖。使用 **Brush** 训练，相机由 COLMAP 自动对齐。安装方式见 [视频重建环境手动搭建指南](#视频重建环境手动搭建指南)。
-
-1. **选择视频** - 在本地媒体图库选择一个视频，或把单个视频拖入模型视图 / 模型列表 /「生成新模型」入口。
-2. **选择质量** - Brush 提供快速预览、高质量、极致和自定义；自定义填写帧数、迭代、真实长边像素上限及匹配方式。
-3. **等待重建** - 抽帧后估计相机位姿；至少 8 张注册帧且配准率达到 50% 才进入训练。低配准率会尝试一次补密或扩大匹配范围，仍不足时提示重新拍摄或拆段。Brush 训练前联合去畸变图片与相机内参，并统一相机和稀疏点的上方向。
-4. **查看结果** - 模型进入图库，可查看源视频、下载 PLY/SPZ。新增 SPZ 保留高阶球谐颜色；历史 SH0 文件无法恢复这些数据，需要从原 PLY 重新转换。
-
-Brush 档位：
-
-| 档位 | 迭代 | 图像长边上限 |
-| --- | ---: | --- |
-| 快速预览 | 8,000 | 1600 像素 |
-| 高质量 | 15,000 | 1920 像素 |
-| 极致 | 30,000 | 根据显存预算调整 |
-| 自定义 | 1,000–80,000 | 640–3840 像素 |
-
-快速预览、高质量、极致分别按约 6 / 8 / 12 帧每秒规划初次清单，相机配准长边分别为 1200 / 1600 / 3200 像素，特征预算为 4096 / 8192 / 16384。对应 OOOSplat 的快速、均衡、最高档；高质量保留 1920 训练长边，极致在 12 GB 预算下保留 3840 长边。补密候选池分别为约 9 / 12 / 15 帧每秒，保留初次清单；缺少源帧总数时回退按时间采样。[画质复核记录](docs/video-reconstruction-quality.md)说明了同一视频的对照结果与验证范围。
-
-- **长视频**：可从自定义 600 帧 / 15k / 1920 像素 / sequential 开始；更高帧数增加配准和训练成本。Exhaustive 两两匹配最多允许 450 帧。
-- **模式**：自动和环境保留完整模型，不自动删点。物品模式才执行主体裁剪，可能删除周边几何；暂不提供自动前景遮罩。
-- **显存预算**：按实际显卡容量选择；本机目标为 RTX 5070 Ti Laptop 12GB，不应设置成 16GB。
-- **排查问题**：精简重建报告保存在模型 sidecar；开启保留中间文件可检查抽帧、位姿和训练文件。物品裁剪的原始 PLY 在保留的任务目录中可用于对照。
-- **初始取景**：新 Brush 模型保存注册相机的取景位置，打开时直接面向主体，避免远处高斯点把包围盒中心拉偏。
-- **验证范围**：已通过合成流程测试和本机非敏感视频的完整重建、PLY 渲染与 SPZ 查看器验证。画质仍需结合素材对照；更多迭代无法补足缺失视角，耗时取决于素材、相机配准和场景规模。
-- **当前范围**：一次处理一个视频并生成静态 3DGS；多图联合重建尚未接入。
-
-### 3D 交互控制
-
-#### 基础操作
+### 基础操作
 
 | 操作     | 桌面端       | 移动端   |
 | -------- | ------------ | -------- |
@@ -549,7 +274,7 @@ Brush 档位：
 | 精细缩放 | Shift + 滚轮 | -        |
 | 锁定焦点 | 点击模型     | 点击模型 |
 
-#### 相机移动
+### 相机移动
 
 | 控制方式         | 功能描述                             |
 | ---------------- | ------------------------------------ |
@@ -558,7 +283,7 @@ Brush 档位：
 | **Alt + WASD**   | 精细移动模式                         |
 | **虚拟摇杆**     | 移动端触摸平移（点击 Move 按钮开启） |
 
-#### 特殊模式
+### 特殊模式
 
 | 模式     | 操作                   | 说明                                                |
 | -------- | ---------------------- | --------------------------------------------------- |
@@ -572,311 +297,33 @@ Brush 档位：
 | AR 透视  | 点击「AR」按钮         | 进入 AR 模式，现实世界叠加 3D 模型                  |
 | 重置视角 | 按下「R」键            | 快捷键重置相机到初始位置                            |
 
-### 导出分享
-
-在生成模型的查看器中点击 **分享**，或在模型资产库详情中点击 **导出**，生成独立的 HTML 文件：
-
-- 📦 包含完整的 3D 查看器（Three.js + Spark 2.0）
-- 🌐 无需服务器，可在支持 WebGL2 的浏览器离线打开
-- 📉 默认嵌入 SPZ 紧凑模型；需要兼容旧流程时仍可导出 PLY/Splat 路径
-- 🎥 同步模型方向和保存视角，支持全模型取景、自动环绕、背景切换、全屏与移动控制
-- 🔒 包含免责声明，说明内容责任归属
-
-独立 HTML 分享当前面向生成模型，直接导入或临时打开的资产暂不支持。HTML 内含模型数据，发出后无法通过原项目撤回。功能范围和离线使用说明见[独立分享指南](docs/standalone-sharing.md)。
-
----
-
-## ⚙️ 配置选项
-
-### 换包保留配置
-
-配置默认保存在系统用户目录：Windows 为 `%LOCALAPPDATA%\SharpGUI\config.json`，macOS 为 `~/Library/Application Support/SharpGUI/config.json`，Linux 为 `${XDG_CONFIG_HOME:-~/.config}/sharp-gui/config.json`。同一用户运行另一套新版完整包时会自动读取它，继续使用原工作区、模型及相册。
-
-首次运行会导入**当前安装目录**的旧 `config.json`；如果直接在全新目录换包、旧配置尚未登记，请在「设置 → 配置存储 → 从旧版本恢复配置」选择旧包文件夹。确认前备份当前配置，恢复后自动重启。**模型仍在原工作区，不能因换包而删除旧数据目录。** `SHARP_CONFIG_FILE` 可指定完全独立的配置，`SHARP_CONFIG_HOME` 可指定全局配置目录。详见[全局配置与恢复说明](docs/global-configuration.md)。
-
-### 自定义工作目录
-
-可通过界面设置或编辑当前活动的 `config.json`（实际位置见「配置存储」，手动编辑前关闭服务）:
-
-```json
-{
-  "workspace_folder": "/path/to/workspace",
-  "photo_gallery_roots_by_workspace": {
-    "/path/to/workspace": [
-      {
-        "id": "my-album",
-        "name": "Photos",
-        "path": "/path/to/photos",
-        "recursive": true,
-        "enabled": true
-      }
-    ]
-  }
-}
-```
-
-系统会自动在工作目录下创建：
-
-- `inputs/` - 上传图片；`inputs/.thumbnails/` 保存历史/模型缩略图缓存
-- `outputs/` - 生成模型和 sidecar 元数据（`.ply` / `.spz` / `.meta.json`）
-- `model-assets/` - 模型资产受控文件区：`imports/` 保存导入模型，`thumbnails/` 保存封面缓存
-- `.model-asset-library/` - 模型资产索引与用户编辑信息（`index.json`）
-- `.photo-gallery-cache/` - 本地媒体图库缓存：`catalog.json`、`albums/`、`thumbnails/`、`video-posters/` 和临时打包 ZIP
-- `.video-reconstruction/` - 视频重建运行时数据：`jobs/` 和 `uploads/`
-
-这些工作区运行时目录属于用户数据，默认已在 `.gitignore` 中排除，不应提交到仓库。切换 Settings 中的工作目录并自动重启后，`inputs/`、`outputs/`、`model-assets/`、`.model-asset-library/`、`.photo-gallery-cache/` 和 `.video-reconstruction/` 都会切到新工作目录；切回旧工作目录即可找回对应的模型资产、近期模型索引、相册缓存和任务相关状态。
-
-全局配置不随 workspace 切换。项目根目录下的旧 `config.json` 仅作为首次导入来源；`cert.pem` / `key.pem`、`sharp-gui-verbose.log` 以及 `venv/`、`.sharp-gui-tools/`、`ml-sharp/` 仍是安装级证书、日志或依赖目录；其中敏感文件不会通过 `/files/*` 暴露。
-
-> 💡 相册可通过界面添加，并按工作目录分别记忆：`photo_gallery_roots_by_workspace` 以归一化后的工作目录路径为键，切换工作目录时各自展示对应相册，切回原目录即可恢复。手动编辑时请按部署端系统填写路径。Windows、Linux、macOS 均可使用，局域网设备访问时读取的是服务器所在机器的目录。
->
-> ⚠️ 旧版本使用顶层 `photo_gallery_roots` 数组保存相册，升级后首次启动会自动迁移到当前工作目录对应的分桶，无需手动处理。
-
-### 视频重建配置
-
-Settings 中的「视频重建」区域保存默认质量、实际显存预算和中间文件保留选项。视频统一使用 **Brush + COLMAP + ffmpeg/ffprobe**。旧配置的引擎选择自动迁移为 Brush。
-
-诊断显示 `required`（视频解码）和 `brush`（COLMAP、Brush）两组。后端启动后异步预热诊断，弹窗复用缓存，Settings 中点击刷新可重新检测；缺少 Brush 时不会切换到其它训练路线。
-
-「默认模型格式」控制模型资产库、近期模型、下载与预览的格式优先级：SPZ 适合紧凑传输，PLY 保留原始数据；首选格式缺失时回退至资产可用格式。
-
-### 视频重建环境手动搭建指南
-
-路线为 **ffmpeg/ffprobe → 原生 COLMAP → 官方 Brush CLI v0.3.0**。RTX 50 用户可直接下载 `cu128-rtx50-video-recon` 完整便携包；核心包不包含视频工具。视频工具不需要独立 Python 训练环境或 CUDA Toolkit。
-
-#### 1. 安装视频工具
-
-先完成主程序安装，再在 Windows 项目根目录运行：
-
-```powershell
-.\venv\Scripts\python.exe tools/install_video_reconstruction.py
-```
-
-安装器把原生 COLMAP 放在 `.sharp-gui-tools/colmap/`，把经哈希验证的官方 [Brush v0.3.0](https://github.com/ArthurBrussee/brush/releases/tag/v0.3.0) 放在 `.sharp-gui-tools/brush/v0.3.0/`。旧安装会只迁移已有原生 COLMAP 的程序及 DLL，不复制旧虚拟环境。FFmpeg 与 ffprobe 由 `install.bat` 安装或完整视频包提供。
-
-Linux/macOS 用户通过系统包管理器安装 COLMAP、FFmpeg，再运行 `python tools/install_brush.py`。需要兼容 GPU 驱动；请使用 Brush CLI，而非仅打开 Brush 编辑器。
-
-#### 2. 检查环境
-
-启动后打开 Settings > 视频重建并刷新，或读取：
-
-```powershell
-curl.exe http://127.0.0.1:5050/api/video-reconstructions/status
-```
-
-| 分组 | 作用 |
-| --- | --- |
-| `required` | ffmpeg / ffprobe 视频解码 |
-| `brush` | 原生 COLMAP + 固定版本 Brush CLI |
-
-`summary.brush_available` 为完整路线可运行状态。高质量档保持 1920 长边 / 15,000 次迭代，极致档为 3840 长边 / 30,000 次迭代（12 GB 预算）；输入尺寸较小不会放大。
-
-重建运行文件位于当前 workspace 的 `.video-reconstruction/jobs/`，最终 PLY、SPZ 和报告位于 `outputs/`。关闭保留中间文件后会清理任务目录，模型及报告保留。旧视频虚拟环境不再用于重建，更新仍保护旧安装目录与已有模型。
-
-### 启用 HTTPS (推荐)
-
-启用 HTTPS 后可支持**局域网设备的陀螺仪功能**（浏览器要求安全上下文才能访问传感器 API）。
-
-安装脚本会自动尝试生成证书。如需手动生成：
-
-```bash
-python tools/generate_cert.py
-```
-
-> 💡 **Windows 用户**: 需要先安装 [Git for Windows](https://git-scm.com/download/win) 或 OpenSSL。
-
-生成成功后重启服务，使用 `https://` 访问：
-
-| 模式      | 本机                   | 局域网            | 陀螺仪    |
-| --------- | ---------------------- | ----------------- | --------- |
-| **HTTPS** | https://127.0.0.1:5050 | https://[IP]:5050 | ✅ 可用   |
-| HTTP      | http://127.0.0.1:5050  | http://[IP]:5050  | ❌ 仅本机 |
-
-首次访问 HTTPS 时浏览器会提示证书警告（因为是自签名证书），选择「继续访问」即可。
-
 ---
 
 ## 🔐 局域网门禁与隐私边界
 
-Sharp GUI 提供**可选**的局域网门禁。首次启动或本机尚未完整配置门禁时，会提示 owner 设置访问码；用户也可以稍后设置或选择不再提示。门禁默认关闭，旧 `config.json` 无需迁移。
+- **访问设置**：在设置第二项「访问与安全」中配置局域网访问和访问码。门禁默认关闭，开启后其它设备需先解锁。
+- **管理权限**：删除模型、管理相册和修改设置仅限本机；已解锁远程设备默认只能浏览、下载和分享，远程生成需单独开启。
+- **数据位置**：配置保存在系统用户目录，模型和相册仍使用所选工作区。换包前请保留原数据目录；恢复旧配置见[配置存储与恢复](docs/global-configuration.md)。
+- **分享边界**：独立 HTML 包含模型数据，发送后无法通过原应用收回；不会附带原图、原视频和工作区路径。
 
-### 权限分级一览
-
-下表展示三类访问者在不同操作上的权限边界：
-
-| 操作                                | 公开访问（未解锁远程） | 已解锁远程（输入访问码后） | 本机 Owner（localhost） |
-| ----------------------------------- | :--------------------: | :------------------------: | :---------------------: |
-| 浏览模型 / 照片 / 缩略图            |    ❌（门禁开启时）    |             ✅             |           ✅            |
-| 下载原图 / 模型文件 / 导出 HTML     |    ❌（门禁开启时）    |             ✅             |           ✅            |
-| 提交生成 / 照片转 3D 任务           |           ❌           |  仅在显式开启「远程生成」  |           ✅            |
-| 修改设置 / 删除模型 / 重启服务      |           ❌           |             ❌             |           ✅            |
-| 添加/删除相册目录 / 取消任务        |           ❌           |             ❌             |           ✅            |
-
-### 关键行为
-
-- **门禁开启时**，模型列表、缩略图、原图、照片相册、下载、导出和 `/files/*` 工作区资源都需要远程设备先输入访问码；解锁后浏览器会保存 HttpOnly Cookie 会话。
-- **门禁关闭时**，同一局域网内能访问端口的设备可直接浏览和下载私有内容；删除、设置、重启、目录管理等 owner-only 操作仍仅限 `localhost` / `127.0.0.1`。
-- **远程生成默认关闭**：远程设备即使输入了访问码，也默认只有浏览、预览、下载和导出权限。如需允许已解锁的远程设备提交生成任务，可在 Settings 的"局域网门禁"中开启"远程生成"；关闭门禁会同时收回远程生成权限。
-- **抗暴力猜测**：登录失败按客户端递增延迟，并校验 Host 允许列表与真实连接地址，避免 DNS rebinding 或伪造转发头绕过 owner 判断。
-- **HTTPS 与门禁分工**：HTTPS 负责传输加密和浏览器传感器能力，访问码负责访问资格；在局域网共享端口时建议两者都启用。
-
-### 隐私与部署须知
-
-- **敏感文件不外泄**：`/files/*` 仅服务 `outputs/` 模型、历史缩略图、`model-assets/imports/` 导入模型和 `model-assets/thumbnails/` 封面缓存；`config.json`（含会话密钥与访问码哈希）、`.model-asset-library/index.json`、`cert.pem`/`key.pem`（TLS 证书私钥）、`app.py` 源码等敏感文件**在门禁开启或关闭时都无法**通过该路由下载。
-- **局域网绑定开关真实生效**：Settings 的「局域网门禁」中可切换监听绑定。开启时服务监听 `0.0.0.0`（局域网共享）；关闭后仅监听 `127.0.0.1`（仅本机，其它设备无法连接）。修改后需重启服务生效，可用环境变量 `SHARP_BIND_HOST` 覆盖。
-- **调试模式默认关闭**：服务默认以非调试模式运行，异常不会向客户端返回堆栈，也不暴露交互式调试器。仅本机排障时可设 `SHARP_DEBUG=1` 临时开启，切勿在局域网/公网共享时开启。
-- **反向代理注意**：本服务面向本机直接运行设计，通常不需要反向代理。若确实在本机前置反向代理（nginx / frp 等），所有请求的来源地址会变成 `127.0.0.1`，导致**每个访问者都被判为 owner**。如需在反代后强制访问码，可先设置访问码，再手动将 `config.json` 中的 `access_control.allow_localhost_bypass` 改为 `false`（该项目前没有设置界面开关）。**注意：关闭本机免登录会同时取消本机 owner 身份，导致自更新（检查 / 安装更新）不可用**，届时更新只能通过命令行 `update.bat` / `update.sh` 或安装新的完整包进行。本项目不信任 `X-Forwarded-For` 等可被伪造的转发头。
-- **公网暴露提醒**：本服务面向局域网设计。如需端口转发到公网，请务必先开启门禁、设置强访问码并启用 HTTPS，自行评估风险。
+完整权限矩阵、HTTPS、反向代理及部署注意事项见[局域网访问说明](docs/deployment.md#-局域网门禁与隐私边界)。
 
 ---
 
+<a id="-使用指南"></a>
+<a id="从视频生成-3d-模型"></a>
+<a id="-配置选项"></a>
+<a id="-开发者指南"></a>
 
+## 📚 文档导航
 
-## 🏗️ 技术架构
+| 文档 | 内容 |
+| --- | --- |
+| [使用指南](docs/usage.md) | 单图 / 视频生成、资产库、图库、编辑、动画与分享的详细步骤 |
+| [安装、配置与局域网访问](docs/deployment.md) | 安装方式、更新、工作区、视频工具、HTTPS、权限与部署 |
+| [开发者指南](docs/development.md) | 项目结构、技术栈、前端开发、环境变量与发布 |
 
-### 项目结构
-
-```
-sharp-gui/
-├── 📄 app.py                 # Flask 兼容入口（暴露 app，python app.py 启动）
-├── 📁 backend/               # 模块化 Flask 后端
-│   ├── 📄 app_factory.py     # create_app()：注册 hooks/routes、挂载 TaskManager
-│   ├── 📄 server.py          # 启动服务、HTTPS/LAN bind、重启支持
-│   ├── 📄 runtime.py         # 环境变量、verbose 日志、Sharp 命令/设备解析
-│   ├── 📄 config.py          # config.json 与 access-control normalize
-│   ├── 📄 paths.py           # workspace/inputs/outputs/cache 路径上下文
-│   ├── 📁 security/          # LAN 门禁、权限矩阵、request hooks
-│   ├── 📁 services/          # 模型资产/照片图库、视频重建、任务队列、自更新、导出、静态文件等服务
-│   └── 📁 routes/            # auth/gallery/model_assets/photo_gallery/video_reconstruction/tasks/settings/updates/files/export/frontend
-├── 📄 install.sh/bat         # 一键安装脚本
-├── 📄 run.sh/bat             # 启动脚本 (支持 --legacy 参数)
-├── 📄 run_verbose.sh/bat     # Verbose 启动入口（生成 sharp-gui-verbose.log）
-├── 📄 build.sh/bat           # 前端构建脚本
-├── 📄 update.sh/bat          # 自动更新脚本
-├── 📄 update-manifest.json   # 更新协议、便携运行时 revision 与目标兼容性契约
-├── 📄 release.sh/bat         # 发布打包脚本
-├── 📁 .sharp-gui-update/     # 本机更新状态、操作锁与诊断（运行时生成）
-├── 📁 .sharp-gui-tools/      # 便携包自带工具（含校验过的 MinGit）
-├── 📁 tools/                 # 工具脚本
-│   ├── 📄 generate_cert.py   # SSL 证书生成工具
-│   ├── 📄 download_model.py  # 模型下载工具
-│   ├── 📄 detect_cuda.py     # CUDA 版本检测
-│   ├── 📄 install_torch.py   # PyTorch + CUDA 智能安装与校验
-│   └── 📄 update.py          # 自动更新核心逻辑
-├── 📁 frontend/              # React 现代前端 (v1.0.0+)
-├── 📁 templates/             # 原始单文件前端 (Legacy)
-├── 📁 static/lib/            # Three.js + Gaussian Splats 3D（Legacy 旧前端使用）
-├── 📁 ml-sharp/              # (安装后) Apple ML-Sharp 核心
-├── 📁 inputs/                # 输入图片
-├── 📁 outputs/               # 输出模型 (.ply + .spz)
-├── 📁 model-assets/          # 导入模型与资产封面缓存（默认工作区内）
-├── 📁 .model-asset-library/  # 模型资产索引和用户编辑信息（默认工作区内）
-├── 📁 .video-reconstruction/ # 视频重建 job、上传视频缓存和中间文件（默认工作区内）
-└── 📁 .photo-gallery-cache/  # 照片图库索引与缩略图缓存（默认工作区内）
-```
-
-### 前端架构 (React)
-
-```
-frontend/
-├── 📁 src/
-│   ├── 📁 api/               # API 客户端 (gallery, modelAssets, photoGallery, tasks, settings, auth)
-│   ├── 📁 components/
-│   │   ├── 📁 common/        # 通用组件 (Button, Modal, Loading, ImageViewer, ParticleBackground)
-│   │   ├── 📁 gallery/       # 图库组件 (GalleryList, GalleryItem)
-│   │   ├── 📁 modelAssets/   # 模型资产库组件 (LibraryView, Grid, Toolbar, DetailsPanel)
-│   │   ├── 📁 photoGallery/  # 本地照片图库组件 (AlbumList, MasonryGrid, Toolbar)
-│   │   ├── 📁 layout/        # 布局组件 (Sidebar, ControlsBar, TaskQueue, Settings, AccessGate)
-│   │   └── 📁 viewer/        # 查看器组件 (ViewerCanvas, QuickControls, ViewerRevealEffectsRail, VirtualJoystick, GyroIndicator)
-│   ├── 📁 hooks/             # 自定义 Hooks (useViewer, useXR, useGyroscope, useKeyboard, useGalleryVirtualizer)
-│   ├── 📁 i18n/              # 国际化 (zh.json, en.json)
-│   ├── 📁 store/             # Zustand 状态管理
-│   ├── 📁 styles/            # 全局样式 (variables, animations)
-│   ├── 📁 types/             # TypeScript 类型定义
-│   └── 📁 utils/             # 工具函数
-├── 📄 vite.config.ts         # Vite 配置 (代码分割)
-└── 📁 dist/                  # 构建产物
-```
-
-### 核心技术栈
-
-| 层级         | 技术                                               |
-| ------------ | -------------------------------------------------- |
-| **前端**     | React 19 + TypeScript + Vite / 原生单文件 (Legacy) |
-| **状态管理** | Zustand                                            |
-| **国际化**   | i18next + react-i18next                            |
-| **样式**     | CSS Modules + Apple Glass Morphism                 |
-| **后端**     | Python 3.10+, Flask app factory + Blueprints, TaskManager |
-| **AI 引擎**  | Apple ML-Sharp (PyTorch, gsplat)；视频重建使用 Brush + COLMAP/ffmpeg |
-| **3D 渲染**  | Three.js + Spark 2.0 (WASM 加速高斯溅射)           |
-
-### 性能优化
-
-| 优化项         | 说明                                                                                |
-| -------------- | ----------------------------------------------------------------------------------- |
-| **代码分割**   | Vite manualChunks: three.js (~493KB), spark (~487KB), react-vendor (4KB)            |
-| **缩略图系统** | 模型资产库复用源媒体缩略图或缓存封面；照片图库按需生成缓存缩略图，预览/下载才读取原图 |
-| **资产库浏览** | 模型资产库使用游标式滚动增量加载，网格密度只影响展示列数，不重新扫描模型目录          |
-| **视频重建缓存** | 后端启动后异步检测视频重建依赖并缓存结果，Settings 可手动刷新；视频生成结果写入 sidecar 元数据并复用模型图库 |
-| **智能轮询**   | 有任务时 2s 轮询，空闲时 10s，节省资源                                              |
-| **格式转换**   | 生成后自动转换 SPZ 紧凑模型；分享导出默认嵌入 SPZ，历史 PLY 导出路径保留 Splat 兼容  |
-| **内存清理**   | 已完成任务 1 小时后自动从内存中移除                                                 |
-| **进度优化**   | 进度条只允许前进，避免视觉跳变                                                      |
-
----
-
-## 🛠️ 开发者指南
-
-### 前端开发
-
-```bash
-# 安装依赖
-cd frontend
-npm install
-
-# 开发模式 (热更新)
-npm run dev
-
-# 构建生产版本
-npm run build
-# 或使用项目脚本
-./build.sh
-```
-
-### 切换前端版本
-
-```bash
-./run.sh           # 使用 React 现代版本 (默认)
-./run.sh --legacy  # 使用原始单文件版本
-./run.sh --verbose # 开启详细诊断日志 (写入 sharp-gui-verbose.log)
-```
-
-### 环境变量
-
-后端兼容入口 `app.py` 与 `backend/` 模块支持以下环境变量，普通用户无需设置，开发与排障时可按需使用：
-
-| 变量 | 默认值 | 说明 |
-|------|--------|------|
-| `SHARP_FRONTEND_MODE` | `react` | 前端模式：`react`（构建版）或 `legacy`（单文件版）。`run.sh --legacy` 会设为 `legacy`。 |
-| `SHARP_DEBUG` | 关闭 | 设为 `1`/`true` 开启 Flask 调试器（向浏览器返回堆栈、启用交互式调试器）。**有安全风险，仅本机排障使用，切勿在局域网/公网开启。** |
-| `SHARP_VERBOSE` | 关闭 | 设为 `1`/`true` 开启详细诊断日志文件。`run.sh --verbose` / `run.bat --verbose` 会设置它。 |
-| `SHARP_LOG_LEVEL` | `INFO`（verbose 时 `DEBUG`） | 应用日志级别。 |
-| `SHARP_HTTP_LOGS` | 关闭 | 设为 `1`/`true` 时输出 Werkzeug HTTP 请求日志；默认关闭，避免缩略图、轮询等请求刷屏。 |
-| `SHARP_LOG_FILE` | `sharp-gui-verbose.log` | 详细诊断日志的输出文件路径。 |
-| `SHARP_BIND_HOST` | 跟随门禁设置 | 覆盖监听地址。不设时由「局域网门禁」中的局域网绑定开关决定（开 `0.0.0.0` / 关 `127.0.0.1`）。 |
-| `SHARP_LAN_IP` | 自动探测 | 启动信息中显示的局域网 IP，`run.sh` 会自动注入。 |
-| `SHARP_DEVICE` | 自动选择 | 推理设备：`cpu` / `cuda` / `mps`，留空则自动检测可用设备。 |
-
-> `SHARP_DEBUG` 同时控制调试器、堆栈泄露与源码热重载，三者默认全部关闭。设为 `1` 后全部开启，仅供本机排障使用。（热重载与调试器绑定是因为 Werkzeug reloader 开启时会通过 socket 继承干扰 `/api/restart` 的地址重新绑定。）
-
-### 创建发布包
-
-```bash
-# 自动构建并打包
-./release.sh v1.0.0
-
-# 输出: sharp-gui-v1.0.0.zip (包含预构建前端)
-```
+专题说明：[模型编辑](docs/model-editor.md) · [导出动画](docs/camera-animation.md) · [图库与模型联动](docs/model-source-gallery.md) · [独立 HTML 分享](docs/standalone-sharing.md) · [视频画质与耗时复核](docs/video-reconstruction-quality.md)
 
 ---
 
