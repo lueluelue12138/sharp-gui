@@ -264,6 +264,7 @@ export interface ViewerContext {
   animationActive?: boolean;
   animationExporting?: boolean;
   cameraPlayback?: (now: number) => void;
+  cameraOverview?: { camera: THREE.PerspectiveCamera; controls: OrbitControls; update: () => void };
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   renderer: THREE.WebGLRenderer;
@@ -712,8 +713,10 @@ export const useViewer = (
               activeMesh.updateVersion();
             }
           }
+          const overview = viewerRef.current?.cameraOverview;
           if (viewerRef.current?.cameraPlayback) viewerRef.current.cameraPlayback(now);
-          else controls.update();
+          else if (!overview) controls.update();
+          if (overview) { overview.controls.update(); overview.update(); }
 
           const activeContext = viewerRef.current;
           if (
@@ -728,7 +731,7 @@ export const useViewer = (
             setDebugInfo(getViewerDebugInfo(activeContext));
           }
 
-          renderer.render(scene, camera);
+          renderer.render(scene, overview?.camera ?? camera);
         });
 
         // ── Click-to-focus: raycast on click → orbit around hit point ──
@@ -835,6 +838,10 @@ export const useViewer = (
         const h = container.clientHeight;
         if (w === 0 || h === 0) return;
         ctx.camera.aspect = w / h;
+        if (ctx.cameraOverview) {
+          ctx.cameraOverview.camera.aspect = w / h;
+          ctx.cameraOverview.camera.updateProjectionMatrix();
+        }
         if (!ctx.animationActive && ctx.lastFramingMode === 'reconstruction-camera' && ctx.splatMesh) {
           const view = getReconstructionCameraView(
             useAppStore.getState().currentModelDescriptor?.viewerCamera,

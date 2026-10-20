@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { animationDuration, animationFrameCount, animationFrameTime, applyCameraPose, captureCameraPose, parseCameraAnimation, sampleCameraAnimation } from './cameraAnimation.js';
 import type { CameraKeyframe } from './cameraAnimation.js';
 import { createWebm, encodeAnimationVideo } from './webmVideo.js';
+import { cameraFrustumVertices, CAMERA_PATH_LAYER, cameraPathSampleTimes, disposeCameraPath, isolateCameraPath } from './cameraPathGeometry.js';
 
 const a: CameraKeyframe = { id: 'a', seconds: 3, position: [0, 0, 5], quaternion: [0, 0, 0, 1], target: [0, 0, 0], fov: 60 };
 const b: CameraKeyframe = { ...a, id: 'b', seconds: 2, position: [10, 2, 5], target: [10, 2, 0], fov: 40 };
@@ -111,4 +112,56 @@ it('missing WebCodecs gives a stable capability error before attempting to rende
     signal: new AbortController().signal, onProgress: () => {},
     render: () => { throw new Error('must not render'); },
   }), /animationCodecUnavailable/);
+});
+it('overview frustum preserves the real field of view and aspect', () => {
+  const length = 2; const aspect = 16 / 9;
+  const vertices = cameraFrustumVertices(length, 60, aspect);
+  assert.ok(Math.abs(vertices[3] / vertices[4] - aspect) < 1e-9);
+  assert.ok(Math.abs(Math.abs(vertices[4]) / length - Math.tan(Math.PI / 6)) < 1e-9);
+  assert.equal(vertices[5], -length);
+  const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+  const forward = new THREE.Vector3(0, 0, -length).applyQuaternion(q);
+  assert.ok(forward.distanceTo(new THREE.Vector3(-length, 0, 0)) < 1e-9);
+});
+it('overview path includes short segments and every exact keyframe within a bounded sample budget', () => {
+  const frames = [{ ...a, seconds: 9 }, { ...b, seconds: 0.1 }, { ...a, id: 'c', seconds: 60 }];
+  const times = cameraPathSampleTimes(frames);
+  assert.equal(times[0], 0);
+  assert.equal(times.at(-1), 60.1);
+  assert.ok(times.includes(0.1));
+  assert.ok(times.some(time => time > 0 && time < 0.1));
+  for (let i = 1; i < times.length; i += 1) assert.ok(times[i] > times[i - 1]);
+  const last = sampleCameraAnimation(frames, times.at(-1)!, 'cinematic');
+  assert.deepEqual(last?.position, frames[2].position);
+  assert.ok(cameraPathSampleTimes(Array.from({ length: 100 }, () => a)).length <= 2049);
+  assert.deepEqual(cameraPathSampleTimes([]), []);
+});
+it('all overview children are invisible to ordinary export cameras', () => {
+  const group = new THREE.Group();
+  group.add(new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial()), new THREE.Sprite());
+  isolateCameraPath(group);
+  const shotCamera = new THREE.PerspectiveCamera(); const overviewCamera = shotCamera.clone();
+  overviewCamera.layers.enable(CAMERA_PATH_LAYER);
+  group.traverse(child => {
+    assert.equal(shotCamera.layers.test(child.layers), false);
+    assert.equal(overviewCamera.layers.test(child.layers), true);
+  });
+  assert.equal(shotCamera.layers.mask, 1);
+  disposeCameraPath(group);
+});
+it('overview cleanup releases owned texture/material/geometry without disposing shared sprite geometry', () => {
+  const root = new THREE.Group(); const group = new THREE.Group(); root.add(group);
+  const geometry = new THREE.BufferGeometry(); const material = new THREE.LineBasicMaterial();
+  const texture = new THREE.Texture(); const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
+  group.add(new THREE.Line(geometry, material), sprite);
+  let geometryCount = 0; let materialCount = 0; let textureCount = 0; let sharedCount = 0;
+  geometry.addEventListener('dispose', () => { geometryCount += 1; });
+  material.addEventListener('dispose', () => { materialCount += 1; });
+  texture.addEventListener('dispose', () => { textureCount += 1; });
+  const sharedListener = () => { sharedCount += 1; };
+  sprite.geometry.addEventListener('dispose', sharedListener);
+  disposeCameraPath(group);
+  sprite.geometry.removeEventListener('dispose', sharedListener);
+  assert.deepEqual([geometryCount, materialCount, textureCount, sharedCount], [1, 1, 1, 0]);
+  assert.equal(root.children.length, 0); assert.equal(group.children.length, 0);
 });

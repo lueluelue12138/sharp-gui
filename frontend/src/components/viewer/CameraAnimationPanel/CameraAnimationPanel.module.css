@@ -15,6 +15,12 @@
 .header h2 { font-size: 18px; display: flex; align-items: center; gap: 9px; margin: 8px 0 0; }
 .scroll { padding: 16px 20px; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
 .hint { font-size: 12px; line-height: 1.7; color: var(--editor-text-secondary); margin: 0 0 16px; }
+.viewMode { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; border-radius: var(--radius-md); padding: 4px; margin-bottom: 14px; background: var(--glass-bg-light); }
+.viewMode button { min-width: 0; }
+.pathLegend { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin: -4px 0 18px; font-size: 11px; color: var(--editor-text-secondary); }
+.pathLegend > span { display: inline-flex; align-items: center; gap: 5px; }
+.pathLegend i { width: 6px; height: 6px; border-radius: var(--radius-full); background: #4fa3ff; }
+.pathLegend i.currentCamera { background: #fff; border: 1px solid #777; }
 .fieldset { padding: 0; margin: 0; border: none; min-width: 0; }
 .sectionTitle { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .sectionTitle h3, .settingsTitle { font-size: 13px; margin: 0; }

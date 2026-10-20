@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import * as THREE from 'three';
-import { ArrowDown, ArrowUp, Camera, Download, Film, FolderOpen, Pause, Play, Plus, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Camera, Download, Film, Focus, FolderOpen, Pause, Play, Plus, RefreshCw, Route, Save, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/common/Button';
 import type { ViewerContext } from '@/hooks/useViewer';
 import { animationDuration, applyCameraPose, CAMERA_ANIMATION_CURVES, captureCameraPose, MAX_KEYFRAMES, parseCameraAnimation, sampleCameraAnimation } from '@/utils/cameraAnimation';
 import type { CameraAnimationCurve, CameraAnimationProject, CameraKeyframe } from '@/utils/cameraAnimation';
 import { exportCameraAnimation } from '@/utils/cameraAnimationExport';
+import { useCameraPathOverview } from '@/hooks/useCameraPathOverview';
 import styles from './CameraAnimationPanel.module.css';
 
 interface CameraAnimationPanelProps {
@@ -38,6 +39,7 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState('');
   const [resultUrl, setResultUrl] = useState('');
+  const [showOverview, setShowOverview] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const duration = animationDuration(frames);
@@ -53,7 +55,7 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
       // Align OrbitControls with the actual interpolated quaternion, avoiding a snap.
       const distance = Math.max(0.001, ctx.camera.position.distanceTo(ctx.controls.target));
       ctx.controls.target.copy(ctx.camera.position).addScaledVector(ctx.camera.getWorldDirection(new THREE.Vector3()), distance);
-      ctx.controls.enabled = true;
+      ctx.controls.enabled = !ctx.cameraOverview;
     }
     setPlaying(false);
   }, [viewerRef]);
@@ -88,6 +90,9 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
     };
   }, [open, viewerRef]);
 
+  // Set up the panel snapshot before the overview temporarily disables its controls.
+  const overview = useCameraPathOverview(viewerRef, open && showOverview, frames, easing, portrait, selected);
+
   useEffect(() => () => { if (resultUrl) URL.revokeObjectURL(resultUrl); }, [resultUrl]);
   useEffect(() => {
     if (!playing) return;
@@ -105,7 +110,7 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
   const invalidate = () => { setResultUrl(''); setError(''); };
   const capture = (replaceId?: string) => {
     const ctx = viewerRef.current;
-    if (!ctx || !ctx.splatMesh || (!replaceId && frames.length >= MAX_KEYFRAMES)) return;
+    if (!ctx || !ctx.splatMesh || ctx.cameraOverview || (!replaceId && frames.length >= MAX_KEYFRAMES)) return;
     const id = replaceId ?? `shot-${Date.now()}-${frames.length}`;
     const pose = captureCameraPose(ctx.camera, ctx.controls.target);
     if (replaceId) setFrames(previous => previous.map(frame => frame.id === id ? { ...frame, ...pose } : frame));
@@ -186,10 +191,18 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
           <Button variant="ghost" iconOnly icon={<X size={19} />} aria-label={t('animationClose')} disabled={busy} onClick={() => { stop(); onClose(); }} />
         </header>
         <div className={styles.scroll}>
-          <p className={styles.hint}>{t('animationHint')}</p>
+          <div className={styles.viewMode} role="group" aria-label={t('animationViewMode')}>
+            <Button variant={showOverview ? 'ghost' : 'secondary'} size="sm" icon={<Camera size={15} />} aria-pressed={!showOverview} disabled={busy} onClick={() => setShowOverview(false)}>{t('animationShotView')}</Button>
+            <Button variant={showOverview ? 'secondary' : 'ghost'} size="sm" icon={<Route size={15} />} aria-pressed={showOverview} disabled={busy} onClick={() => setShowOverview(true)}>{t('animationPathView')}</Button>
+          </div>
+          <p className={styles.hint}>{t(showOverview ? 'animationPathHint' : 'animationHint')}</p>
+          {showOverview && <div className={styles.pathLegend}>
+            <span><i />{t('animationPathKeyframes')}</span><span><i className={styles.currentCamera} />{t('animationPathCurrent')}</span>
+            <Button variant="ghost" size="sm" icon={<Focus size={15} />} disabled={busy} onClick={overview.fit}>{t('animationPathFit')}</Button>
+          </div>}
           <fieldset disabled={locked} className={styles.fieldset}>
             <div className={styles.sectionTitle}><h3>{t('animationKeyframes')}</h3><span>{frames.length} / {MAX_KEYFRAMES}</span></div>
-            <Button variant="secondary" icon={<Plus size={16} />} onClick={() => capture()} disabled={frames.length >= MAX_KEYFRAMES} className={styles.add}>{t('animationAdd')}</Button>
+            <Button variant="secondary" icon={<Plus size={16} />} onClick={() => capture()} disabled={showOverview || frames.length >= MAX_KEYFRAMES} className={styles.add}>{t('animationAdd')}</Button>
             {!frames.length && <div className={styles.empty}><Camera size={25} /><p>{t('animationEmpty')}</p></div>}
             <ol className={styles.frames}>
               {frames.map((frame, index) => (
@@ -203,7 +216,7 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
                     <span><strong>{t('animationFrame', { index: index + 1 })}</strong><small>{animationDuration(frames.slice(0, index + 1)).toFixed(1)} s</small></span>
                   </button>
                   <div className={styles.frameActions}>
-                    <Button variant="ghost" size="sm" iconOnly icon={<RefreshCw size={14} />} aria-label={t('animationReplace')} onClick={() => capture(frame.id)} />
+                    <Button variant="ghost" size="sm" iconOnly icon={<RefreshCw size={14} />} aria-label={t('animationReplace')} disabled={showOverview} onClick={() => capture(frame.id)} />
                     <Button variant="ghost" size="sm" iconOnly icon={<ArrowUp size={14} />} aria-label={t('animationEarlier')} disabled={index === 0} onClick={() => move(index, -1)} />
                     <Button variant="ghost" size="sm" iconOnly icon={<ArrowDown size={14} />} aria-label={t('animationLater')} disabled={index === frames.length - 1} onClick={() => move(index, 1)} />
                     <Button variant="ghost" size="sm" iconOnly icon={<Trash2 size={14} />} aria-label={t('animationDelete')} onClick={() => {
