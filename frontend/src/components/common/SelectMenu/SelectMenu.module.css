@@ -117,6 +117,16 @@
   min-width: max(100%, 104px);
 }
 
+.portalMenu {
+  position: fixed;
+  right: auto;
+  z-index: 1000;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .option {
   width: 100%;
   min-height: 34px;

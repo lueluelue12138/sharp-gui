@@ -3,12 +3,14 @@ import type { ViewerContext } from '@/hooks/useViewer';
 import { applyCameraPose, captureCameraPose, animationDuration, animationFrameCount, animationFrameTime, sampleCameraAnimation } from '@/utils/cameraAnimation';
 import type { CameraAnimationProject } from '@/utils/cameraAnimation';
 import { encodeAnimationVideo } from '@/utils/webmVideo';
+import type { AnimationVideoFormat } from '@/utils/webmVideo';
 
 /** Own the renderer only until the finally block; never write model data. */
 export async function exportCameraAnimation(
   ctx: ViewerContext, project: CameraAnimationProject,
   width: number, height: number, fps: number, signal: AbortSignal,
   onProgress: (progress: number) => void,
+  format: AnimationVideoFormat = 'webm',
 ): Promise<Blob> {
   const mesh = ctx.splatMesh;
   if (!mesh || mesh.paged || !mesh.packedSplats) throw new Error('animationFullModelRequired');
@@ -40,7 +42,7 @@ export async function exportCameraAnimation(
     camera.aspect = width / height;
     scene.background = new THREE.Color(0x000000);
     return await encodeAnimationVideo({
-      width, height, fps, frames, signal, onProgress,
+      width, height, fps, frames, signal, onProgress, format,
       render: async index => {
         signal.throwIfAborted();
         const pose = sampleCameraAnimation(project.frames, animationFrameTime(index, frames, duration), project.easing)!;

@@ -1,3 +1,5 @@
+import { createMp4 } from '@/utils/mp4Video';
+
 /** Minimal WebM writer: one video track, millisecond timecodes and keyframe cues. */
 interface VideoPacket { bytes: Uint8Array<ArrayBuffer>; timestamp: number; key: boolean }
 
@@ -68,30 +70,52 @@ export function createWebm(packets: VideoPacket[], width: number, height: number
 
 export interface VideoExportOptions {
   width: number; height: number; fps: number; frames: number;
+  format?: AnimationVideoFormat;
   signal: AbortSignal;
   render: (index: number) => Promise<HTMLCanvasElement>;
   onProgress: (progress: number) => void;
 }
 
-export async function encodeAnimationVideo(options: VideoExportOptions): Promise<Blob> {
-  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') throw new Error('animationCodecUnavailable');
-  const { width, height, fps, frames, signal, render, onProgress } = options;
+export type AnimationVideoFormat = 'webm' | 'mp4';
+
+export async function getAnimationEncoderConfig(width: number, height: number, fps: number, format: AnimationVideoFormat): Promise<VideoEncoderConfig> {
+  if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') throw new Error(format === 'mp4' ? 'animationMp4Unavailable' : 'animationCodecUnavailable');
   const bitrate = Math.round(width * height * fps * 0.28);
-  let config: VideoEncoderConfig | undefined;
-  for (const codec of ['vp09.00.51.08', 'vp8']) {
-    const candidate: VideoEncoderConfig = { codec, width, height, framerate: fps, bitrate, latencyMode: 'quality' };
-    try { if ((await VideoEncoder.isConfigSupported(candidate)).supported) { config = candidate; break; } } catch { /* Try next supported codec. */ }
+  const level = width * height <= 1920 * 1080 ? (fps > 30 ? '2a' : '28') : (fps > 30 ? '34' : '33');
+  const codecs = format === 'mp4' ? [`avc1.6400${level}`, `avc1.4d00${level}`, `avc1.4200${level}`] : ['vp09.00.51.08', 'vp8'];
+  for (const codec of codecs) {
+    const candidate: VideoEncoderConfig = { codec, width, height, framerate: fps, bitrate,
+      latencyMode: format === 'mp4' ? 'realtime' : 'quality',
+      ...(format === 'mp4' ? { avc: { format: 'avc' as const } } : {}) };
+    try { if ((await VideoEncoder.isConfigSupported(candidate)).supported) return candidate; } catch { /* Try next supported codec. */ }
   }
-  if (!config) throw new Error('animationCodecUnavailable');
+  throw new Error(format === 'mp4' ? 'animationMp4Unavailable' : 'animationCodecUnavailable');
+}
+
+export async function encodeAnimationVideo(options: VideoExportOptions): Promise<Blob> {
+  const { width, height, fps, frames, signal, render, onProgress, format = 'webm' } = options;
+  signal.throwIfAborted();
+  const config = await getAnimationEncoderConfig(width, height, fps, format);
   const packets: VideoPacket[] = [];
+  let description: Uint8Array<ArrayBuffer> | undefined;
   let bytes = 0;
   let failure: Error | null = null;
   const check = () => { signal.throwIfAborted(); if (failure) throw failure; };
   const encoder = new VideoEncoder({
-    output: chunk => {
+    output: (chunk, metadata) => {
       bytes += chunk.byteLength;
       if (bytes > 512 * 1024 * 1024) { failure = new Error('animationMemoryLimit'); return; }
       const data = new Uint8Array(chunk.byteLength); chunk.copyTo(data);
+      const configDescription = metadata?.decoderConfig?.description;
+      if (format === 'mp4' && configDescription) {
+        const next = new Uint8Array(ArrayBuffer.isView(configDescription)
+          ? new Uint8Array(configDescription.buffer, configDescription.byteOffset, configDescription.byteLength)
+          : new Uint8Array(configDescription));
+        if (description && (description.length !== next.length || description.some((byte, index) => byte !== next[index]))) {
+          failure = new Error('animationEncodeFailed'); return;
+        }
+        description = next;
+      }
       packets.push({ bytes: data, timestamp: chunk.timestamp, key: chunk.type === 'key' });
     },
     error: () => { failure = new Error('animationEncodeFailed'); },
@@ -112,6 +136,10 @@ export async function encodeAnimationVideo(options: VideoExportOptions): Promise
     }
     await encoder.flush(); check();
     if (packets.length !== frames) throw new Error('animationEncodeFailed');
+    if (format === 'mp4') {
+      if (!description) throw new Error('animationEncodeFailed');
+      return createMp4(packets, description, width, height, fps);
+    }
     return createWebm(packets, width, height, fps, config.codec === 'vp8' ? 'vp8' : 'vp9');
   } finally {
     if (encoder.state !== 'closed') encoder.close();

@@ -452,8 +452,8 @@ export const useViewer = (
   }, []);
 
   // ── Reset Camera (defined early so child hooks can reference it) ────
-  const resetCamera = useCallback((animated = true) => {
-    if (viewerRef.current?.animationActive) return;
+  const resetCamera = useCallback((animated = true, fromAnimation = false) => {
+    if (viewerRef.current?.animationExporting || (viewerRef.current?.animationActive && !fromAnimation)) return;
     const ctx = viewerRef.current;
     if (!ctx) return;
 
@@ -470,7 +470,7 @@ export const useViewer = (
     })
       && activeCtx.loadGeneration === resetLoadGeneration
       && !activeCtx.editorActive
-      && !activeCtx.animationActive
+      && (!activeCtx.animationActive || fromAnimation)
       && getViewerModelLoadKey(
         useAppStore.getState().currentModelDescriptor,
       ) === resetModelLoadKey;
@@ -548,13 +548,16 @@ export const useViewer = (
     const startPos = c.object.position.clone();
     const startLookAt = c.target.clone();
     const startUp = c.object.up.clone();
-    applyControlLimits(c, useAppStore.getState().isLimitsOn);
+    // Animation keeps its free camera limits; reset changes only the viewpoint.
+    if (!fromAnimation) applyControlLimits(c, useAppStore.getState().isLimitsOn);
     const distance = targetPos.distanceTo(targetLookAt);
-    c.minDistance = reconstructionView ? Math.min(DEFAULT_CAMERA_CONFIG.minDistance, distance * 0.05)
-      : DEFAULT_CAMERA_CONFIG.minDistance;
-    c.maxDistance = reconstructionView ? Math.max(DEFAULT_CAMERA_CONFIG.maxDistance, distance * 10)
-      : DEFAULT_CAMERA_CONFIG.maxDistance;
-    if (reconstructionView) {
+    if (!fromAnimation) {
+      c.minDistance = reconstructionView ? Math.min(DEFAULT_CAMERA_CONFIG.minDistance, distance * 0.05)
+        : DEFAULT_CAMERA_CONFIG.minDistance;
+      c.maxDistance = reconstructionView ? Math.max(DEFAULT_CAMERA_CONFIG.maxDistance, distance * 10)
+        : DEFAULT_CAMERA_CONFIG.maxDistance;
+    }
+    if (reconstructionView && !fromAnimation) {
       // Keep front-view limits from clamping away the registered starting viewpoint.
       const offset = targetPos.clone().sub(targetLookAt);
       const azimuth = Math.atan2(offset.x, offset.z);

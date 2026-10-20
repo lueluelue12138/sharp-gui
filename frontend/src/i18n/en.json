@@ -1153,7 +1153,7 @@
   "animationPathCurrent": "Current camera",
   "animationPathFit": "Fit overview",
   "animationClose": "Back to viewer",
-  "animationHint": "Adjust your view, then record a shot. Add at least two shots to preview a continuous camera move.",
+  "animationHint": "Adjust the view and record shots. With two or more shots, use Play preview below the canvas to watch the motion before exporting.",
   "animationKeyframes": "Keyframes",
   "animationAdd": "Record current view",
   "animationEmpty": "Adjust your view and record the first shot.",
@@ -1185,7 +1185,7 @@
   "animationCurveHintSine": "Gentle sinusoidal starts and stops for an even rhythm. Comes to rest at each keyframe.",
   "animationCurveHintQuintic": "Ease both speed and acceleration to zero at each stop, suited to close-ups and deliberate pauses.",
   "animationCurveHintLinear": "Move at constant speed along straight segments, with immediate changes of direction at keyframes.",
-  "animationExportHint": "{{width}} × {{height}} · {{fps}} fps · Silent WebM. Frame-by-frame rendering preserves full model detail; export time depends on your device. Keep this page open. Save your shots as JSON to resume later.",
+  "animationExportHint": "{{width}} × {{height}} · {{fps}} fps · {{format}} · No audio. Frames render individually; keep this page open during export.",
   "animationInvalidProject": "Cannot read this shot file. Load a valid animation JSON (up to 100 shots and 120 seconds).",
   "animationLimits": "Animations support up to 120 seconds, with 0.1–60 seconds per transition. Shorten your transitions.",
   "animationCodecUnavailable": "This browser or resolution does not support video encoding. Try the latest Chrome / Edge over HTTPS or localhost. Shot editing and preview are still available.",
@@ -1197,7 +1197,11 @@
   "animationDownload": "Download video",
   "animationExport": "Export video",
   "animationSummary": "{{count}} shots · {{seconds}} s",
-  "animationPause": "Stop preview",
+  "animationPause": "Pause preview",
   "animationPlay": "Play preview",
-  "animationTimeline": "Animation timeline"
+  "animationTimeline": "Animation timeline",
+  "animationResetView": "Restore initial model view",
+  "animationFormat": "Video format",
+  "animationCodecChecking": "Checking encoding support for this format and resolution…",
+  "animationMp4Unavailable": "This browser cannot encode MP4 at these settings. Choose WebM or adjust resolution and frame rate."
 }

@@ -166,7 +166,7 @@ No need to install apps on every device. Run Sharp GUI on one computer, and any 
 | **🗂️ Local Media Gallery** | Configure multiple local/NAS folders as albums, browse and filter photos/videos together, preview and download media, convert photos to 3D, play videos, and start video reconstruction. |
 | **👁️ Real-time Viewer**    | Three.js + Spark 2.0 WASM-accelerated viewer with mouse / touch / keyboard (WASD) / gyroscope controls, click-to-focus with a GPU focus ring, quick transform panel.     |
 | **✂️ Model Editing**       | Rectangle / sphere / box selection, draggable values and boundaries, splat cleanup, origin and orientation calibration, undo / redo, and copy or overwrite saving with source links retained. |
-| **🎬 Export Animation**    | Camera keyframes, five motion curves, 3D path and frustum preview, and silent WebM export at 1080p / 4K, landscape / portrait, and 24 / 30 / 60 fps. |
+| **🎬 Export Animation**    | Camera keyframes, five motion curves, 3D path and frustum preview, and silent WebM / MP4 export at 1080p / 4K, landscape / portrait, and 24 / 30 / 60 fps. |
 | **🔗 Linked Source Media** | Blue 3D badges, linked-model navigation, multiple versions and default results, plus a pinned Model Sources album grouped by source. |
 | **🎭 Reveal Effects**      | Magic / Spread / Unroll / Twister / Rain entrance animations with replay support.                                                                                        |
 | **📱 Mobile Optimized**    | Phones / tablets get gyroscope controls (iOS-style indicator ball), virtual joystick, touch gestures, and a drawer-style sidebar.                                        |
@@ -494,7 +494,7 @@ Editing is available to the local owner for standard Gaussian PLY, supported SPZ
 1. **Open the tool** — Open a model and choose Export animation in the bottom toolbar.
 2. **Record shots** — Adjust the viewing angle, position, and zoom, then record the current view. Record at least two shots and set transition durations. Shots can be replaced, reordered, or deleted.
 3. **Preview motion** — Choose Continuous glide, Standard ease, Sine ease, Soft landing, or Linear motion, then play or scrub the timeline. Path overview independently shows numbered keyframes, the camera route, and viewing frustums; return to Shot preview to record more views.
-4. **Export video** — Choose landscape / portrait, 1080p / 4K, and 24 / 30 / 60 fps. Export, then download the silent WebM. Path helpers stay out of the video.
+4. **Export video** — Choose landscape / portrait, 1080p / 4K, and 24 / 30 / 60 fps. Export, then download the silent WebM or MP4. Path helpers stay out of the video.
 
 Export requires browser WebCodecs support and HTTPS or a localhost address; available encoding settings depend on the device. Save shots as JSON before refreshing or switching models, and load them to resume later. See the [animation export guide, curves, and limits (Chinese)](docs/camera-animation.md).
 

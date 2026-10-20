@@ -110,7 +110,7 @@ const ViewerInstance: React.FC = () => {
       <div ref={stageRef} className={[styles.stage, animationOpen && styles.animationStage].filter(Boolean).join(' ')}>
         <div ref={containerRef} className={styles.viewerTarget} style={stageSize ? { ...stageSize, left: '50%', top: '50%', transform: 'translate(-50%, -50%)' } : undefined} />
       </div>
-      <CameraAnimationPanel open={animationOpen} viewerRef={viewerRef} portrait={portrait} onPortraitChange={setPortrait} onClose={() => setAnimationOpen(false)} />
+      <CameraAnimationPanel open={animationOpen} viewerRef={viewerRef} portrait={portrait} onPortraitChange={setPortrait} onResetView={() => viewerHook.resetCamera(false, true)} onClose={() => setAnimationOpen(false)} />
       {editorOpen && currentModelId ? (
         <ModelEditor
           viewerRef={viewerHook.viewerRef}

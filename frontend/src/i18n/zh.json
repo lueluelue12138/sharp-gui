@@ -1153,7 +1153,7 @@
   "animationPathCurrent": "当前相机",
   "animationPathFit": "重新取景",
   "animationClose": "返回查看器",
-  "animationHint": "先调整到想要的视角，再记录镜头。添加两个以上镜头，即可预览连续运镜。",
+  "animationHint": "调整视角并记录镜头。至少两个镜头后，点击画面下方“播放预览”查看运镜，无需先导出视频。",
   "animationKeyframes": "关键帧",
   "animationAdd": "记录当前镜头",
   "animationEmpty": "调整视角，记录第一个镜头。",
@@ -1185,7 +1185,7 @@
   "animationCurveHintSine": "用正弦曲线舒缓启停，适合节奏均匀的展示。每个关键帧处停稳。",
   "animationCurveHintQuintic": "启停时的速度和加速度均柔和归零，适合细节特写与定点停靠。",
   "animationCurveHintLinear": "镜头沿直线匀速移动，不做启停缓冲；转弯会直接切换方向。",
-  "animationExportHint": "{{width}} × {{height}} · {{fps}} fps · WebM 无音轨。逐帧渲染保留完整模型细节，导出耗时取决于设备；请保持页面打开。镜头草稿可保存为 JSON。",
+  "animationExportHint": "{{width}} × {{height}} · {{fps}} fps · {{format}} · 无音轨。逐帧渲染，导出期间请保持页面打开。",
   "animationInvalidProject": "无法读取镜头文件。请载入有效的镜头 JSON（最多 100 个镜头、120 秒）。",
   "animationLimits": "动画最长 120 秒，每段为 0.1–60 秒，请缩短过渡时长。",
   "animationCodecUnavailable": "此浏览器或分辨率暂不支持视频编码。可尝试最新版 Chrome／Edge，通过 HTTPS 或本机地址打开；镜头编辑和预览仍可使用。",
@@ -1197,7 +1197,11 @@
   "animationDownload": "下载视频",
   "animationExport": "导出视频",
   "animationSummary": "{{count}} 个镜头 · {{seconds}} 秒",
-  "animationPause": "停止预览",
+  "animationPause": "暂停预览",
   "animationPlay": "播放预览",
-  "animationTimeline": "动画进度"
+  "animationTimeline": "动画进度",
+  "animationResetView": "恢复模型初始视角",
+  "animationFormat": "视频格式",
+  "animationCodecChecking": "正在检查当前格式和分辨率的编码支持…",
+  "animationMp4Unavailable": "当前浏览器不支持此规格的 MP4 编码，请选择 WebM 或调整分辨率、帧率。"
 }

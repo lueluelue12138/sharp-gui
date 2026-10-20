@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RefObject } from 'react';
 import * as THREE from 'three';
-import { ArrowDown, ArrowUp, Camera, Download, Film, Focus, FolderOpen, Pause, Play, Plus, RefreshCw, Route, Save, Trash2, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Camera, Download, Film, Focus, FolderOpen, Pause, Play, Plus, RefreshCw, RotateCcw, Route, Save, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/common/Button';
+import { SelectMenu } from '@/components/common/SelectMenu';
 import type { ViewerContext } from '@/hooks/useViewer';
 import { animationDuration, applyCameraPose, CAMERA_ANIMATION_CURVES, captureCameraPose, MAX_KEYFRAMES, parseCameraAnimation, sampleCameraAnimation } from '@/utils/cameraAnimation';
 import type { CameraAnimationCurve, CameraAnimationProject, CameraKeyframe } from '@/utils/cameraAnimation';
 import { exportCameraAnimation } from '@/utils/cameraAnimationExport';
+import { getAnimationEncoderConfig } from '@/utils/webmVideo';
+import type { AnimationVideoFormat } from '@/utils/webmVideo';
 import { useCameraPathOverview } from '@/hooks/useCameraPathOverview';
 import styles from './CameraAnimationPanel.module.css';
 
@@ -16,16 +19,17 @@ interface CameraAnimationPanelProps {
   viewerRef: RefObject<ViewerContext | null>;
   portrait: boolean;
   onPortraitChange: (portrait: boolean) => void;
+  onResetView: () => void;
   onClose: () => void;
 }
 
 const knownErrors = new Set(['animationInvalidProject', 'animationLimits', 'animationCodecUnavailable',
-  'animationEncodeFailed', 'animationMemoryLimit', 'animationFullModelRequired']);
+  'animationMp4Unavailable', 'animationEncodeFailed', 'animationMemoryLimit', 'animationFullModelRequired']);
 const curveSuffix: Record<CameraAnimationCurve, string> = {
   cinematic: 'Cinematic', smooth: 'Smooth', sine: 'Sine', quintic: 'Quintic', linear: 'Linear',
 };
 
-export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChange, onClose }: CameraAnimationPanelProps) {
+export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChange, onResetView, onClose }: CameraAnimationPanelProps) {
   const { t } = useTranslation();
   const [frames, setFrames] = useState<CameraKeyframe[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
@@ -33,6 +37,8 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
   const [easing, setEasing] = useState<CameraAnimationCurve>('cinematic');
   const [resolution, setResolution] = useState(1080);
   const [fps, setFps] = useState(30);
+  const [format, setFormat] = useState<AnimationVideoFormat>('webm');
+  const [codecStatus, setCodecStatus] = useState<'checking' | 'supported' | 'unsupported'>('checking');
   const [playing, setPlaying] = useState(false);
   const [time, setTime] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -47,6 +53,15 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
   const width = portrait ? resolution : Math.round(resolution * 16 / 9);
   const height = portrait ? Math.round(resolution * 16 / 9) : resolution;
   const project: CameraAnimationProject = { version: 1, frames, easing, portrait };
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void getAnimationEncoderConfig(width, height, fps, format).then(() => {
+      if (!cancelled) setCodecStatus('supported');
+    }).catch(() => { if (!cancelled) setCodecStatus('unsupported'); });
+    return () => { cancelled = true; };
+  }, [open, width, height, fps, format]);
 
   const stop = useCallback(() => {
     const ctx = viewerRef.current;
@@ -129,6 +144,9 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
     if (ctx && pose) applyCameraPose(ctx.camera, ctx.controls.target, pose);
     setTime(seconds);
   };
+  const resetView = () => {
+    stop(); setShowOverview(false); onResetView(); setTime(0); setSelected(null);
+  };
   const play = () => {
     const ctx = viewerRef.current;
     if (!ctx || frames.length < 2 || duration > 120) return;
@@ -172,7 +190,7 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
     stop(); setBusy(true); setError(''); setResultUrl(''); setProgress(0);
     const abort = new AbortController(); abortRef.current = abort;
     try {
-      const blob = await exportCameraAnimation(ctx, project, width, height, fps, abort.signal, setProgress);
+      const blob = await exportCameraAnimation(ctx, project, width, height, fps, abort.signal, setProgress, format);
       if (!abort.signal.aborted && !ctx.disposed) setResultUrl(URL.createObjectURL(blob));
     } catch (caught) {
       if (!abort.signal.aborted && !ctx.disposed) setError(caught instanceof Error && knownErrors.has(caught.message) ? caught.message : 'animationEncodeFailed');
@@ -196,6 +214,7 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
             <Button variant={showOverview ? 'secondary' : 'ghost'} size="sm" icon={<Route size={15} />} aria-pressed={showOverview} disabled={busy} onClick={() => setShowOverview(true)}>{t('animationPathView')}</Button>
           </div>
           <p className={styles.hint}>{t(showOverview ? 'animationPathHint' : 'animationHint')}</p>
+          <Button variant="ghost" size="sm" icon={<RotateCcw size={15} />} className={styles.resetView} disabled={busy} onClick={resetView}>{t('animationResetView')}</Button>
           {showOverview && <div className={styles.pathLegend}>
             <span><i />{t('animationPathKeyframes')}</span><span><i className={styles.currentCamera} />{t('animationPathCurrent')}</span>
             <Button variant="ghost" size="sm" icon={<Focus size={15} />} disabled={busy} onClick={overview.fit}>{t('animationPathFit')}</Button>
@@ -239,26 +258,28 @@ export function CameraAnimationPanel({ open, viewerRef, portrait, onPortraitChan
             </div>
             <h3 className={styles.settingsTitle}>{t('animationOutput')}</h3>
             <div className={styles.settings}>
-              <label>{t('animationAspect')}<select value={String(portrait)} onChange={event => { onPortraitChange(event.target.value === 'true'); invalidate(); }}><option value="false">{t('animationLandscape')}</option><option value="true">{t('animationPortrait')}</option></select></label>
-              <label>{t('animationResolution')}<select value={resolution} onChange={event => { setResolution(Number(event.target.value)); invalidate(); }}><option value="1080">1080p</option><option value="2160">4K</option></select></label>
-              <label>{t('animationFps')}<select value={fps} onChange={event => { setFps(Number(event.target.value)); invalidate(); }}>{[24, 30, 60].map(value => <option key={value} value={value}>{value} fps</option>)}</select></label>
-              <label>{t('animationEasing')}<select value={easing} onChange={event => { setEasing(event.target.value as CameraAnimationCurve); invalidate(); }}>{CAMERA_ANIMATION_CURVES.map(curve => <option key={curve} value={curve}>{t(`animationCurve${curveSuffix[curve]}`)}</option>)}</select></label>
+              <div className={styles.setting}><span>{t('animationAspect')}</span><SelectMenu portal className={styles.select} ariaLabel={t('animationAspect')} value={String(portrait)} disabled={locked} options={[{ value: 'false', label: t('animationLandscape') }, { value: 'true', label: t('animationPortrait') }]} onChange={value => { onPortraitChange(value === 'true'); setCodecStatus('checking'); invalidate(); }} /></div>
+              <div className={styles.setting}><span>{t('animationResolution')}</span><SelectMenu portal className={styles.select} ariaLabel={t('animationResolution')} value={String(resolution)} disabled={locked} options={[{ value: '1080', label: '1080p' }, { value: '2160', label: '4K' }]} onChange={value => { setResolution(Number(value)); setCodecStatus('checking'); invalidate(); }} /></div>
+              <div className={styles.setting}><span>{t('animationFps')}</span><SelectMenu portal className={styles.select} ariaLabel={t('animationFps')} value={String(fps)} disabled={locked} options={[24, 30, 60].map(value => ({ value: String(value), label: `${value} fps` }))} onChange={value => { setFps(Number(value)); setCodecStatus('checking'); invalidate(); }} /></div>
+              <div className={styles.setting}><span>{t('animationFormat')}</span><SelectMenu portal className={styles.select} ariaLabel={t('animationFormat')} value={format} disabled={locked} options={[{ value: 'webm', label: 'WebM' }, { value: 'mp4', label: 'MP4 · H.264' }]} onChange={value => { setFormat(value as AnimationVideoFormat); setCodecStatus('checking'); invalidate(); }} /></div>
+              <div className={[styles.setting, styles.wideSetting].join(' ')}><span>{t('animationEasing')}</span><SelectMenu portal className={styles.select} ariaLabel={t('animationEasing')} value={easing} disabled={locked} options={CAMERA_ANIMATION_CURVES.map(curve => ({ value: curve, label: t(`animationCurve${curveSuffix[curve]}`) }))} onChange={value => { setEasing(value as CameraAnimationCurve); invalidate(); }} /></div>
             </div>
             <div className={styles.curvePreview}>
               <svg viewBox="0 0 80 44" aria-hidden="true"><path className={styles.curveGuide} d="M4 4V40H76" /><path d={easing === 'linear' ? 'M4 40L76 4' : easing === 'cinematic' ? 'M4 40C20 40 23 28 40 22S60 4 76 4' : easing === 'sine' ? 'M4 40C28 40 52 4 76 4' : easing === 'quintic' ? 'M4 40C42 40 38 4 76 4' : 'M4 40C35 40 45 4 76 4'} /></svg>
               <p>{t(`animationCurveHint${curveSuffix[easing]}`)}</p>
             </div>
           </fieldset>
-          <p className={styles.hint}>{t('animationExportHint', { width, height, fps })}</p>
+          <p className={styles.hint}>{t('animationExportHint', { width, height, fps, format: format === 'mp4' ? 'MP4 · H.264' : 'WebM' })}</p>
+          {codecStatus !== 'supported' && <p className={styles.hint} role="status">{t(codecStatus === 'checking' ? 'animationCodecChecking' : format === 'mp4' ? 'animationMp4Unavailable' : 'animationCodecUnavailable')}</p>}
           {duration > 120 && <p className={styles.error} role="alert">{t('animationLimits')}</p>}
           {error && <p className={styles.error} role="alert">{t(error)}</p>}
           {busy && <div className={styles.progress} aria-live="polite"><label>{t('animationRendering')}<span>{Math.round(progress * 100)}%</span></label><progress max="1" value={progress} /><Button variant="secondary" size="sm" onClick={() => abortRef.current?.abort()}>{t('animationCancel')}</Button></div>}
-          {resultUrl && <a className={styles.download} href={resultUrl} download="camera-animation.webm"><Download size={17} />{t('animationDownload')}</a>}
+          {resultUrl && <a className={styles.download} href={resultUrl} download={`camera-animation.${format}`}><Download size={17} />{t('animationDownload')}</a>}
         </div>
-        <footer><span>{t('animationSummary', { count: frames.length, seconds: duration.toFixed(1) })}</span><Button icon={<Download size={16} />} disabled={locked || frames.length < 2 || duration > 120} onClick={() => void exportVideo()}>{t('animationExport')}</Button></footer>
+        <footer><span>{t('animationSummary', { count: frames.length, seconds: duration.toFixed(1) })}</span><Button icon={<Download size={16} />} disabled={locked || codecStatus !== 'supported' || frames.length < 2 || duration > 120} onClick={() => void exportVideo()}>{t('animationExport')}</Button></footer>
       </aside>
       <div className={styles.playback}>
-        <Button variant="secondary" iconOnly icon={playing ? <Pause size={19} /> : <Play size={19} />} aria-label={t(playing ? 'animationPause' : 'animationPlay')} disabled={busy || frames.length < 2 || duration > 120} onClick={playing ? stop : play} />
+        <Button variant="secondary" size="sm" icon={playing ? <Pause size={18} /> : <Play size={18} />} disabled={busy || frames.length < 2 || duration > 120} onClick={playing ? stop : play}>{t(playing ? 'animationPause' : 'animationPlay')}</Button>
         <span>{time.toFixed(1)} / {duration.toFixed(1)} s</span>
         <input type="range" aria-label={t('animationTimeline')} min="0" max={duration || 1} step="0.01" value={Math.min(time, duration)} disabled={busy || frames.length < 2} onChange={event => seek(Number(event.target.value))} />
       </div>

@@ -3,7 +3,8 @@ import { it } from 'node:test';
 import * as THREE from 'three';
 import { animationDuration, animationFrameCount, animationFrameTime, applyCameraPose, captureCameraPose, parseCameraAnimation, sampleCameraAnimation } from './cameraAnimation.js';
 import type { CameraKeyframe } from './cameraAnimation.js';
-import { createWebm, encodeAnimationVideo } from './webmVideo.js';
+import { createWebm, encodeAnimationVideo, getAnimationEncoderConfig } from './webmVideo.js';
+import { createMp4 } from './mp4Video.js';
 import { cameraFrustumVertices, CAMERA_PATH_LAYER, cameraPathSampleTimes, disposeCameraPath, isolateCameraPath } from './cameraPathGeometry.js';
 
 const a: CameraKeyframe = { id: 'a', seconds: 3, position: [0, 0, 5], quaternion: [0, 0, 0, 1], target: [0, 0, 0], fov: 60 };
@@ -112,6 +113,55 @@ it('missing WebCodecs gives a stable capability error before attempting to rende
     signal: new AbortController().signal, onProgress: () => {},
     render: () => { throw new Error('must not render'); },
   }), /animationCodecUnavailable/);
+});
+
+it('MP4 sample table points to the exact AVC payload and preserves fixed cadence and keyframes', async () => {
+  const packets = [0, 1, 2].map(index => ({ bytes: new Uint8Array([0, 0, 0, 1, index]), timestamp: Math.round(index * 1e6 / 30), key: index !== 1 }));
+  const description = new Uint8Array([1, 100, 0, 40, 255, 225, 0]);
+  const blob = createMp4(packets, description, 1920, 1080, 30);
+  const bytes = new Uint8Array(await blob.arrayBuffer()); const view = new DataView(bytes.buffer);
+  const find = (name: string) => {
+    const pattern = new TextEncoder().encode(name);
+    const index = bytes.findIndex((_, i) => pattern.every((value, n) => bytes[i + n] === value));
+    assert.ok(index >= 4, name); return index;
+  };
+  assert.equal(blob.type, 'video/mp4'); assert.equal(find('ftyp'), 4);
+  assert.deepEqual([...bytes.slice(find('avcC') + 4, find('avcC') + 11)], [...description]);
+  const offset = view.getUint32(find('stco') + 12);
+  assert.equal(offset, find('mdat') + 4);
+  assert.deepEqual([...bytes.slice(offset)], packets.flatMap(packet => [...packet.bytes]));
+  assert.equal(view.getUint32(find('stts') + 12), 3);
+  assert.equal(view.getUint32(find('stts') + 16), 3000);
+  assert.deepEqual([view.getUint32(find('stss') + 12), view.getUint32(find('stss') + 16)], [1, 3]);
+});
+
+it('MP4 rejects missing AVC metadata, non-key starts and reordered output instead of writing a broken file', () => {
+  const packet = { bytes: new Uint8Array([1]), timestamp: 0, key: true };
+  const description = new Uint8Array([1, 100, 0, 40, 255, 225, 0]);
+  for (const packets of [[], [{ ...packet, key: false }], [packet, { ...packet, timestamp: 66667 }, { ...packet, timestamp: 33333 }]]) {
+    assert.throws(() => createMp4(packets, description, 1920, 1080, 30), /animationEncodeFailed/);
+  }
+  assert.throws(() => createMp4([packet], new Uint8Array(), 1920, 1080, 30), /animationEncodeFailed/);
+});
+
+it('MP4 capability probes levels for 4K60 and falls back within AVC without silently selecting WebM', async () => {
+  const oldEncoder = Object.getOwnPropertyDescriptor(globalThis, 'VideoEncoder');
+  const oldFrame = Object.getOwnPropertyDescriptor(globalThis, 'VideoFrame');
+  const seen: VideoEncoderConfig[] = [];
+  try {
+    Object.defineProperty(globalThis, 'VideoFrame', { configurable: true, value: class {} });
+    Object.defineProperty(globalThis, 'VideoEncoder', { configurable: true, value: {
+      isConfigSupported: async (config: VideoEncoderConfig) => { seen.push(config); return { supported: config.codec === 'avc1.4d0034' }; },
+    } });
+    const config = await getAnimationEncoderConfig(2160, 3840, 60, 'mp4');
+    assert.equal(config.codec, 'avc1.4d0034'); assert.equal(config.latencyMode, 'realtime');
+    assert.deepEqual(config.avc, { format: 'avc' });
+    await assert.rejects(getAnimationEncoderConfig(1920, 1080, 30, 'mp4'), /animationMp4Unavailable/);
+    assert.ok(seen.every(candidate => candidate.codec.startsWith('avc1.')));
+  } finally {
+    if (oldEncoder) Object.defineProperty(globalThis, 'VideoEncoder', oldEncoder); else Reflect.deleteProperty(globalThis, 'VideoEncoder');
+    if (oldFrame) Object.defineProperty(globalThis, 'VideoFrame', oldFrame); else Reflect.deleteProperty(globalThis, 'VideoFrame');
+  }
 });
 it('overview frustum preserves the real field of view and aspect', () => {
   const length = 2; const aspect = 16 / 9;

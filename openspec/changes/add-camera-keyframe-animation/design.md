@@ -4,9 +4,9 @@ useViewer 暴露 Three 相机、OrbitControls 与 SparkRenderer，拥有常驻�
 
 ## Goals / Non-Goals
 
-**Goals:** 手动关键帧、排序/替换/时长、连续播放与定位、项目 JSON 保存/载入、逐帧 WebM 下载，保持模型原始数据和方向。
+**Goals:** 手动关键帧、排序/替换/时长、连续播放与定位、项目 JSON 保存/载入、逐帧 WebM / MP4 下载，保持模型原始数据和方向。
 
-**Non-Goals:** 音轨、时间轴模型变形、后端渲染队列、自动运镜、MP4 转码。
+**Non-Goals:** 音轨、时间轴模型变形、后端渲染队列、自动运镜、服务端转码。
 
 ## Decisions
 
@@ -26,3 +26,10 @@ useViewer 暴露 Three 相机、OrbitControls 与 SparkRenderer，拥有常驻�
 ## Migration Plan
 
 无用户数据迁移。普通查看器仅新增可选相机接管接口，关闭面板恢复原行为；可回退源码与同提交 dist。
+
+## 交互补齐（2026-10-21）
+
+- 恢复视角复用主查看器初始相机和模型元数据取景，只允许在动画未导出时同步重置；保持动画的自由控制限制，不删除、替换或重采样关键帧。
+- 播放控件显示“播放预览”文字；输出选项复用 SelectMenu。格式为会话输出配置，不改旧 JSON 草稿结构。
+- 默认 WebM 不变；MP4 直接使用 WebCodecs H.264 AVC 长度前缀样本和 decoderConfig.description，写入标准 avcC、样本表及同步帧表。使用 realtime 禁止 B 帧重排序，并验证输出时间戳顺序；失败给出提示而不生成伪 MP4。
+- 按分辨率/帧率检测实际编码配置，H.264 profile/level 覆盖 1080p 与 4K；不支持 MP4 时明确引导使用 WebM，不自动改变用户格式/画质。编码上限和退出恢复继续复用既有逻辑。
