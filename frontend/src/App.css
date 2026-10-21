@@ -177,7 +177,8 @@ body:has([data-model-editor]) .mobile-menu-btn { display: none; }
   outline-offset: 2px;
 }
 
-.viewer-library-add:disabled {
+.viewer-library-add:disabled,
+.viewer-library-back:disabled {
   cursor: wait;
   opacity: 0.62;
 }
@@ -197,7 +198,7 @@ body:has([data-model-editor]) .mobile-menu-btn { display: none; }
 
 @media (max-width: 560px) {
   .viewer-library-actions {
-    right: 16px;
+    right: 88px;
     flex-wrap: wrap;
   }
 

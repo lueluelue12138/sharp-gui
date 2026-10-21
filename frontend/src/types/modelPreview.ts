@@ -11,6 +11,7 @@ export type ViewerOrientationReason =
   | 'source-image'
   | 'source-video'
   | 'legacy-video'
+  | 'external-fallback'
   | 'unknown-fallback';
 
 export type CurrentModelSource =
@@ -40,6 +41,7 @@ export interface CurrentModelDescriptor {
 }
 
 export interface ViewerOrientationInput {
+  source?: CurrentModelSource;
   viewerOrientation?: unknown;
   sourceMediaType?: unknown;
   legacyVideo?: boolean;

@@ -1036,6 +1036,7 @@ export const useViewer = (
         useAppStore.getState().currentModelDescriptor,
       ) === currentModelLoadKey;
     const resolvedOrientation = resolveViewerOrientation({
+      source: currentModelDescriptor?.source,
       viewerOrientation: currentModelOrientationHint,
       sourceMediaType: currentModelSourceMediaType,
     });

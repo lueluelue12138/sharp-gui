@@ -15,8 +15,11 @@ from PIL import Image
 
 from backend.services import model_gallery
 from backend.services.model_orientation import (
+    VIEWER_ORIENTATION_DEFAULT,
     VIEWER_ORIENTATION_UNKNOWN,
+    VIEWER_ORIENTATION_Y_FRONT,
     normalize_source_media_type,
+    normalize_viewer_orientation,
     normalize_viewer_camera,
     normalize_viewer_transform,
     resolve_viewer_orientation,
@@ -27,7 +30,7 @@ from backend.services.static_files import get_relative_files_path, is_real_path_
 # 用进程级可重入锁串行化写路径，避免相互覆盖导致记录丢失。
 _INDEX_LOCK = threading.RLock()
 _DOWNLOAD_LOCK = threading.Lock()
-INDEX_VERSION = 5
+INDEX_VERSION = 6
 
 # 导入资产在索引中的稳定身份字段，编辑封面/资料时需要原样保留。
 IMPORTED_IDENTITY_KEYS = ("model_path", "format", "original_name", "imported_at", "created_at")
@@ -396,6 +399,7 @@ def parse_ply_header_metadata(path):
         "ply_vertex_properties": [],
         "ply_vertex_property_types": [],
         "ply_elements": [],
+        "ply_element_properties": {},
         "ply_header_bytes": marker.end(),
     }
     result = {
@@ -420,14 +424,56 @@ def parse_ply_header_metadata(path):
                     result["point_count"] = int(parts[2])
                 except ValueError:
                     pass
-        elif keyword == "property" and current_element == "vertex" and len(parts) >= 3:
-            metadata["ply_vertex_properties"].append(parts[-1])
-            metadata["ply_vertex_property_types"].append(parts[1])
+        elif keyword == "property" and current_element and len(parts) >= 3:
+            metadata["ply_element_properties"].setdefault(current_element, []).append(parts[1:])
+            if current_element == "vertex":
+                metadata["ply_vertex_properties"].append(parts[-1])
+                metadata["ply_vertex_property_types"].append(parts[1])
 
     properties = metadata.get("ply_vertex_properties") or []
     if properties:
         result["attributes"] = properties
     return result
+
+
+def is_ml_sharp_ply_metadata(parsed):
+    """只识别上游 save_ply 的完整八元素结构，不凭文件名或几何形状猜来源。"""
+    metadata = parsed.get('metadata', {})
+    elements = metadata.get('ply_elements', [])
+    properties = metadata.get('ply_element_properties', {})
+    supplement = [
+        ('extrinsic', 16, 'float'), ('intrinsic', 9, 'float'),
+        ('image_size', 2, 'uint'), ('frame', 2, 'int'),
+        ('disparity', 2, 'float'), ('color_space', 1, 'uchar'), ('version', 3, 'uchar'),
+    ]
+    if (parsed.get('version') != '1.0' or
+            metadata.get('ply_header_format') not in ('ascii', 'binary_little_endian', 'binary_big_endian') or
+            len(elements) != 8 or
+            elements[0] != ['vertex', str(parsed.get('point_count'))] or
+            not isinstance(parsed.get('point_count'), int) or parsed['point_count'] < 1):
+        return False
+    if elements[1:] != [[name, str(count)] for name, count, _ in supplement]:
+        return False
+    for name, _, scalar_type in supplement:
+        if properties.get(name) != [[scalar_type, name]]:
+            return False
+    vertex_properties = properties.get('vertex', [])
+    required = ['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity',
+                'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3']
+    return all(['float', name] in vertex_properties for name in required)
+
+
+def resolve_imported_preview(record, derived):
+    """保留已校准的预览；只有未知导入使用结构识别及通用取景默认值。"""
+    source = normalize_source_media_type(record.get('source_media_type'))
+    orientation = normalize_viewer_orientation(record.get('viewer_orientation'))
+    if orientation != VIEWER_ORIENTATION_UNKNOWN:
+        return source, orientation
+    if source:
+        return source, resolve_viewer_orientation(source_media_type=source)
+    if is_ml_sharp_ply_metadata(derived):
+        return 'image', VIEWER_ORIENTATION_DEFAULT
+    return None, VIEWER_ORIENTATION_Y_FRONT
 
 
 def derive_model_metadata(files):
@@ -642,12 +688,11 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
         and os.path.isfile(model_path)
     )
 
-    source_media_type = normalize_source_media_type(record.get("source_media_type"))
-    viewer_orientation = resolve_viewer_orientation(
-        record.get("viewer_orientation"),
-        source_media_type=source_media_type,
-        source_type=SOURCE_IMPORTED,
-    )
+    files = {fmt: model_path} if available and fmt and model_path else {}
+    needs_detection = (normalize_viewer_orientation(record.get('viewer_orientation')) == VIEWER_ORIENTATION_UNKNOWN
+                       and not normalize_source_media_type(record.get('source_media_type')))
+    derived = derive_model_metadata(files) if include_details or needs_detection else {}
+    source_media_type, viewer_orientation = resolve_imported_preview(record, derived)
 
     descriptors = []
     if available:
@@ -662,8 +707,6 @@ def build_imported_asset(paths, asset_id, record, include_details=False):
     size = descriptors[0]["size"] if descriptors else 0
     created_at = record.get("created_at") or record.get("imported_at") or utc_now_iso()
     modified_at = descriptors[0]["modified_at"] if descriptors else record.get("updated_at") or created_at
-    files = {fmt: model_path} if available and fmt and model_path else {}
-    derived = derive_model_metadata(files) if include_details else {}
     derived_metadata = derived.get("metadata") if isinstance(derived.get("metadata"), dict) else {}
     record_metadata = record.get("metadata", {}) if isinstance(record.get("metadata"), dict) else {}
     detail_metadata = {}
@@ -1274,10 +1317,12 @@ def import_model_assets(paths, files):
         saved_paths.append(target_path)
 
         asset_id = f"imported-{uuid.uuid4().hex[:12]}"
+        source_media_type, viewer_orientation = resolve_imported_preview({}, derive_model_metadata({fmt: target_path}))
         record = {
             "asset_id": asset_id,
             "source_type": SOURCE_IMPORTED,
-            "viewer_orientation": VIEWER_ORIENTATION_UNKNOWN,
+            "source_media_type": source_media_type,
+            "viewer_orientation": viewer_orientation,
             "model_path": workspace_relative_path(paths, target_path),
             "format": fmt,
             "original_name": original_name,

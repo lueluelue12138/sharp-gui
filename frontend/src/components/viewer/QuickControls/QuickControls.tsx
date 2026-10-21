@@ -46,6 +46,7 @@ function getOrientationReasonLabelKey(
   if (reason === 'source-image') return 'quickControlsDebugOrientationReasonSourceImage';
   if (reason === 'source-video') return 'quickControlsDebugOrientationReasonSourceVideo';
   if (reason === 'legacy-video') return 'quickControlsDebugOrientationReasonLegacyVideo';
+  if (reason === 'external-fallback') return 'quickControlsDebugOrientationReasonExternalFallback';
   return 'quickControlsDebugOrientationReasonUnknownFallback';
 }
 

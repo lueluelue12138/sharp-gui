@@ -19,6 +19,10 @@ For everyday operation, the app includes contextual controls. This page collects
 5. **Details metadata** - File name, format, source, timestamps, and size come from the index and filesystem. PLY/SPLAT can expose some point count or property data; SPZ/RAD bounding boxes, coordinate systems, LoD, and similar advanced fields only appear when the source file or sidecar metadata provides them, so unknown fields are not fabricated.
 6. **View source media** - The details-panel thumbnail opens the linked source image or video when one exists. Without a linked source, it only acts as the model cover.
 
+External models default to the video model orientation and bounds-centered framing branch. Original ml-sharp PLY files with the complete camera / image element schema use the single-image preview. SPZ, SPLAT, and unmarked PLY files do not establish provenance; these assets remain classified as Imported. Explicit calibration and saved cameras take precedence. Importing copies the file without rewriting coordinates. See the [external preview details (Chinese)](imported-model-preview.md).
+
+For an editable temporary preview, choose **Add & Edit** to save it to the asset library and enter the editor, or use **Add to Library** to import only. Original multi-element ml-sharp PLY and RAD remain unsupported for editing.
+
 ## Edit Models
 
 1. **Open the editor** — Use Edit Model on an asset card or in its details, or open the model and use the bottom toolbar.

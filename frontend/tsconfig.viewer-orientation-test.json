@@ -9,6 +9,7 @@
   },
   "include": [
     "src/utils/viewerOrientation.ts",
+    "src/utils/importedModelPreview.ts",
     "src/utils/viewerOrientation.test.ts",
     "src/utils/viewerRuntime.ts",
     "src/utils/modelAssets.ts",

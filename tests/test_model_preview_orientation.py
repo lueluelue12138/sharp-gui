@@ -129,7 +129,7 @@ def test_model_asset_api_projects_orientation_to_details_and_companion_files(cli
         )
 
 
-def test_imported_asset_projects_unknown_orientation_in_all_shapes(tmp_path):
+def test_imported_asset_uses_generic_preview_without_claiming_video_provenance(tmp_path):
     paths = build_path_context({"workspace_folder": str(tmp_path / "workspace")})
     ensure_runtime_directories(paths)
 
@@ -139,17 +139,17 @@ def test_imported_asset_projects_unknown_orientation_in_all_shapes(tmp_path):
     )["assets"][0]
 
     assert imported["source_media_type"] is None
-    assert imported["viewer_orientation"] == VIEWER_ORIENTATION_UNKNOWN
-    assert imported["metadata"]["viewer_orientation"] == VIEWER_ORIENTATION_UNKNOWN
+    assert imported["viewer_orientation"] == VIEWER_ORIENTATION_Y_FRONT
+    assert imported["metadata"]["viewer_orientation"] == VIEWER_ORIENTATION_Y_FRONT
     assert imported["files"][0]["source_media_type"] is None
-    assert imported["files"][0]["viewer_orientation"] == VIEWER_ORIENTATION_UNKNOWN
+    assert imported["files"][0]["viewer_orientation"] == VIEWER_ORIENTATION_Y_FRONT
 
     summary = model_assets.list_model_assets(paths, {})["items"][0]
     detail = model_assets.get_model_asset(paths, imported["id"])
     for asset in (summary, detail):
         assert asset["source_media_type"] is None
-        assert asset["viewer_orientation"] == VIEWER_ORIENTATION_UNKNOWN
-        assert asset["files"][0]["viewer_orientation"] == VIEWER_ORIENTATION_UNKNOWN
+        assert asset["viewer_orientation"] == VIEWER_ORIENTATION_Y_FRONT
+        assert asset["files"][0]["viewer_orientation"] == VIEWER_ORIENTATION_Y_FRONT
 
 
 def test_old_catalog_is_rebuilt_once_to_add_orientation_context(tmp_path):

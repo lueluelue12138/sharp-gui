@@ -92,8 +92,63 @@ def test_imported_models_use_actual_structure(app, client, sharp):
         imported = model_assets.import_model_assets(paths, [FileStorage(stream=stream, filename='import.ply')])
     asset = imported['assets'][0]
     assert asset['editor_supported'] is (not sharp)
+    assert asset['source_type'] == 'imported'
+    assert asset['source_media_type'] == ('image' if sharp else None)
+    assert asset['viewer_orientation'] == ('default' if sharp else 'y-front')
+    assert client.get(f'/api/model-assets/{asset["id"]}/download').data == path.read_bytes()
     response = client.get(f'/api/model-assets/{asset["id"]}/editor')
     assert response.status_code == (415 if sharp else 200)
+
+
+@pytest.mark.parametrize('sharp', [False, True])
+def test_legacy_import_rebuild_detects_structure_and_preserves_saved_calibration(app, client, sharp):
+    paths = app.config['PATH_CONTEXT']
+    path = make_ply(paths, sharp=sharp)
+    with path.open('rb') as stream:
+        asset = model_assets.import_model_assets(paths, [FileStorage(stream=stream, filename='unknown.ply')])['assets'][0]
+    index_path = Path(paths.model_asset_index_file)
+    index = json.loads(index_path.read_text(encoding='utf-8'))
+    record = index['assets'][asset['id']]
+    record['viewer_orientation'] = 'unknown'
+    record.pop('source_media_type', None)
+    index['version'] = 5
+    index_path.write_text(json.dumps(index), encoding='utf-8')
+    rebuilt = client.get('/api/model-assets').get_json()['items'][0]
+    assert rebuilt['viewer_orientation'] == ('default' if sharp else 'y-front')
+    # 旧记录不需要重写模型；显式校准结果优先于自动识别。
+    index = model_assets.read_asset_index(paths)
+    record = index['assets'][asset['id']]
+    record['viewer_orientation'] = 'default'
+    record['viewer_transform'] = dict(positionX=1, positionY=2, positionZ=3,
+                                    rotationX=0, rotationY=0, rotationZ=0, scale=1)
+    record['viewer_camera'] = dict(position=[0, 0, 8], target=[0, 0, 0], up=[0, 1, 0],
+                                   fov_y_degrees=50, aspect=1.5)
+    model_assets.write_asset_index(paths, index)
+    model_assets.refresh_model_asset_catalog(paths)
+    detail = client.get(f'/api/model-assets/{asset["id"]}').get_json()
+    assert detail['viewer_orientation'] == 'default'
+    assert detail['viewer_camera'] == record['viewer_camera']
+    assert detail['viewer_transform'] == record['viewer_transform']
+
+
+@pytest.mark.parametrize('change', ['name', 'count', 'type', 'missing'])
+def test_partial_or_similar_ply_header_is_not_classified_as_sharp(app, change):
+    paths = app.config['PATH_CONTEXT']
+    path = make_ply(paths, sharp=True)
+    content = path.read_bytes()
+    if change == 'name':
+        content = content.replace(b'element intrinsic 9', b'element camera 9')
+    elif change == 'count':
+        content = content.replace(b'element extrinsic 16', b'element extrinsic 12')
+    elif change == 'type':
+        content = content.replace(b'property uint image_size', b'property float image_size')
+    else:
+        content = content.replace(b'element version 3\nproperty uchar version\n', b'')
+    path.write_bytes(content)
+    with path.open('rb') as stream:
+        asset = model_assets.import_model_assets(paths, [FileStorage(stream=stream, filename='ml-sharp.ply')])['assets'][0]
+    assert asset['viewer_orientation'] == 'y-front'
+    assert asset['source_media_type'] is None
 
 
 @pytest.mark.parametrize('fmt', ['spz', 'splat'])

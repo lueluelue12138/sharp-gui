@@ -41,6 +41,13 @@ export function resolveViewerOrientation(
     };
   }
 
+  if (input.source === 'model-asset-imported' || input.source === 'temporary') {
+    return {
+      mode: 'y-front',
+      reason: 'external-fallback',
+    };
+  }
+
   return {
     mode: 'default',
     reason: 'unknown-fallback',

@@ -37,6 +37,7 @@ import { useModelSourceLinks } from '@/hooks/useModelSources';
 import { SourceModelPanel } from '@/components/photoGallery/SourceModelPanel';
 import { useAppStore } from '@/store';
 import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
+import { detectImportedModelOrientation } from '@/utils/importedModelPreview';
 import type {
   ModelAssetImportFileEntry,
   ModelAssetImportPhase,
@@ -52,6 +53,7 @@ interface TemporaryModelPreview {
   file: File;
   format: DroppedModelFormat;
   url: string;
+  editCandidate?: boolean;
 }
 
 interface ModelAssetImportDialogState {
@@ -345,10 +347,14 @@ function App() {
     setSettingsModalOpen(true);
   }, [dismissAccessSetupPrompt, setSettingsModalOpen]);
 
-  const handlePreviewModelFile = useCallback((file: File, format: DroppedModelFormat) => {
+  const handlePreviewModelFile = useCallback(async (file: File, format: DroppedModelFormat) => {
     console.log('📦 Loading dropped model:', file.name, 'format:', format);
     const blobUrl = URL.createObjectURL(file);
-    replaceTemporaryModelPreview({ file, format, url: blobUrl });
+    const preview: TemporaryModelPreview = { file, format, url: blobUrl };
+    replaceTemporaryModelPreview(preview);
+    const viewerOrientation = await detectImportedModelOrientation(file, format);
+    if (temporaryModelPreviewRef.current !== preview) return;
+    replaceTemporaryModelPreview({ ...preview, editCandidate: format !== 'rad' && viewerOrientation !== 'default' });
     setModelAssetLibraryOpen(false);
     setCurrentModel({
       id: `temporary:${blobUrl}`,
@@ -357,7 +363,7 @@ function App() {
       size: file.size,
       source: 'temporary',
       sourceMediaType: null,
-      viewerOrientation: 'unknown',
+      viewerOrientation,
     });
   }, [replaceTemporaryModelPreview, setCurrentModel]);
 
@@ -373,6 +379,7 @@ function App() {
   const importModelFileArray = useCallback(async (
     files: File[],
     origin: ModelAssetImportOrigin,
+    openEditor = false,
   ) => {
     if (files.length === 0 || useAppStore.getState().modelAssetImporting) {
       return;
@@ -443,8 +450,8 @@ function App() {
           sourceMediaType: firstModelSource.sourceMediaType,
           viewerOrientation: firstModelSource.viewerOrientation,
           viewerCamera: firstModelSource.viewerCamera,
-        viewerTransform: firstModelSource.viewerTransform,
-        });
+          viewerTransform: firstModelSource.viewerTransform,
+        }, { openEditor: openEditor && firstAsset.editor_supported === true });
         replaceTemporaryModelPreview(null);
       }
       setModelAssetImporting(false);
@@ -457,6 +464,11 @@ function App() {
         failedCount,
         errorMessage: null,
       });
+      if (openEditor && firstAsset?.editor_supported && firstModelSource?.url) {
+        setModelAssetImportDialog(null);
+      } else if (openEditor && firstAsset) {
+        setAuthPermissionError(t('modelAssetEditUnsupported'));
+      }
     } catch (error) {
       const message = getImportErrorMessage(error, t);
       const failures = getImportFailuresFromError(error);
@@ -489,6 +501,7 @@ function App() {
     mergeModelAssetRefresh,
     preferredModelFormat,
     replaceTemporaryModelPreview,
+    setAuthPermissionError,
     setCurrentModel,
     setModelAssetImporting,
     showModelAssetWritePermissionError,
@@ -510,11 +523,11 @@ function App() {
     openModelAssetLibrary();
   }, [openModelAssetLibrary]);
 
-  const addTemporaryPreviewToLibrary = useCallback(() => {
+  const addTemporaryPreviewToLibrary = useCallback((openEditor = false) => {
     if (!temporaryModelPreview) {
       return;
     }
-    void importModelFileArray([temporaryModelPreview.file], 'preview');
+    void importModelFileArray([temporaryModelPreview.file], 'preview', openEditor);
   }, [importModelFileArray, temporaryModelPreview]);
 
   // Handle image/video upload or direct model preview
@@ -541,7 +554,7 @@ function App() {
         return;
       }
       if (modelFiles.length === 1) {
-        handlePreviewModelFile(modelFiles[0].file, modelFiles[0].format);
+        await handlePreviewModelFile(modelFiles[0].file, modelFiles[0].format);
         return;
       }
       await importModelFileArray(modelFiles.map((entry) => entry.file), 'main-batch');
@@ -716,10 +729,20 @@ function App() {
                       className="viewer-library-add"
                       type="button"
                       disabled={modelAssetImporting}
-                      onClick={addTemporaryPreviewToLibrary}
+                      onClick={() => addTemporaryPreviewToLibrary()}
                     >
                       <CloudUploadIcon width={16} height={16} aria-hidden="true" />
                       {t('modelAssetAddToLibrary')}
+                    </button>
+                  ) : null}
+                  {temporaryModelPreview?.editCandidate && isOwnerAccess ? (
+                    <button
+                      className="viewer-library-back"
+                      type="button"
+                      disabled={modelAssetImporting}
+                      onClick={() => addTemporaryPreviewToLibrary(true)}
+                    >
+                      {t('modelAssetAddAndEdit')}
                     </button>
                   ) : null}
                 </div>

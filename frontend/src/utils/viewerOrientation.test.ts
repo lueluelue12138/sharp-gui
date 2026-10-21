@@ -6,6 +6,7 @@ import { canEditModelAsset, resolveModelAssetSource } from './modelAssets.js';
 import { getShareBoundsView } from './shareFraming.js';
 import { getNextModelReloadToken } from './modelPreviewState.js';
 import { resolveViewerOrientation } from './viewerOrientation.js';
+import { detectImportedModelOrientation, hasMlSharpPlyHeader } from './importedModelPreview.js';
 import {
   composeViewerModelQuaternion,
   getReconstructionCameraView,
@@ -24,6 +25,39 @@ const cameraHint: ViewerCameraHint = {
   position: [1, 2, 3], target: [1, 2, 6], up: [0, 1, 0],
   fov_y_degrees: 50, aspect: 16 / 9,
 };
+
+describe('bounded external model detection', () => {
+  const sharpHeader = [
+    'ply', 'format binary_little_endian 1.0', 'element vertex 9',
+    ...['x', 'y', 'z', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1',
+      'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3'].map((name) => `property float ${name}`),
+    'element extrinsic 16', 'property float extrinsic',
+    'element intrinsic 9', 'property float intrinsic',
+    'element image_size 2', 'property uint image_size',
+    'element frame 2', 'property int frame',
+    'element disparity 2', 'property float disparity',
+    'element color_space 1', 'property uchar color_space',
+    'element version 3', 'property uchar version', 'end_header', '',
+  ].join('\n');
+
+  it('recognizes complete ml-sharp PLY structure in temporary previews', async () => {
+    assert.equal(hasMlSharpPlyHeader(sharpHeader), true);
+    assert.equal(hasMlSharpPlyHeader(sharpHeader.replaceAll('\n', '\r\n')), true);
+    assert.equal(await detectImportedModelOrientation(new Blob([sharpHeader]), 'ply'), 'default');
+  });
+
+  it('does not guess from incomplete schemas, filenames or compressed formats', async () => {
+    for (const header of [sharpHeader.replace('element intrinsic 9', 'element camera 9'),
+      sharpHeader.replace('element extrinsic 16', 'element extrinsic 12'),
+      sharpHeader.replace('property uint image_size', 'property float image_size'),
+      sharpHeader.replace('element vertex 9', 'element vertex NaN'),
+      sharpHeader.replace('end_header', ''), 'ply\ncomment ml-sharp\nend_header\n']) {
+      assert.equal(hasMlSharpPlyHeader(header), false);
+      assert.equal(await detectImportedModelOrientation(new Blob([header]), 'ply'), 'y-front');
+    }
+    assert.equal(await detectImportedModelOrientation(new Blob([sharpHeader]), 'spz'), 'y-front');
+  });
+});
 
 it('edit capability comes from the verified file structure, not format or media labels', () => {
   const asset: ModelAsset = {
@@ -125,7 +159,7 @@ describe('resolveViewerOrientation', () => {
     );
   });
 
-  it('falls back conservatively for imports and invalid or missing context', () => {
+  it('keeps generated models on their existing fallback when context is missing', () => {
     assert.deepEqual(
       resolveViewerOrientation({
         viewerOrientation: 'sideways',
@@ -140,6 +174,17 @@ describe('resolveViewerOrientation', () => {
       mode: 'default',
       reason: 'unknown-fallback',
     });
+  });
+
+  it('uses the video branch only for unknown external sources, after saved or trusted hints', () => {
+    for (const source of ['temporary', 'model-asset-imported'] as const) {
+      assert.deepEqual(resolveViewerOrientation({ source, viewerOrientation: 'unknown' }), {
+        mode: 'y-front', reason: 'external-fallback',
+      });
+      assert.equal(resolveViewerOrientation({ source, viewerOrientation: 'default' }).mode, 'default');
+      assert.equal(resolveViewerOrientation({ source, sourceMediaType: 'image' }).mode, 'default');
+    }
+    assert.equal(resolveViewerOrientation({ source: 'model-asset-generated' }).mode, 'default');
   });
 
   it('does not use flat image bounds as an orientation signal', () => {
