@@ -47,7 +47,73 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 
 ## 📑 目录
 
-[近期重点更新](#-近期重点更新) · [功能特性](#-功能特性) · [界面预览](#-界面预览) · [快速开始](#-快速开始) · [3D 控制](#3d-交互控制) · [文档导航](#-文档导航)
+<table align="center">
+<tr>
+<td width="190" align="center" valign="top">
+
+### 🚀
+
+**开始上手**
+
+<sub>几分钟跑起来</sub>
+
+<br>
+
+[近期重点更新](#-近期重点更新)<br>
+[快速开始](#-快速开始)<br>
+[使用指南](docs/usage.md)<br>
+[版本与更新](#版本与更新)
+
+</td>
+<td width="190" align="center" valign="top">
+
+### ✨
+
+**功能与设计**
+
+<sub>看看它能做什么</sub>
+
+<br>
+
+[功能特性](#-功能特性)<br>
+[界面预览](#-界面预览)
+
+</td>
+<td width="190" align="center" valign="top">
+
+### ⚙️
+
+**配置与安全**
+
+<sub>自定义与隐私边界</sub>
+
+<br>
+
+[配置选项](docs/deployment.md#%EF%B8%8F-配置选项)<br>
+[视频重建配置](docs/deployment.md#视频重建配置)<br>
+[局域网门禁](#-局域网门禁与隐私边界)
+
+</td>
+<td width="190" align="center" valign="top">
+
+### 🛠️
+
+**开发与社区**
+
+<sub>动手改造、参与贡献</sub>
+
+<br>
+
+[技术架构](docs/development.md#%EF%B8%8F-技术架构)<br>
+[开发者指南](docs/development.md)<br>
+[版本历史](#-版本历史)<br>
+[参与贡献](#-参与贡献) · [致谢](#-致谢)
+
+</td>
+</tr>
+</table>
+
+<div align="center"><sub>📄 <a href="#-许可证">许可证</a> &nbsp;·&nbsp; ⚠️ <a href="#disclaimer">免责声明</a></sub></div>
 
 ---
 
@@ -228,7 +294,7 @@ iOS 26 的"空间照片"带来了令人惊艳的沉浸式体验，但目前仅�
 | RTX 50 系列，包含视频重建环境 | `cu128-rtx50-video-recon` |
 | RTX 50 以下主流 NVIDIA，单图与核心功能 | `cu126-mainstream` |
 
-下载 ZIP 和同名 `.sha256.txt`，核对校验值后解压，双击 `portable-run.bat`。完整便携包面向 NVIDIA GPU；无 NVIDIA 的设备可从源码安装。
+下载 ZIP 和同名 `.sha256.txt`，核对校验值后解压即可，无需运行安装脚本。启动方式见下方「启动应用」。完整便携包面向 NVIDIA GPU；无 NVIDIA 的设备可从源码安装。
 
 ### 从源码安装
 
@@ -239,10 +305,10 @@ git clone https://github.com/lueluelue12138/sharp-gui.git
 cd sharp-gui
 ```
 
-| 平台 | 安装 | 启动 |
-| --- | --- | --- |
-| Windows | `install.bat` | `run.bat` |
-| Linux / macOS | `./install.sh` | `./run.sh` |
+| 平台 | 首次安装 |
+| --- | --- |
+| Windows | `install.bat` |
+| Linux / macOS | `./install.sh` |
 
 通用 Release ZIP 也需要运行安装脚本，它与完整便携包不同。首次安装会下载依赖及约 2.62 GiB 的单图推理模型。完整步骤见[安装、配置与局域网访问](docs/deployment.md)。
 
@@ -250,7 +316,17 @@ cd sharp-gui
 
 视频重建另需 COLMAP、Brush 和 FFmpeg；请选视频完整包，或阅读[视频环境搭建指南](docs/deployment.md#视频重建环境手动搭建指南)。
 
-### 打开与更新
+### 启动应用
+
+在解压后的便携包目录或项目根目录运行；完成安装后，日常使用直接启动即可。
+
+| 安装方式 / 平台 | 启动命令 |
+| --- | --- |
+| Windows 完整便携包 | 双击 `portable-run.bat` |
+| Windows 源码 / 通用 Release ZIP | `run.bat` |
+| Linux / macOS | `./run.sh` |
+
+### 访问与更新
 
 启动后访问 **https://127.0.0.1:5050**，同一局域网的其它设备使用部署电脑的 IP。HTTPS / 陀螺仪准备见[访问说明](docs/deployment.md#启用-https-推荐)。
 

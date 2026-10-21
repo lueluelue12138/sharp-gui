@@ -46,7 +46,73 @@ Built on [Apple ml-sharp](https://github.com/apple/ml-sharp). No cloud uploads n
 
 ## 📑 Table of Contents
 
-[Recent Highlights](#-recent-highlights) · [Features](#-features) · [Preview](#-preview) · [Quick Start](#-quick-start) · [3D Controls](#3d-interaction-controls) · [Documentation](#-documentation)
+<table align="center">
+<tr>
+<td width="190" align="center" valign="top">
+
+### 🚀
+
+**Getting Started**
+
+<sub>Up and running in minutes</sub>
+
+<br>
+
+[Recent Highlights](#-recent-highlights)<br>
+[Quick Start](#-quick-start)<br>
+[Usage Guide](docs/usage.en.md)<br>
+[Version & Updates](#version-and-updates)
+
+</td>
+<td width="190" align="center" valign="top">
+
+### ✨
+
+**Features & Design**
+
+<sub>What Sharp GUI can do</sub>
+
+<br>
+
+[Feature Highlights](#-features)<br>
+[Interface Preview](#-preview)
+
+</td>
+<td width="190" align="center" valign="top">
+
+### ⚙️
+
+**Config & Security**
+
+<sub>Customize and lock down</sub>
+
+<br>
+
+[Configuration](docs/deployment.en.md#%EF%B8%8F-configuration)<br>
+[Video Reconstruction Settings](docs/deployment.en.md#video-reconstruction-configuration)<br>
+[LAN Access Gate](#-lan-access-gate-and-privacy-boundary)
+
+</td>
+<td width="190" align="center" valign="top">
+
+### 🛠️
+
+**Build & Community**
+
+<sub>Hack, ship, and contribute</sub>
+
+<br>
+
+[Architecture](docs/development.en.md#%EF%B8%8F-architecture)<br>
+[Developer Guide](docs/development.en.md)<br>
+[Release History](#-release-history)<br>
+[Contributing](#-contributing) · [Credits](#-acknowledgements)
+
+</td>
+</tr>
+</table>
+
+<div align="center"><sub>📄 <a href="#-license">License</a> &nbsp;·&nbsp; ⚠️ <a href="#disclaimer">Disclaimer</a></sub></div>
 
 ---
 
@@ -238,10 +304,10 @@ git clone https://github.com/lueluelue12138/sharp-gui.git
 cd sharp-gui
 ```
 
-| Platform | Install | Start |
-| --- | --- | --- |
-| Windows | `install.bat` | `run.bat` |
-| Linux / macOS | `./install.sh` | `./run.sh` |
+| Platform | First-Time Installation |
+| --- | --- |
+| Windows | `install.bat` |
+| Linux / macOS | `./install.sh` |
 
 A generic Release ZIP also requires the install script; it is different from a full portable bundle. Initial installation downloads dependencies and the approximately 2.62 GiB single-image model. See [installation, configuration and LAN access](docs/deployment.en.md) for full steps.
 
@@ -249,7 +315,17 @@ A generic Release ZIP also requires the install script; it is different from a f
 
 Video reconstruction also needs COLMAP, Brush and FFmpeg. Choose the video bundle or follow the [video environment setup guide](docs/deployment.en.md#video-reconstruction-manual-environment-setup).
 
-### Open and Update
+### Start the App
+
+Run from the extracted portable bundle or project root. Once installed, start the app directly for everyday use.
+
+| Installation / Platform | Start Command |
+| --- | --- |
+| Windows full portable bundle | Double-click `portable-run.bat` |
+| Windows source / generic Release ZIP | `run.bat` |
+| Linux / macOS | `./run.sh` |
+
+### Access and Updates
 
 After startup, visit **https://127.0.0.1:5050**. Other devices on your LAN use the host computer's IP. See [HTTPS and sensor setup](docs/deployment.en.md#enable-https-recommended).
 
