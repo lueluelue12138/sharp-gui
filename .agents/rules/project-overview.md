@@ -157,7 +157,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `ml-sharp/` | Apple ML-Sharp 引擎目录 | 上游依赖目录，不要修改内部文件 |
 | `update-manifest.json` | 更新协议、portable runtime revision、默认分支、最低 Git 与受支持包目标 | **受 Git 跟踪**；每个可更新目标必须包含，不得加入 `.gitignore` |
 | `.sharp-gui-update/` | 原子 `state.json`、最近检查目标、操作锁和有界诊断 | 安装级状态；不随 workspace 切换，代码更新/失败恢复期间保留，空闲时删除会丢失检查与操作记录 |
-| `.sharp-gui-tools/` | 固定 MinGit 与 `.sharp-gui-tools/brush/v0.3.0/` 的 Brush CLI | 工具安装器与便携包构建器拥有；保留来源、哈希和许可；代码更新/失败恢复不得替换或删除，不修改系统 PATH |
+| `.sharp-gui-tools/` | 固定 MinGit 与 `.sharp-gui-tools/brush/ooo-v1.0.0/` 的 Brush CLI | 工具安装器与便携包构建器拥有；保留来源、哈希和许可；代码更新/失败恢复不得替换或删除，不修改系统 PATH |
 | `.portable-build/`、`.portable-smoke/`、`.portable-venvs/`、`portable-dist/` | 本地便携包构建缓存和产物 | 构建输出，不属于源码 |
 
 维护要求：
@@ -212,7 +212,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | plyfile | PLY 文件解析 |
 | ml-sharp (sharp CLI) | AI 推理引擎 |
 | ffmpeg / ffprobe | 视频重建抽帧、元数据、poster 和源视频缩略图 |
-| Brush CLI v0.3.0 | 默认视频 3DGS 训练引擎；固定官方二进制与哈希，由 `tools/install_brush.py` 安装 |
+| OOOBrush CLI 1.0.0 | 默认视频 3DGS 训练引擎；固定发布二进制与哈希，由 `tools/install_brush.py` 安装 |
 | 原生 COLMAP / FFmpeg / Brush | 当前唯一视频重建路线；主 ml-sharp 的 gsplat 仍用于图片推理 |
 | COLMAP | 两种视频路线的相机位姿与稀疏几何估计 |
 | pytest | 后端开发/重构验证（仅开发依赖，见 `requirements-dev.txt`） |
@@ -300,7 +300,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
   → outputs/ + 重建诊断 sidecar + 模型图库 + Spark Viewer
 ```
 
-当前只接入视频，不提供多图片任务入口。固定 Brush 安装目录为 `.sharp-gui-tools/brush/v0.3.0/`，原生 COLMAP 位于 `.sharp-gui-tools/colmap/`；缺依赖时显示诊断。
+当前只接入视频，不提供多图片任务入口。固定 Brush 安装目录为 `.sharp-gui-tools/brush/ooo-v1.0.0/`，原生 COLMAP 位于 `.sharp-gui-tools/colmap/`；缺依赖时显示诊断。
 
 开发约束：
 

@@ -213,7 +213,9 @@ Settings 中的「视频重建」区域保存默认质量、实际显存预算�
 
 ### 视频重建环境手动搭建指南
 
-路线为 **ffmpeg/ffprobe → 原生 COLMAP → 官方 Brush CLI v0.3.0**。RTX 50 用户可直接下载 `cu128-rtx50-video-recon` 完整便携包；核心包不包含视频工具。视频工具不需要独立 Python 训练环境或 CUDA Toolkit。
+当前源码路线为 **ffmpeg/ffprobe → 原生 COLMAP → OOOBrush CLI 1.0.0**。核心包不包含视频工具。视频工具不需要独立 Python 训练环境或 CUDA Toolkit。
+
+> v2.0.0 已生成的完整视频包仍使用官方 Brush 0.3.0（runtime revision 3）。本次引擎升级要求 runtime revision 4，不能通过只更新代码获得；新的完整包发布前，源码安装可按下面命令安装固定的新引擎。已有模型无需迁移。
 
 #### 1. 安装视频工具
 
@@ -223,7 +225,7 @@ Settings 中的「视频重建」区域保存默认质量、实际显存预算�
 .\venv\Scripts\python.exe tools/install_video_reconstruction.py
 ```
 
-安装器把原生 COLMAP 放在 `.sharp-gui-tools/colmap/`，把经哈希验证的官方 [Brush v0.3.0](https://github.com/ArthurBrussee/brush/releases/tag/v0.3.0) 放在 `.sharp-gui-tools/brush/v0.3.0/`。旧安装会只迁移已有原生 COLMAP 的程序及 DLL，不复制旧虚拟环境。FFmpeg 与 ffprobe 由 `install.bat` 安装或完整视频包提供。
+安装器把原生 COLMAP 放在 `.sharp-gui-tools/colmap/`，把经哈希验证的 [OOOBrush ooo-v1.0.0](https://github.com/ooolabdev/OOOBrush/releases/tag/ooo-v1.0.0) 放在 `.sharp-gui-tools/brush/ooo-v1.0.0/`。新旧引擎使用独立目录，保留完整来源及许可。FFmpeg 与 ffprobe 由 `install.bat` 安装或完整视频包提供。
 
 Linux/macOS 用户通过系统包管理器安装 COLMAP、FFmpeg，再运行 `python tools/install_brush.py`。需要兼容 GPU 驱动；请使用 Brush CLI，而非仅打开 Brush 编辑器。
 

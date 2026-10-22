@@ -215,7 +215,9 @@ The preferred model format controls previews and downloads: SPZ is compact, whil
 
 ### Video Reconstruction Manual Environment Setup
 
-The route is **ffmpeg/ffprobe → native COLMAP → official Brush CLI v0.3.0**. RTX 50 users can download the complete `cu128-rtx50-video-recon` bundle; core bundles do not include video tools. Video tools do not require a separate Python training environment or CUDA Toolkit.
+The current source route is **ffmpeg/ffprobe → native COLMAP → OOOBrush CLI 1.0.0**. Core bundles do not include video tools. Video tools do not require a separate Python training environment or CUDA Toolkit.
+
+> Existing v2.0.0 video bundles use official Brush 0.3.0 (runtime revision 3). This engine change requires runtime revision 4 and cannot be installed as a code-only update. Until new complete bundles are published, source installations can install the pinned engine with the command below. Existing models require no migration.
 
 #### 1. Install video tools
 
@@ -225,7 +227,7 @@ After installing the core app, run in the Windows project root:
 .\venv\Scripts\python.exe tools/install_video_reconstruction.py
 ```
 
-The installer places native COLMAP in `.sharp-gui-tools/colmap/` and the hash-verified official [Brush v0.3.0](https://github.com/ArthurBrussee/brush/releases/tag/v0.3.0) in `.sharp-gui-tools/brush/v0.3.0/`. Existing installations migrate only native COLMAP programs and DLLs. FFmpeg and ffprobe are supplied by `install.bat` or the complete video bundle.
+The installer places native COLMAP in `.sharp-gui-tools/colmap/` and the hash-verified [OOOBrush ooo-v1.0.0](https://github.com/ooolabdev/OOOBrush/releases/tag/ooo-v1.0.0) in `.sharp-gui-tools/brush/ooo-v1.0.0/`. Engine versions use separate directories with complete provenance and licensing. FFmpeg and ffprobe are supplied by `install.bat` or the complete video bundle.
 
 On Linux/macOS, install COLMAP and FFmpeg using your package manager, then run `python tools/install_brush.py`. A compatible GPU driver is needed. Use the Brush CLI, rather than merely opening its editor.
 

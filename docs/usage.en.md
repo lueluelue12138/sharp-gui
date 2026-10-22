@@ -23,6 +23,14 @@ External models default to the video model orientation and bounds-centered frami
 
 For an editable temporary preview, choose **Add & Edit** to save it to the asset library and enter the editor, or use **Add to Library** to import only. Original multi-element ml-sharp PLY and RAD remain unsupported for editing.
 
+### Reconstruction Information
+
+New image and video models show their measured reconstruction time in asset details. Timing starts when processing begins and ends after model export and compact-file postprocessing; queue time is excluded. Video summaries include the engine version, preset, source resolution, registered frames, training iterations and image long-edge cap. Expand stage timings to inspect extraction, camera reconstruction, training and export. Image summaries include the device, source dimensions, inference and postprocessing times.
+
+Records persist in the model's `.meta.json` sidecar. Historical assets without measurements show “Not recorded”; file dates are never used to estimate duration. Edited copies retain and label the original reconstruction record, which is not editing time. PLY/SPZ remain standard model files; keep the sidecar when moving application-level records between projects.
+
+Existing models require reconstruction to benefit from the new training engine. See the [deployment guide](deployment.en.md) for engine installation and portable-runtime compatibility.
+
 ## Edit Models
 
 1. **Open the editor** — Use Edit Model on an asset card or in its details, or open the model and use the bottom toolbar.

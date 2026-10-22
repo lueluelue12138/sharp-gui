@@ -195,7 +195,7 @@ video_reconstruction_uploads_folder = os.path.join(video_reconstruction_folder, 
 - 输出目录同时保留 `.ply` 原始模型和自动生成的 `.spz` 紧凑模型
 - 视频重建结果额外写入 `outputs/<model-id>.meta.json`，记录来源视频、模式、质量、实际引擎、受控源视频引用，以及资源参数、抽帧/注册统计、配准率和阶段耗时；中间目录清理后仍保留该摘要，JSON 响应不得暴露 `source_video_path`
 - 活动配置由 `runtime.get_config_file()` 定位，默认位于系统用户目录，不随安装或 workspace 切换；包内 `BASE_DIR/config.json` 仅作首次导入来源。显式 `SHARP_CONFIG_FILE` 完全隔离，`SHARP_CONFIG_HOME` 覆盖用户配置目录。证书、私钥、日志和依赖目录仍为安装级状态，不得通过 `/files/*` 暴露
-- `.sharp-gui-update/` 是项目根安装状态，只能保存原子更新阶段、最近检查的目标、操作锁与有界诊断；`.sharp-gui-tools/` 保存 MinGit 与固定 Brush CLI。两者都不随 workspace 切换，不得通过 `/files/*` 暴露，也不得被代码 checkout/失败恢复清理；Brush 由 `tools/install_brush.py` 安装至 `.sharp-gui-tools/brush/v0.3.0/`，保留二进制来源、哈希及完整许可资料
+- `.sharp-gui-update/` 是项目根安装状态，只能保存原子更新阶段、最近检查的目标、操作锁与有界诊断；`.sharp-gui-tools/` 保存 MinGit 与固定 Brush CLI。两者都不随 workspace 切换，不得通过 `/files/*` 暴露，也不得被代码 checkout/失败恢复清理；Brush 由 `tools/install_brush.py` 安装至 `.sharp-gui-tools/brush/ooo-v1.0.0/`，保留二进制来源、哈希及完整许可资料
 - 本地媒体图库 API 只接受 photo/media/video id，不接受任意绝对路径；后端必须从索引反查原始文件并再次校验 root
 - 模型资产 API 只接受 asset id 与受支持扩展名，不接受前端传入的服务器绝对路径；导入、封面和下载路径必须从资产索引或受控目录反查并再次校验 root
 - 模型资产的受控根需要两级校验：先确认 `imports/`、`thumbnails/`、`outputs/` 等根的真实路径仍位于真实 workspace 内，再确认目标真实路径位于对应受控根内；根目录本身是 symlink、junction 或其它 reparse point 且指向 workspace 外时也必须安全失败

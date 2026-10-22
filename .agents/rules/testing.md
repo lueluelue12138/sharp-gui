@@ -61,7 +61,7 @@ python -m pytest -q
 - Viewer 打开视频重建模型时初始画面朝向主体，左右拖拽为正常 yaw；旧 ml-sharp 单图模型预览手感不回归。
 - 新 Brush 模型的 `viewer_camera` 提示从注册位姿生成，PLY / SPZ 切换保留提示；非法提示退回原取景，模型变换与窄窗口视野调整需验证。
 - 失败路径至少覆盖缺依赖、非法选项、输出名冲突、CUDA OOM 文本、SPZ 失败和取消清理。
-- Brush 参数必须符合固定 v0.3.0 CLI 的 help；合成烟测覆盖真实 CLI 导出，单元测试覆盖不支持参数拒绝、失败/取消和 OOM 处理，不使用用户私有视频。
+- Brush 参数必须符合固定 OOOBrush 1.0.0 CLI 的 help；合成烟测覆盖真实 CLI 导出，单元测试覆盖不支持参数拒绝、失败/取消和 OOM 处理，不使用用户私有视频。
 - 后端默认日志只显示关键阶段和失败摘要；`SHARP_LOG_LEVEL=DEBUG` 或 verbose 模式下再输出完整外部工具日志。
 
 ### 本地媒体图库 smoke checklist
@@ -107,12 +107,12 @@ python -m pytest -q
 
 - 先运行 `build_portable_release.bat -Version <version> -PlanOnly`，确认每个未跳过 target 都打印 exact Sharp GUI source SHA、`portableRuntimeRevision`、MinGit `v2.55.0.windows.3`、标准 x64 asset 和固定 SHA256；完成构建后执行 `7z t` 并核对 ZIP/`.sha256.txt`。
 - 在全新目录解压，隐藏系统 Git/Python（测试 PATH 不包含二者），断言 `update.bat` 使用包内 Python 与 `.sharp-gui-tools/git/cmd/git.exe`；Git 版本、asset digest、`portable-package.json` provenance、根 `THIRD_PARTY_NOTICES.md`、包内 `LICENSE.txt` 与两棵 license tree 都存在且匹配。
-- 视频包必须包含 `.sharp-gui-tools/brush/v0.3.0/` 的固定二进制、`INSTALLATION.json`、`LICENSE.txt`、`THIRD_PARTY_NOTICES.txt` 和完整 `upstream-release/`；核对包元数据中的来源、版本、archive/binary SHA256，执行包内 `brush_app.exe --version` / `--help`，不能借用构建机 PATH。核心包不得复制 Brush，旧包缺 Brush 时必须明确报告依赖缺失。
+- 视频包必须包含 `.sharp-gui-tools/brush/ooo-v1.0.0/` 的固定二进制、`INSTALLATION.json`、`LICENSE.txt`、`THIRD_PARTY_NOTICES.txt` 和完整 `upstream-release/`；核对包元数据中的来源、版本、archive/binary SHA256，执行包内 `brush-cli.exe --version` / `--help`，不能借用构建机 PATH。核心包不得复制 Brush，旧包缺 Brush 时必须明确报告依赖缺失。
 - 初始受管 worktree 必须 clean 且 HEAD 等于 package metadata。用临时本地 bare remote 构造兼容目标，至少同时包含 tracked addition/modification/deletion/rename；应用后 tracked tree 必须逐项收敛到 exact target，不能留下已删除旧文件。
 - 分别验证 Stable、Latest、already-current no-op 和 Latest → Stable 显式降级；版本标签必须能区分正式 `vX.Y.Z` 与 `vX.Y.Z + N commits (abcdefg)`，apply 只能使用刚检查过的 exact SHA。
 - 在 Python/PyTorch/CUDA、`.video-reconstruction-env/`、固定 Brush 目录、模型/缓存、三个 workspace 的 inputs/outputs/model-assets/index、`config.json`、证书、日志、`portable-package.json`、`.sharp-gui-update/` 和 `.sharp-gui-tools/` 放置可校验 marker；兼容 update 与自动失败恢复后均须保留，必要时比较 hash/字节内容。
 - 构造不同 `portableRuntimeRevision`、缺失/非法 manifest、缺失 `frontend/dist` 的目标，断言 checkout 前拒绝、HEAD/markers 不变且状态明确要求完整包。
-- `tools/install_brush.py` 属于 runtime-sensitive 文件，守卫测试必须拒绝 revision 1→1 并接受 1→2；本次固定 Brush 原生依赖要求 revision 2。只运行脚本语法/针对性测试不等于便携包发布完成，发布前仍须完成完整构建与 clean-extract gate。
+- `tools/install_brush.py` 属于 runtime-sensitive 文件，守卫测试必须拒绝 revision 1→1 并接受 1→2；固定视频训练引擎的本轮迁移要求 revision 4（3→4）。只运行脚本语法/针对性测试不等于便携包发布完成，发布前仍须完成完整构建与 clean-extract gate。
 - 构造 dirty tracked file、pending/running/processing generation task、非 `main` source branch、并发锁和过期 target；均须稳定拒绝且不得 fetch apply target、改文件或停止服务。远程会话及伪造 `X-Forwarded-For`/`Forwarded`/`X-Real-IP` 不能调用 check/apply。
 - 注入网络/TLS/rate-limit、只读目录/磁盘不足、checkout/compile/import/frontend/health-check 失败和 updater 中断。验证错误不被误报为 up-to-date/success，mutation 后失败自动恢复 previous SHA，非终态下次启动可对账恢复且服务最终可用。
 - 启动 Settings，验证当前版本、Stable/Latest、兼容/需全包原因、确认、阶段进度、预期断线重连、成功 reload 和自动失败恢复提示；同时覆盖窄屏、键盘焦点、light/dark 与 reduced-motion。
