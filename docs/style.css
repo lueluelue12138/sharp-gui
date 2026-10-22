@@ -3688,6 +3688,17 @@ summary:focus-visible {
     padding: 12px 22px;
 }
 
+.install-download-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 20px;
+}
+
+.install-download-actions .text-link {
+    font-size: 0.82rem;
+}
+
 .install-choice-note {
     display: block;
     margin-top: 14px;

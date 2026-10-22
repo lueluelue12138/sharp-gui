@@ -63,10 +63,10 @@ git push origin v1.3.0-beta.1
    - 删除 `node_modules/`、`.vite/`、`src/`（仅保留 `dist/`）
    - 校验 `version.txt` 与 tag 一致（不一致直接失败），并随包复制 `version.txt`、`update-manifest.json`、`THIRD_PARTY_NOTICES.md`
    - 还原构建过程改动的 `package-lock.json` 与 `dist`，保证归档字节与 tag 提交一致
-   - 打包为 `sharp-gui-vX.Y.Z.zip`
+   - 打包为 `sharp-gui-vX.Y.Z-source-install-required.zip`，名称明确需要安装依赖；Windows 完整便携包另由本地打包入口生成并通过网盘提供
 5. **创建 GitHub Release**：
    - tag 含 `-` → 自动标记为 Pre-release
-   - 自动生成 Release Notes
+   - 自动生成 Release Notes，在顶部突出完整便携包网盘入口，附加中英文下载提醒文件；正式发布需补齐当前完整包的 SHA256 与整理后的版本说明
 
 ### 6. 验证
 

@@ -1,0 +1,18 @@
+Sharp GUI — Download the full Windows portable packages
+
+Recommended download folder (Quark):
+https://pan.quark.cn/s/94f4acaada40
+
+Read the Windows Full Portable Bundles section in the release notes above and choose:
+- RTX 50: cu128-rtx50 core package.
+- RTX 50 with video reconstruction: cu128-rtx50-video-recon full package.
+- Mainstream NVIDIA GPUs below RTX 50: cu126-mainstream core package.
+
+Full portable packages include Python, the matching CUDA/PyTorch dependencies, and the single-image model weights. The video package also includes reconstruction tools. Download the ZIP and its matching .sha256.txt, verify the checksum, extract, and launch portable-run.bat.
+
+The ZIP containing source-install-required in GitHub Assets and the automatically generated Source code (zip/tar.gz) are source/install packages. They do not include the full runtime or model weights and require dependency installation.
+
+Release notes, SHA256 checksums, and setup guidance:
+https://github.com/lueluelue12138/sharp-gui/releases/latest
+
+Full Windows portable packages currently target NVIDIA GPUs; no CPU-only portable package is provided. For other devices, follow the README source installation instructions.

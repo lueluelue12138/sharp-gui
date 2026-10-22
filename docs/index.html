@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
     <meta name="apple-mobile-web-app-title" content="Sharp GUI" />
 
-    <link rel="stylesheet" href="style.css?v=522f802055">
+    <link rel="stylesheet" href="style.css?v=ec42928fb4">
     <!-- 引入 Remix Icon 图标库 -->
     <link href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" rel="stylesheet">
     <!-- 引入 Google Fonts (Inter) -->
@@ -688,8 +688,11 @@
                 <div class="install-choices">
                     <div class="install-choice">
                         <i class="ri-windows-fill" aria-hidden="true"></i><h3 data-i18n="install.portable.title">Windows 完整便携包</h3><p data-i18n="install.portable.desc">内置运行环境与模型缓存，解压后启动。按显卡选择 RTX 50 或主流 NVIDIA 包；视频重建请选择 RTX 50 视频完整包。</p>
-                        <a href="https://github.com/lueluelue12138/sharp-gui/releases" target="_blank" rel="noopener noreferrer" class="btn btn-primary"><i class="ri-download-2-line" aria-hidden="true"></i><span data-i18n="install.download">前往下载与校验</span></a>
-                        <span class="install-choice-note" data-i18n="install.portable.note">Release 提供网盘入口与 SHA256 校验。</span>
+                        <div class="install-download-actions">
+                            <a href="https://pan.quark.cn/s/94f4acaada40" target="_blank" rel="noopener noreferrer" class="btn btn-primary"><i class="ri-download-cloud-2-line" aria-hidden="true"></i><span data-i18n="install.portableDownload">网盘下载完整便携包</span></a>
+                            <a href="https://github.com/lueluelue12138/sharp-gui/releases/latest" target="_blank" rel="noopener noreferrer" class="text-link"><span data-i18n="install.releaseDetails">版本说明与 SHA256</span><i class="ri-arrow-right-line" aria-hidden="true"></i></a>
+                        </div>
+                        <span class="install-choice-note" data-i18n="install.portable.note">完整包在网盘下载；GitHub 的源码安装包需要另行安装依赖。</span>
                     </div>
                     <div class="install-choice">
                         <i class="ri-terminal-box-line" aria-hidden="true"></i><h3 data-i18n="install.source.title">从源码，掌控部署</h3><p data-i18n="install.source.desc">克隆仓库并运行安装脚本。单图推理按设备使用 CUDA、MPS 或 CPU；视频重建另需 COLMAP、Brush 与 FFmpeg。</p>
@@ -728,7 +731,7 @@ cd sharp-gui
     </footer>
 
     <!-- i18n Script -->
-    <script src="i18n.js?v=e27cb23b49"></script>
+    <script src="i18n.js?v=cd7fb95b0a"></script>
 
     <script>
         // 简单的滚动显现动画脚本

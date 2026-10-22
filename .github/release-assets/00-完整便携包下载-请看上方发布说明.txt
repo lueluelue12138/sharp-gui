@@ -1,0 +1,18 @@
+Sharp GUI — Windows 完整便携包下载
+
+推荐下载入口（夸克网盘）：
+https://pan.quark.cn/s/94f4acaada40
+
+请查看本页上方 Release Note 的「Windows 完整便携包」部分，按显卡和用途选择：
+- RTX 50：cu128-rtx50 核心包。
+- RTX 50，需要视频重建：cu128-rtx50-video-recon 完整包。
+- RTX 50 以下主流 NVIDIA：cu126-mainstream 核心包。
+
+完整便携包包含 Python、对应 CUDA/PyTorch 依赖和单图模型权重；视频完整包还包含重建工具。下载 ZIP 和同名 .sha256.txt，校验后解压，双击 portable-run.bat 启动。
+
+GitHub Assets 中名称含 source-install-required 的 ZIP，以及自动生成的 Source code (zip/tar.gz)，属于源码/安装包，不包含完整运行环境或模型权重，需要另行安装依赖。
+
+版本说明、SHA256 与安装指南：
+https://github.com/lueluelue12138/sharp-gui/releases/latest
+
+Windows 完整便携包目前面向 NVIDIA GPU，没有纯 CPU 便携包。其它设备请按 README 从源码安装。

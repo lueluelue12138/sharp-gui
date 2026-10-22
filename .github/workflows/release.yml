@@ -70,26 +70,38 @@ jobs:
 
           # 创建 zip
           cd release-build
-          zip -r ../sharp-gui-${VERSION}.zip .
+          zip -r ../sharp-gui-${VERSION}-source-install-required.zip .
 
-          echo "Created: sharp-gui-${VERSION}.zip"
-          ls -lh ../sharp-gui-${VERSION}.zip
+          echo "Created: sharp-gui-${VERSION}-source-install-required.zip"
+          ls -lh ../sharp-gui-${VERSION}-source-install-required.zip
 
       # 5. 上传到 Release
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
         with:
-          files: sharp-gui-*.zip
+          files: |
+            .github/release-assets/00-*.txt
+            sharp-gui-*-source-install-required.zip
+          fail_on_unmatched_files: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
           body: |
+            ## 📥 Windows 完整便携包（推荐） / Full Windows Portable Packages (Recommended)
+
+            **[网盘下载完整便携包 / Download full portable packages](https://pan.quark.cn/s/94f4acaada40)**
+
+            > GitHub 下方的源码安装包与 Source code 不包含 Python/CUDA 运行环境和模型权重，需要另行安装依赖。完整便携包请使用上方网盘入口，按显卡选择并核对 SHA256。 / The source/install ZIP and Source code assets below do not include the Python/CUDA runtime or model weights. For a full portable package, use the download folder above, choose your GPU target, and verify SHA256.
+
+            ---
+
             ## 📦 快速使用 (Quick Start)
 
-            1. 下载 `sharp-gui-${{ github.ref_name }}.zip`
-            2. 解压后运行安装脚本:
+            1. 完整便携包：从上方网盘下载，校验后解压并运行 `portable-run.bat` / Full portable: download above, verify SHA256, extract, and launch `portable-run.bat`.
+            2. 源码安装包：下载 `sharp-gui-${{ github.ref_name }}-source-install-required.zip` / Source install: download the ZIP marked `source-install-required`.
+            3. 源码安装包解压后运行安装脚本 / Source/install packages require installation:
                - **Linux/macOS**: `./install.sh && ./run.sh`
                - **Windows**: `install.bat` 然后 `run.bat`
-            3. 浏览器访问 `https://127.0.0.1:5050`
+            4. 浏览器访问 / Open `https://127.0.0.1:5050`
 
             📖 **详细教程 (中文)**: [查看 README](https://github.com/${{ github.repository }})
 

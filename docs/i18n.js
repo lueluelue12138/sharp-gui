@@ -113,6 +113,8 @@ const i18n = {
     "install.title": "即刻开始，留住空间。",
     "install.subtitle": "Windows 原生运行，也支持 macOS 与 Linux 源码安装。",
     "install.download": "前往下载与校验",
+    "install.portableDownload": "网盘下载完整便携包",
+    "install.releaseDetails": "版本说明与 SHA256",
 
     // === Footer ===
     "footer.made": "Made with ❤️ by",
@@ -166,7 +168,7 @@ const i18n = {
     "arch.metric.output": "重建与编辑输出",
     "install.portable.title": "Windows 完整便携包",
     "install.portable.desc": "内置运行环境与模型缓存，解压后启动。按显卡选择 RTX 50 或主流 NVIDIA 包；视频重建请选择 RTX 50 视频完整包。",
-    "install.portable.note": "Release 提供网盘入口与 SHA256 校验。",
+    "install.portable.note": "完整包在网盘下载；GitHub 的源码安装包需要另行安装依赖。",
     "install.source.title": "从源码，掌控部署",
     "install.source.desc": "克隆仓库并运行安装脚本。单图推理按设备使用 CUDA、MPS 或 CPU；视频重建另需 COLMAP、Brush 与 FFmpeg。",
     "install.source.guide": "查看完整安装指南",
@@ -322,6 +324,8 @@ const i18n = {
     "install.title": "Start creating. Keep the space.",
     "install.subtitle": "Native on Windows, with source installation on macOS and Linux.",
     "install.download": "Downloads & checksums",
+    "install.portableDownload": "Download full portable packages",
+    "install.releaseDetails": "Release notes & SHA256",
 
     // === Footer ===
     "footer.made": "Made with ❤️ by",
@@ -376,7 +380,7 @@ const i18n = {
     "arch.metric.output": "Reconstruction & editing output",
     "install.portable.title": "Windows portable packages",
     "install.portable.desc": "Runtime and model cache included. Extract and launch. Choose RTX 50 or mainstream NVIDIA; select the RTX 50 video package for reconstruction.",
-    "install.portable.note": "Release notes include download links and SHA256 checksums.",
+    "install.portable.note": "Full bundles are hosted on Quark. GitHub source packages require dependency installation.",
     "install.source.title": "Deploy from source",
     "install.source.desc": "Clone the repository and run the installer. Single-image inference uses CUDA, MPS or CPU. Video also needs COLMAP, Brush and FFmpeg.",
     "install.source.guide": "Read the installation guide",
