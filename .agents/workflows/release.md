@@ -109,6 +109,8 @@ git push origin v1.3.0-beta.1
 
 ### Windows 完整便携包
 
+- 默认等级 7 ZIP；可用 `-ArchiveFormat 7z` 输出更小的实心压缩包，并放到独立输出目录。两种格式都保留原始权重和完整功能；裁剪边界与验证见 [便携包体积与打包](../../docs/portable-package-size.md)。
+
 - 包含本功能的下一次完整便携版是自更新 **bootstrap** 版本；`v1.3.0` 及更早便携包必须最后下载一次完整包，不能宣称旧脚本可原地获得新 updater/MinGit/managed worktree。
 - 三个 target（`cu128-rtx50`、`cu126-mainstream`、`cu128-rtx50-video-recon`）都要在 package root 建立 exact source SHA 的干净受管 worktree，并把 runtime/user 路径保持 ignored/untracked。代码 checkout 不得管理 Python/CUDA/video env、模型、workspace、配置、日志或包内工具。
 - 固定使用官方标准 x64 MinGit `v2.55.0.windows.3` 的 `MinGit-2.55.0.3-64-bit.zip`，构建前验证 SHA256 `f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05`。不得改用实验性 BusyBox asset、浮动 latest URL 或未经校验缓存。

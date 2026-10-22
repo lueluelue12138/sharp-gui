@@ -6,7 +6,9 @@
     [string]$VenvDir = "",
     [string]$MinGitCacheDir = "",
     [string]$ExpectedSourceRevision = "",
-    [int]$CompressionLevel = 1,
+    [int]$CompressionLevel = 7,
+    [ValidateSet("zip", "7z")]
+    [string]$ArchiveFormat = "zip",
     [switch]$SkipFrontendBuild,
     [switch]$SkipModel,
     [switch]$PlanOnly,
@@ -915,7 +917,7 @@ if (-not $SkipModel) {
 $packageName = "sharp-gui-$Version-windows-$resolvedTarget-portable"
 $stagingRoot = Join-Path $root ".portable-build"
 $packageRoot = Join-Path $stagingRoot $resolvedTarget
-$zipPath = Join-Path $OutputDir "$packageName.zip"
+$zipPath = Join-Path $OutputDir "$packageName.$ArchiveFormat"
 
 Write-Step "打包计划"
 Write-Info "版本: $Version"
@@ -925,7 +927,7 @@ Write-Info "CUDA: $($torchInfo.cuda)"
 Write-Info "GPU: $($torchInfo.device_name)"
 Write-Info "Python 源目录: $pythonHome"
 Write-Info "依赖虚拟环境: $VenvDir"
-Write-Info "输出 ZIP: $zipPath"
+Write-Info "输出压缩包: $zipPath"
 Write-Info "Source SHA: $sourceRevision"
 Write-Info "Source version: $sourceVersion"
 Write-Info "Release baseline: $releaseBaseline"
@@ -1037,9 +1039,7 @@ Initialize-ManagedWorktree `
     -SourceRevision $sourceRevision
 
 Write-Step "复制包外运行时与依赖"
-if (Test-Path -LiteralPath "$frontendDir\node_modules") {
-    Invoke-Robocopy -Source "$frontendDir\node_modules" -Destination "$packageRoot\frontend\node_modules"
-}
+# React 构建产物已由受管 worktree 提供，运行时不需要 Node 或 node_modules。
 
 Invoke-Robocopy -Source $mlSharpDir -Destination "$packageRoot\ml-sharp" -ExtraArgs @("/XD", ".git", "__pycache__", ".pytest_cache")
 
@@ -1244,7 +1244,7 @@ $packageInfo = [ordered]@{
     }
     videoReconstruction = $videoMetadata
     notes = @(
-        "这是本地打包生成的 Windows GPU 完整 ZIP。",
+        "这是本地打包生成的 Windows GPU 完整便携包。",
         "首选入口是 portable-run.bat。",
         "反馈问题时可以运行 portable-run-verbose.bat 获取更多日志。",
         "当前代码基线为 $releaseBaseline + $commitsAheadText commits ($sourceRevision)。",
@@ -1314,9 +1314,28 @@ $videoReconNote
 - 视频重建完整包当前面向 RTX 50 / CUDA 12.8 路线，不代表所有 NVIDIA GPU 都已验证。
 - 如果目标机器 NVIDIA 驱动过旧，包内 PyTorch CUDA 检查会失败，需要升级驱动或换用匹配包。
 - 这个包用于网盘发布，不适合上传到 GitHub Release 资产。
+- 包内不含前端开发依赖、oneDNN 静态开发库和独立工具测试程序；模型权重和运行时精度不变。
 - 如果移动包目录，仍应使用包内的 `portable-run.bat` 启动。
 "@
 Set-Content -LiteralPath "$packageRoot\便携包说明.md" -Encoding UTF8 -Value $notes
+
+Write-Step "移除包内开发依赖和独立测试工具"
+$trimOutput = @(& (Join-Path $packageRoot "python\python.exe") `
+    (Join-Path $root "tools\trim_portable_runtime.py") --package-root $packageRoot `
+    --frontend-dependencies (Join-Path $frontendDir "node_modules") --apply)
+if ($LASTEXITCODE -ne 0) {
+    Fail "便携运行时裁剪失败，拒绝生成未经校验的完整包"
+}
+$trimReport = ($trimOutput -join "`n") | ConvertFrom-Json
+$packageInfo.runtimeLayout = [ordered]@{
+    revision = $trimReport.layout_revision
+    removedBytes = $trimReport.removed_bytes
+    removedEntries = $trimReport.entries.Count
+    frontendLicenseFiles = $trimReport.frontend_license_files
+    modelWeights = "original-unmodified"
+}
+$packageInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$packageRoot\portable-package.json" -Encoding UTF8
+Write-Info ("已移除 {0:N1} MiB；模型权重、CUDA DLL、编译头文件和许可证保留" -f ($trimReport.removed_bytes / 1MB))
 
 Test-ManagedPortablePackage `
     -PackageRoot $packageRoot `
@@ -1336,17 +1355,21 @@ if ($includeVideoReconstruction) {
     Test-VideoReconstructionRuntime -PackageRoot $packageRoot
 }
 
-Write-Step "压缩完整 ZIP"
+Write-Step "压缩完整便携包 ($ArchiveFormat)"
 if (Test-Path -LiteralPath $zipPath) {
     Remove-Item -LiteralPath $zipPath -Force
 }
 
 $sevenZip = Resolve-SevenZip
 if ($sevenZip) {
-    Write-Info "使用 7-Zip 生成 ZIP64: $sevenZip"
+    Write-Info "使用 7-Zip 生成 $ArchiveFormat 压缩包: $sevenZip"
     Push-Location $packageRoot
     try {
-        & $sevenZip a -tzip "-mx=$CompressionLevel" $zipPath ".\*" | Out-Host
+        $compressionArgs = @("a", "-t$ArchiveFormat", "-mx=$CompressionLevel", "-mmt=4")
+        if ($ArchiveFormat -eq "7z") {
+            $compressionArgs += @("-m0=LZMA2:d=64m", "-ms=on")
+        }
+        & $sevenZip @compressionArgs $zipPath ".\*" | Out-Host
         if ($LASTEXITCODE -ne 0) {
             Fail "7-Zip 压缩失败"
         }
@@ -1354,6 +1377,9 @@ if ($sevenZip) {
         Pop-Location
     }
 } else {
+    if ($ArchiveFormat -ne "zip") {
+        Fail "7z 格式需要安装 7-Zip；不能将 ZIP 数据伪装成 .7z 文件"
+    }
     Write-Info "未找到 7-Zip，改用 tar.exe 生成 zip"
     Push-Location $packageRoot
     try {
@@ -1377,7 +1403,7 @@ if (-not $KeepStaging) {
 
 Write-Host ""
 Write-Host "[OK] 完整便携包已生成" -ForegroundColor Green
-Write-Host "ZIP: $zipPath"
+Write-Host "压缩包: $zipPath"
 Write-Host ("大小: {0:N2} GiB" -f ($zipItem.Length / 1GB))
 Write-Host "SHA256: $($zipHash.Hash)"
 Write-Host ""

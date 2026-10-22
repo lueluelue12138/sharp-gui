@@ -4,6 +4,16 @@ Sharp GUI source code is distributed under the root [MIT License](LICENSE). Thir
 
 Sharp GUI 源代码适用仓库根目录的 [MIT License](LICENSE)。第三方软件与模型继续适用各自许可证，Sharp GUI 的许可证不会替代或扩大这些授权范围。
 
+## Frontend Runtime Notices / 前端运行库声明
+
+Portable bundles use prebuilt frontend assets without shipping Node.js build dependencies.
+Their dependency license/notice files and package identities are preserved under
+`.sharp-gui-tools/frontend-licenses/`; the standalone share viewer also retains
+`frontend/dist/share/LICENSES.txt`. Removing build tools does not remove these notices.
+
+便携包使用预构建前端，不携带 Node.js 开发依赖；依赖的许可证、声明及组件标识保留在
+`.sharp-gui-tools/frontend-licenses/`，独立分享查看器另保留 `frontend/dist/share/LICENSES.txt`。
+
 ## Bundled MinGit / 内置 MinGit
 
 Windows full portable bundles produced by the self-update bootstrap release and later include the following unmodified standard x64 MinGit distribution for non-interactive code updates:

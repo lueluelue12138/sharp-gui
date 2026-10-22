@@ -22,6 +22,7 @@ RUNTIME_SENSITIVE_FILES = {
     "tools/install_torch.py",
     "tools/install_video_reconstruction.py",
     "tools/install_brush.py",
+    "tools/trim_portable_runtime.py",
 }
 
 DEPENDENCY_FILENAMES = {

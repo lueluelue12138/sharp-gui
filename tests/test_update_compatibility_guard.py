@@ -20,6 +20,7 @@ class UpdateCompatibilityGuardTests(unittest.TestCase):
             ("build_portable_release.bat", True),
             ("tools/install_torch.py", True),
             ("tools/install_brush.py", True),
+            ("tools/trim_portable_runtime.py", True),
             (".\\tools\\install_brush.py", True),
             ("tools/build_portable_package.ps1", True),
             ("tools/portable_update_common.ps1", True),

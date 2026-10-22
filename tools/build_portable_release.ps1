@@ -2,7 +2,9 @@
     [string]$Version = "",
     [string]$OutputDir = "",
     [string]$MinGitCacheDir = "",
-    [int]$CompressionLevel = 1,
+    [int]$CompressionLevel = 7,
+    [ValidateSet("zip", "7z")]
+    [string]$ArchiveFormat = "zip",
     [switch]$PlanOnly,
     [switch]$AllowLocalVersion,
     [switch]$CleanBuildVenvs,
@@ -291,6 +293,7 @@ function Invoke-PackageBuild {
         [string]$OutputDir,
         [string]$MinGitCacheDir,
         [int]$CompressionLevel,
+        [string]$ArchiveFormat,
         [bool]$SkipFrontendBuild,
         [bool]$PlanOnly,
         [bool]$AllowLocalVersion
@@ -305,7 +308,8 @@ function Invoke-PackageBuild {
         "-Target", $Target,
         "-VenvDir", $VenvDir,
         "-OutputDir", $OutputDir,
-        "-CompressionLevel", $CompressionLevel
+        "-CompressionLevel", $CompressionLevel,
+        "-ArchiveFormat", $ArchiveFormat
     )
 
     if ($SkipFrontendBuild) {
@@ -330,10 +334,10 @@ function Invoke-PackageBuild {
 function Test-Archive {
     param([string]$SevenZip, [string]$ZipPath)
 
-    Write-Step "测试 ZIP 完整性: $(Split-Path -Leaf $ZipPath)"
+    Write-Step "测试压缩包完整性: $(Split-Path -Leaf $ZipPath)"
     & $SevenZip t $ZipPath
     if ($LASTEXITCODE -ne 0) {
-        Fail "ZIP 完整性测试失败: $ZipPath"
+        Fail "压缩包完整性测试失败: $ZipPath"
     }
 }
 
@@ -341,10 +345,11 @@ function Get-PortablePackageArchivePath {
     param(
         [string]$OutputDir,
         [string]$Version,
-        [string]$Target
+        [string]$Target,
+        [string]$Format = "zip"
     )
 
-    return Join-Path $OutputDir "sharp-gui-$Version-windows-$Target-portable.zip"
+    return Join-Path $OutputDir "sharp-gui-$Version-windows-$Target-portable.$Format"
 }
 
 function Read-PortablePackageMetadata {
@@ -357,13 +362,13 @@ function Read-PortablePackageMetadata {
     $exitCode = $LASTEXITCODE
     $metadataText = ($raw -join "`n").TrimStart([char]0xFEFF).Trim()
     if ($exitCode -ne 0 -or [string]::IsNullOrWhiteSpace($metadataText)) {
-        Fail "便携 ZIP 缺少可读取的 portable-package.json: $ZipPath"
+        Fail "便携压缩包缺少可读取的 portable-package.json: $ZipPath"
     }
 
     try {
         return $metadataText | ConvertFrom-Json
     } catch {
-        Fail "便携 ZIP 中的 portable-package.json 无法解析: $ZipPath ($($_.Exception.Message))"
+        Fail "便携压缩包中的 portable-package.json 无法解析: $ZipPath ($($_.Exception.Message))"
     }
 }
 
@@ -399,12 +404,12 @@ function Assert-NoUnexpectedVersionArchives {
         [string[]]$RequestedArchiveNames
     )
 
-    $unexpectedArchives = @(Get-ChildItem -LiteralPath $OutputDir -File -Filter "sharp-gui-$Version-windows-*-portable.zip" -ErrorAction SilentlyContinue | Where-Object {
+    $unexpectedArchives = @(Get-ChildItem -LiteralPath $OutputDir -File -Filter "sharp-gui-$Version-windows-*-portable.$ArchiveFormat" -ErrorAction SilentlyContinue | Where-Object {
         $RequestedArchiveNames -notcontains $_.Name
     })
     if ($unexpectedArchives.Count -gt 0) {
         $names = ($unexpectedArchives.Name | Sort-Object) -join ", "
-        Fail "输出目录含有本次未构建的同版本旧 ZIP，拒绝混入发布结果: $names。请使用 -CleanOldArtifacts 或单独的 -OutputDir。"
+        Fail "输出目录含有本次未构建的同版本旧包，拒绝混入发布结果: $names。请使用 -CleanOldArtifacts 或单独的 -OutputDir。"
     }
 }
 
@@ -459,7 +464,7 @@ function Write-ReleaseTemplate {
     }
 
     $lines.Add("")
-    $lines.Add('使用方式：下载匹配显卡和用途的 ZIP，校验 SHA256，解压后双击 `portable-run.bat`。')
+    $lines.Add('使用方式：下载匹配显卡和用途的压缩包，校验 SHA256，解压后双击 `portable-run.bat`。7z 格式可使用 7-Zip 解压。')
     $lines.Add("")
     $lines.Add("- 只使用图片生成、模型浏览和图库功能：优先下载核心包。")
     $lines.Add("- 需要本地视频 3DGS 重建且使用 RTX 50 系列：下载视频重建完整包。")
@@ -482,7 +487,7 @@ function Write-ReleaseTemplate {
     $lines.Add("")
     $lines.Add("这是首批带受管 Git 基线的自更新包；更旧的便携包需要先完整下载一次本包或后续完整包。Stable 对应最新正式 Release，Latest 对应 ``main`` 最新提交且测试程度较低。自动更新只应用 runtime revision 兼容的代码并支持回滚；Python、CUDA、PyTorch、COLMAP、ffmpeg 或视频重建运行时变化时，必须重新下载完整包。")
     $lines.Add("")
-    $lines.Add("更新会保留配置、工作区输入/输出/模型资产和索引缓存、模型缓存、包内 Python/CUDA、MinGit、更新状态及可选视频重建环境。ZIP 本身仍须按上表 SHA256 校验后再使用。")
+    $lines.Add("更新会保留配置、工作区输入/输出/模型资产和索引缓存、模型缓存、包内 Python/CUDA、MinGit、更新状态及可选视频重建环境。压缩包本身仍须按上表 SHA256 校验后再使用。")
 
     Set-Content -LiteralPath $template -Encoding UTF8 -Value ($lines -join "`r`n")
     Write-Info "Release 模板: $template"
@@ -522,7 +527,7 @@ New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
 
 if ($CleanOldArtifacts -and -not $PlanOnly) {
     Write-Step "清理旧便携包产物"
-    Get-ChildItem -LiteralPath $OutputDir -File -Filter "sharp-gui-*-windows-*-portable.zip" -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath $OutputDir -File -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '^sharp-gui-.*-windows-.*-portable\.(zip|7z)$' } |
         Remove-Item -Force
     Get-ChildItem -LiteralPath $OutputDir -File -Filter "sharp-gui-*-windows-*-portable.sha256.txt" -ErrorAction SilentlyContinue |
         Remove-Item -Force
@@ -535,7 +540,8 @@ foreach ($requestedTarget in $requestedTargets) {
     $requestedArchivePaths[$requestedTarget] = Get-PortablePackageArchivePath `
         -OutputDir $OutputDir `
         -Version $version `
-        -Target $requestedTarget
+        -Target $requestedTarget `
+        -Format $ArchiveFormat
 }
 $requestedArchiveNames = @($requestedArchivePaths.Values | ForEach-Object { Split-Path -Leaf $_ })
 if (-not $PlanOnly) {
@@ -562,6 +568,7 @@ Write-Step "一键便携包发布计划"
 Write-Info "版本: $version"
 Write-Info "输出目录: $OutputDir"
 Write-Info "压缩等级: $CompressionLevel"
+Write-Info "压缩格式: $ArchiveFormat"
 Write-Info "7-Zip: $sevenZip"
 Write-Info "MinGit 下载缓存: $effectiveMinGitCacheDir"
 Write-PortableUpdatePlanInfo -Context $updateContext
@@ -585,26 +592,26 @@ if (-not $SkipCu126) {
 
 if ($PlanOnly) {
     if (-not $SkipCu128) {
-        Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$false -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
+        Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -ArchiveFormat $ArchiveFormat -SkipFrontendBuild:$false -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
     }
     if (-not $SkipVideoRecon) {
-        Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
+        Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -ArchiveFormat $ArchiveFormat -SkipFrontendBuild:$true -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
     }
     if (-not $SkipCu126) {
         if (Test-Path -LiteralPath (Join-Path $cu126Venv "Scripts\python.exe")) {
-            Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
+            Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -ArchiveFormat $ArchiveFormat -SkipFrontendBuild:$true -PlanOnly:$true -AllowLocalVersion:$AllowLocalVersion
         } else {
             Write-Step "打包计划"
             Write-Info "版本: $version"
             Write-Info "目标包: cu126-mainstream"
             Write-Info "依赖虚拟环境: $cu126Venv"
-            Write-Info "输出 ZIP: $(Join-Path $OutputDir "sharp-gui-$version-windows-cu126-mainstream-portable.zip")"
+            Write-Info "输出压缩包: $(Join-Path $OutputDir "sharp-gui-$version-windows-cu126-mainstream-portable.$ArchiveFormat")"
             Write-PortableUpdatePlanInfo -Context $updateContext
             Write-Info "cu126 缓存环境尚不存在，真实运行时会自动创建。"
         }
     }
     Write-Host ""
-    Write-Host "[OK] 一键发布计划检查完成，未生成 ZIP。" -ForegroundColor Green
+    Write-Host "[OK] 一键发布计划检查完成，未生成压缩包。" -ForegroundColor Green
     exit 0
 }
 
@@ -616,23 +623,23 @@ foreach ($archivePath in $requestedArchivePaths.Values) {
 }
 
 if (-not $SkipCu128) {
-    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$false -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
+    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -ArchiveFormat $ArchiveFormat -SkipFrontendBuild:$false -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
 }
 
 if (-not $SkipVideoRecon) {
     $skipVideoFrontendBuild = -not $SkipCu128
-    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$skipVideoFrontendBuild -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
+    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu128-rtx50-video-recon" -VenvDir (Join-Path $root "venv") -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -ArchiveFormat $ArchiveFormat -SkipFrontendBuild:$skipVideoFrontendBuild -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
 }
 
 if (-not $SkipCu126) {
-    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -SkipFrontendBuild:$true -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
+    Invoke-PackageBuild -Root $root -Version $version -SourceRevision $updateContext.SourceRevision -Target "cu126-mainstream" -VenvDir $cu126Venv -OutputDir $OutputDir -MinGitCacheDir $effectiveMinGitCacheDir -CompressionLevel $CompressionLevel -ArchiveFormat $ArchiveFormat -SkipFrontendBuild:$true -PlanOnly:$false -AllowLocalVersion:$AllowLocalVersion
 }
 
 $packages = @()
 foreach ($target in $requestedTargets) {
     $zipPath = $requestedArchivePaths[$target]
     if (-not (Test-Path -LiteralPath $zipPath -PathType Leaf)) {
-        Fail "本次构建未生成请求的便携 ZIP: $zipPath"
+        Fail "本次构建未生成请求的便携压缩包: $zipPath"
     }
     $zip = Get-Item -LiteralPath $zipPath
 
@@ -674,7 +681,7 @@ Write-Host ""
 Write-Host "[OK] Windows 完整便携包一键打包完成" -ForegroundColor Green
 $packages | Format-Table File, Target, SizeGiB, Hash -AutoSize
 Write-Host ""
-Write-Host "下一步：把 ZIP 和 .sha256.txt 上传到网盘，然后把 portable-release-template-$version.md 内容贴进 GitHub Release。"
+Write-Host "下一步：把压缩包和 .sha256.txt 上传到网盘，然后把 portable-release-template-$version.md 内容贴进 GitHub Release。"
 Write-Host ""
 Write-Host "缓存说明："
 Write-Host "  cu126 打包缓存: $(Join-Path $root ".portable-venvs")"
@@ -684,7 +691,7 @@ Write-Host "  pip 缓存: $env:LOCALAPPDATA\pip\Cache"
 Write-Host "  npm 缓存: $env:LOCALAPPDATA\npm-cache"
 Write-Host "如需手动清理项目内打包缓存，可运行："
 Write-Host "  rmdir /s /q .portable-venvs"
-Write-Host "旧版本 ZIP 默认保留在 portable-dist；如需清理，请手动删除不需要的版本。"
+Write-Host "旧版本压缩包默认保留在 portable-dist；如需清理，请手动删除不需要的版本。"
 
 
 
