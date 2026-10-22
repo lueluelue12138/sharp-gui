@@ -1319,7 +1319,7 @@ $videoReconNote
 "@
 Set-Content -LiteralPath "$packageRoot\便携包说明.md" -Encoding UTF8 -Value $notes
 
-Write-Step "移除包内开发依赖和独立测试工具"
+Write-Step "移除包内开发依赖和已验证的未用组件"
 $trimOutput = @(& (Join-Path $packageRoot "python\python.exe") `
     (Join-Path $root "tools\trim_portable_runtime.py") --package-root $packageRoot `
     --frontend-dependencies (Join-Path $frontendDir "node_modules") --apply)
@@ -1332,10 +1332,12 @@ $packageInfo.runtimeLayout = [ordered]@{
     removedBytes = $trimReport.removed_bytes
     removedEntries = $trimReport.entries.Count
     frontendLicenseFiles = $trimReport.frontend_license_files
+    nativeProfiles = @($trimReport.native_profiles)
     modelWeights = "original-unmodified"
 }
 $packageInfo | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath "$packageRoot\portable-package.json" -Encoding UTF8
-Write-Info ("已移除 {0:N1} MiB；模型权重、CUDA DLL、编译头文件和许可证保留" -f ($trimReport.removed_bytes / 1MB))
+Write-Info ("已移除 {0:N1} MiB；模型权重、必要运行库、编译头文件和许可证保留" -f ($trimReport.removed_bytes / 1MB))
+Write-Info ("已验证原生裁剪配置: {0}" -f ($trimReport.native_profiles -join ", "))
 
 Test-ManagedPortablePackage `
     -PackageRoot $packageRoot `

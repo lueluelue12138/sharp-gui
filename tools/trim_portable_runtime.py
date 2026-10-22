@@ -1,9 +1,10 @@
-"""按明确清单裁剪便携包副本，保留模型、运行库、编译头文件和许可资料。"""
+"""按明确清单与已验证组件指纹裁剪便携包副本。"""
 
 from __future__ import annotations
 
 import argparse
 import fnmatch
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -11,11 +12,49 @@ import shutil
 import stat
 
 
-LAYOUT_REVISION = 1
+LAYOUT_REVISION = 2
 REMOVABLE_PATHS = (
     ('frontend/node_modules', 'frontend_build_dependencies'),
     ('python/Lib/site-packages/torch/lib/dnnl.lib', 'unused_onednn_static_library'),
     ('tools/ffmpeg/bin/ffplay.exe', 'unused_media_player'),
+)
+
+# 原生 DLL 只裁剪经过实际推理/配准验证的固定组件；未知版本完整保留。
+# 指纹覆盖保留的 Python 源码与原生文件，避免只按文件名误裁新依赖。
+NATIVE_TRIM_PROFILES = (
+    {
+        'name': 'torch-2.8.0-cu128',
+        'directory': 'python/Lib/site-packages/torch',
+        'fingerprint': '9d893e80526a586a04bb0443a2b723e9404cacf734073aee025e11909f24baa2',
+        'remove': {
+            'lib/kineto.lib': '89aa9136395576077d1898d232ca69cd01718ab91882e06ae4466bb282ed3d4b',
+            'lib/libprotobuf.lib': 'f2d648c3ffc28604cda5fc7a70b31326c750b8df85c9286d62147773b7dbb6a5',
+            'lib/libprotoc.lib': '82b847f70317a0fe40309d13b9395888c4112e1ad2d424ddbeaeeaaa31dfc00d',
+            'lib/curand64_10.dll': '3465fd1b46e551339b8f44c455756a0f2cba8bd846562eb659040d48edb7aaac',
+            'lib/cusolverMg64_11.dll': 'c3377f10606ff0606be2f08401d54aff6c37f137b78d6b6e21be356a5b4d6cc2',
+        },
+    },
+    {
+        'name': 'torch-2.8.0-cu126',
+        'directory': 'python/Lib/site-packages/torch',
+        'fingerprint': 'ca8649c63a8167bd1b3cd664a79d780199cabb0f178251b352ed9764821dd263',
+        'remove': {
+            'lib/kineto.lib': '444ffbd0b9d494c46a525141d448d9781cf5340de0ce90d6e4db05bda84cbc48',
+            'lib/libprotobuf.lib': 'cfcf20a5cdd8baab70b87565286ba1525060710af8a4af749b5393e6ebcba2cd',
+            'lib/libprotoc.lib': '240458d9417a3b0ef9f386292ba6cc8d5fa3aac7208aa5a93ade2e8b801e29cc',
+            'lib/curand64_10.dll': '0704875170e99155d74d533b50ade32ead16bc62f1b86e35c10640eaac4e08c9',
+            'lib/cusolverMg64_11.dll': 'e4131f30f911e19ab4afc3a65cc6aba52d0be16e1a52d0ff4e10432d70e30114',
+        },
+    },
+    {
+        'name': 'colmap-sift-verified',
+        'directory': '.sharp-gui-tools/colmap',
+        'fingerprint': '0b8286b3189486bf34c85ffcb7a827fbad75a77ff902f0ad87c9ae8984a15125',
+        'remove': {
+            'bin/onnxruntime_providers_cuda.dll': 'ce1c698cae708fd4ed9ab36eddf256213df40779d0806d20f32132c5d422da72',
+            'bin/curand64_10.dll': '4d6d16c9941c4f7a7e49d5c43df25d408a2a8503d8cc1eb9808e0e0c2cde36d4',
+        },
+    },
 )
 
 
@@ -39,6 +78,48 @@ def _assert_regular_tree(root, path, *, recursive=True):
         raise ValueError('Only regular files and directories may be trimmed')
 
 
+def _file_sha256(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _native_fingerprint(component, excluded):
+    """为保留的可执行文件与 Python 源码生成稳定指纹，忽略字节码缓存。"""
+    digest = hashlib.sha256()
+    for path in sorted(component.rglob('*')):
+        relative = path.relative_to(component).as_posix()
+        if (not path.is_file() or relative in excluded or path.name.endswith('_test.exe')
+                or path.suffix.lower() not in ('.dll', '.exe', '.pyd', '.py')):
+            continue
+        digest.update(relative.encode('utf-8') + b'\0')
+        digest.update(bytes.fromhex(_file_sha256(path)))
+    return digest.hexdigest()
+
+
+def _native_candidates(root):
+    """组件及候选库均匹配时才裁剪，版本变化或文件改动时保留全部候选。"""
+    fingerprints = {}
+    for profile in NATIVE_TRIM_PROFILES:
+        component = root / profile['directory']
+        if not any(os.path.lexists(component / name) for name in profile['remove']):
+            continue
+        _assert_regular_tree(root, component)
+        if component not in fingerprints:
+            excluded = {name for item in NATIVE_TRIM_PROFILES
+                        if item['directory'] == profile['directory'] for name in item['remove']}
+            fingerprints[component] = _native_fingerprint(component, excluded)
+        if fingerprints[component] != profile['fingerprint']:
+            continue
+        if any((component / name).exists() and _file_sha256(component / name) != expected
+               for name, expected in profile['remove'].items()):
+            continue
+        for name in profile['remove']:
+            yield component / name, 'verified_unused_native_library', profile['name']
+
+
 def plan_trim(package_root):
     """只接受具有运行时标识的独立包目录，不接受源码根或虚拟环境。"""
     root = Path(os.path.abspath(package_root))
@@ -48,20 +129,24 @@ def plan_trim(package_root):
             raise ValueError('A complete portable staging directory is required')
     if (root / 'venv').exists():
         raise ValueError('Refusing to trim a development workspace')
-    candidates = [(root / relative, reason) for relative, reason in REMOVABLE_PATHS]
+    candidates = [(root / relative, reason, None) for relative, reason in REMOVABLE_PATHS]
     colmap_bin = root / '.sharp-gui-tools/colmap/bin'
     # COLMAP 的独立单元测试程序不参与命令行重建。
     if colmap_bin.is_dir():
-        candidates.extend((path, 'colmap_unit_test_executable')
+        candidates.extend((path, 'colmap_unit_test_executable', None)
                           for path in sorted(colmap_bin.glob('*_test.exe')))
+    candidates.extend(_native_candidates(root))
     result = []
-    for path, reason in candidates:
+    for path, reason, profile in candidates:
         if not os.path.lexists(path):
             continue
         _assert_regular_tree(root, path)
         files = list(path.rglob('*')) if path.is_dir() else [path]
         size = sum(item.stat().st_size for item in files if item.is_file())
-        result.append({'path': path.relative_to(root).as_posix(), 'reason': reason, 'bytes': size})
+        entry = {'path': path.relative_to(root).as_posix(), 'reason': reason, 'bytes': size}
+        if profile:
+            entry['native_profile'] = profile
+        result.append(entry)
     return root, result
 
 
@@ -109,7 +194,9 @@ def trim_runtime(package_root, *, apply=False, frontend_dependencies=None):
                 shutil.rmtree(path)
             else:
                 path.unlink()
+    profiles = sorted({entry['native_profile'] for entry in entries if 'native_profile' in entry})
     return {'layout_revision': LAYOUT_REVISION, 'applied': apply, 'frontend_license_files': license_count,
+            'native_profiles': profiles,
             'removed_bytes': sum(entry['bytes'] for entry in entries), 'entries': entries}
 
 

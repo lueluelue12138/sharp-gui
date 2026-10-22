@@ -1,4 +1,4 @@
-"""便携运行时裁剪仅作用于包副本，保留原生运行库与模型精度。"""
+"""裁剪只作用于包副本，未知原生组件保留，模型精度不变。"""
 
 from pathlib import Path
 import stat
@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from tools import trim_portable_runtime as runtime_trim
 from tools.trim_portable_runtime import trim_runtime
 
 
@@ -35,6 +36,9 @@ def test_dry_run_and_apply_preserve_runtime_headers_weights_and_licenses(tmp_pat
     )]
     retained = [write(root, name) for name in (
         'python/Lib/site-packages/torch/lib/torch_cuda.dll',
+        'python/Lib/site-packages/torch/lib/libprotoc.lib',
+        'python/Lib/site-packages/torch/lib/libprotobuf.lib',
+        'python/Lib/site-packages/torch/lib/kineto.lib',
         'python/Lib/site-packages/torch/lib/torch.lib',
         'python/Lib/site-packages/torch/include/torch/extension.h',
         '.cache/torch/hub/checkpoints/sharp_2572gikvuh.pt',
@@ -52,6 +56,47 @@ def test_dry_run_and_apply_preserve_runtime_headers_weights_and_licenses(tmp_pat
     assert not any(path.exists() for path in removed)
     assert all(path.read_bytes() == content for path, content in before.items())
     assert trim_runtime(root, apply=True)['removed_bytes'] == 0
+
+
+@pytest.mark.parametrize('changed', [None, 'retained', 'candidate', 'extra_binary'])
+def test_native_libraries_require_verified_component_and_candidate_bytes(tmp_path, monkeypatch, changed):
+    root = package(tmp_path)
+    component = root / 'python/Lib/site-packages/torch'
+    retained = write(component, 'lib/torch_cuda.dll')
+    candidate = write(component, 'lib/curand64_10.dll')
+    other_candidate = write(component, 'lib/cusolverMg64_11.dll')
+    static_library = write(component, 'lib/libprotoc.lib')
+    write(component, '__init__.py')
+    removals = {path.relative_to(component).as_posix(): runtime_trim._file_sha256(path)
+                for path in (candidate, other_candidate, static_library)}
+    profile = {'name': 'fixture', 'directory': component.relative_to(root).as_posix(),
+               'remove': removals, 'fingerprint': runtime_trim._native_fingerprint(component, removals)}
+    monkeypatch.setattr(runtime_trim, 'NATIVE_TRIM_PROFILES', (profile,))
+    if changed == 'retained':
+        retained.write_bytes(b'new runtime version')
+    elif changed == 'candidate':
+        candidate.write_bytes(b'changed library')
+    elif changed == 'extra_binary':
+        write(component, 'lib/new_extension.dll')
+    # 字节码缓存不影响固定组件的身份。
+    write(component, '__pycache__/generated.pyc')
+    report = trim_runtime(root, apply=True)
+    assert retained.exists()
+    if changed is None:
+        assert not any(path.exists() for path in (candidate, other_candidate, static_library))
+        assert report['native_profiles'] == ['fixture']
+        assert trim_runtime(root, apply=True)['removed_bytes'] == 0
+    else:
+        assert all(path.exists() for path in (candidate, other_candidate, static_library))
+        assert report['native_profiles'] == []
+
+
+def test_unknown_native_release_is_preserved(tmp_path):
+    root = package(tmp_path)
+    candidate = write(root, '.sharp-gui-tools/colmap/bin/onnxruntime_providers_cuda.dll')
+    write(root, '.sharp-gui-tools/colmap/bin/colmap.exe')
+    assert trim_runtime(root, apply=True)['native_profiles'] == []
+    assert candidate.exists()
 
 
 def test_rejects_source_workspace_or_missing_package_markers(tmp_path):

@@ -485,7 +485,7 @@ function Write-ReleaseTemplate {
     $lines.Add("  - SHA256：``$($script:MinGitSha256)``")
     $lines.Add('  - 包内可执行文件：`.sharp-gui-tools\git\cmd\git.exe`；完整许可证目录随 MinGit 原样保留。')
     $lines.Add("")
-    $lines.Add("这是首批带受管 Git 基线的自更新包；更旧的便携包需要先完整下载一次本包或后续完整包。Stable 对应最新正式 Release，Latest 对应 ``main`` 最新提交且测试程度较低。自动更新只应用 runtime revision 兼容的代码并支持回滚；Python、CUDA、PyTorch、COLMAP、ffmpeg 或视频重建运行时变化时，必须重新下载完整包。")
+    $lines.Add("本批 Portable runtime revision 为 ``$($UpdateContext.PortableRuntimeRevision)``；运行时版本不兼容的旧包需重新下载完整包。Stable 对应最新正式 Release，Latest 对应 ``main`` 最新提交且测试程度较低。后续仅应用运行时兼容的代码更新，验证失败时会自动恢复；Python、CUDA、PyTorch、COLMAP、ffmpeg 或视频重建运行环境发生不兼容变化时，仍需下载新完整包。")
     $lines.Add("")
     $lines.Add("更新会保留配置、工作区输入/输出/模型资产和索引缓存、模型缓存、包内 Python/CUDA、MinGit、更新状态及可选视频重建环境。压缩包本身仍须按上表 SHA256 校验后再使用。")
 

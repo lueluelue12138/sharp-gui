@@ -231,7 +231,7 @@ build_portable_release.bat
 - 自动准备 `.portable-venvs\cu126` 并生成 `cu126-mainstream` 完整包。
 - 生成 `.sha256.txt`。
 - 用 7-Zip 测试 ZIP 完整性。
-- 默认采用等级 7 的 ZIP，排除前端开发依赖、未使用的 oneDNN 静态开发库和独立工具测试程序；权重精度、运行时 DLL、头文件和许可资料不变。
+- 默认采用等级 7 的 ZIP，排除前端开发依赖、未用静态开发库和独立工具测试程序；仅裁剪组件指纹与文件 SHA256 均匹配的已验证可选原生库，保留原始权重、必要运行库、头文件和许可资料。
 - 可用 `-ArchiveFormat 7z` 生成 LZMA2 实心压缩包；两种格式使用不同输出目录，均需完整性与 clean-extract 验证。详情见 `docs/portable-package-size.md`。
 - 生成 `portable-dist\portable-release-template-<version>.md`，用于复制到 GitHub Release 正文并填写网盘链接。
 - 默认保留 `.portable-venvs` 作为下次打包加速缓存，并保留 `portable-dist` 中的历史旧版本产物；脚本结束时会打印缓存位置和手动清理命令。
