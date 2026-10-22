@@ -179,12 +179,34 @@ def build_colmap_commands(data_dir, profile, option_names):
     matches = [executable, f'{method}_matcher', '--database_path', str(database),
                f'--{matcher}.use_gpu', '1', f'--{matcher}.gpu_index', '0']
     if method == 'sequential':
-        matches += ['--SequentialMatching.overlap', '10']
+        # 没有词汇树时显式关闭在线/隐式闭环；另用有界关键帧对补充跨时间约束。
+        matches += ['--SequentialMatching.overlap', '10', '--SequentialMatching.loop_detection', '0']
     mapper = [executable, 'mapper', '--database_path', str(database), '--image_path', str(images),
               '--output_path', str(sparse)]
     if profile.get('sfm_allow_two_view_tracks'):
         mapper += ['--Mapper.tri_ignore_two_view_tracks', '0']
-    return features, matches, mapper
+    commands = [features, matches]
+    if method == 'sequential' and profile.get('sfm_nonlocal_matching'):
+        commands.append([
+            executable, 'matches_importer', '--database_path', str(database),
+            '--match_list_path', str(data_dir / 'nonlocal-pairs.txt'), '--match_type', 'pairs',
+            f'--{matcher}.use_gpu', '1', f'--{matcher}.gpu_index', '0',
+        ])
+    return (*commands, mapper)
+
+
+def write_nonlocal_match_pairs(data_dir):
+    """复用已提取特征，对最多 24 个均匀关键帧做跨时间匹配；不猜相机位姿。"""
+    data_dir = Path(data_dir)
+    names = sorted(path.name for path in (data_dir / 'images').glob('frame_*.jpg') if path.is_file())
+    count = min(24, len(names))
+    indices = sorted({round(index * (len(names) - 1) / (count - 1)) for index in range(count)}) if count > 1 else []
+    pairs = [(names[left], names[right]) for offset, left in enumerate(indices)
+             for right in indices[offset + 1:] if right - left > 10]
+    (data_dir / 'nonlocal-pairs.txt').write_text(
+        ''.join(f'{left} {right}\n' for left, right in pairs), encoding='utf-8',
+    )
+    return {'strategy': 'bounded-keyframes-v1', 'keyframes': len(indices), 'candidate_pairs': len(pairs)}
 
 
 def registration_summary(data_dir, plan):
@@ -241,7 +263,12 @@ def run_video_geometry(task_manager, task_id, task, job_dir, data_dir, profile, 
             *[(cmd, 'video_geometry', 34) for cmd in build_colmap_commands(attempt_dir, attempt_profile, options)],
         ]
         failed = False
+        nonlocal_matching = None
         for command, stage, progress in command_stages:
+            if len(command) > 1 and command[1] == 'matches_importer':
+                nonlocal_matching = write_nonlocal_match_pairs(attempt_dir)
+                if not nonlocal_matching['candidate_pairs']:
+                    continue
             code, lines, cancelled = run_command(task_manager, task_id, command, cwd=job_dir, stage=stage, progress=progress)
             if cancelled:
                 return 'cancelled', None, None, None
@@ -263,6 +290,8 @@ def run_video_geometry(task_manager, task_id, task, job_dir, data_dir, profile, 
                            'temporal_coverage': 0, 'sfm_points': 0, 'usable': False}
             else:
                 summary['matching_method'] = attempt_profile['matching_method']
+                if nonlocal_matching is not None:
+                    summary['nonlocal_matching'] = nonlocal_matching
                 candidates.append((attempt_dir, stats, summary))
             attempts.append(summary)
             if summary['registration_ratio'] >= GOOD_REGISTRATION_RATIO and summary.get('usable'):

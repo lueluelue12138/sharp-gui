@@ -1189,7 +1189,7 @@ if ($includeVideoReconstruction) {
         engine = "brush"
         colmap = ".sharp-gui-tools\\colmap\\bin"
         ffmpeg = "tools\\ffmpeg\\bin"
-        commands = @("brush_app", "colmap", "ffmpeg", "ffprobe")
+        commands = @("brush-cli", "colmap", "ffmpeg", "ffprobe")
         brush = [ordered]@{
             version = $brushRuntime.version
             sourceCommit = $brushRuntime.sourceCommit

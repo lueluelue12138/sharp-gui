@@ -8,7 +8,7 @@ import uuid
 from contextlib import contextmanager
 
 from backend import runtime
-from backend.services import model_gallery, video_reconstruction
+from backend.services import model_gallery, model_generation, video_reconstruction
 from backend.services.model_convert import ply_to_spz
 from backend.services.model_orientation import VIEWER_ORIENTATION_DEFAULT
 from backend.services.workspace_lock import WorkspaceInstanceLock
@@ -83,6 +83,17 @@ class TaskManager:
 
         try:
             self._write_image_metadata(model_id, display_filename, generation_status)
+            if generation_status == 'completed':
+                try:
+                    from PIL import Image
+
+                    with Image.open(task['input_path']) as source:
+                        task.setdefault('details', {})['source'] = {'width': source.width, 'height': source.height}
+                except (KeyError, OSError, ValueError):
+                    pass
+                metadata = model_gallery.read_model_metadata(self.paths, model_id)
+                metadata['generation'] = model_generation.build_generation_summary(task, engine='ML-Sharp')
+                model_gallery.write_model_metadata(self.paths, model_id, metadata)
         except Exception as exc:
             runtime.log(
                 "WARN",
@@ -260,6 +271,7 @@ class TaskManager:
                 self.task_status[task_id]["stage"] = "starting"
                 self.task_status[task_id]["started_at"] = now
                 self.task_status[task_id]["stage_started_at"] = now
+                model_generation.start_generation(self.task_status[task_id])
 
             if kind == video_reconstruction.TASK_KIND_VIDEO_3DGS:
                 video_reconstruction.run_video_reconstruction_task(self, task_id, task)
@@ -279,6 +291,8 @@ class TaskManager:
             output_folder = task["output_folder"]
 
             device = self.sharp_device_selector()
+            with self.task_lock:
+                self.task_status[task_id]['generation_device'] = str(device)
             print(f"Using Sharp device: {device}")
             sharp_command = self.sharp_command_resolver()
             print(f"Using Sharp command: {sharp_command}")
@@ -466,6 +480,7 @@ class TaskManager:
                 return
 
         if return_code == 0:
+            inference_finished = time.monotonic()
             name_without_ext = os.path.splitext(filename)[0]
             expected_ply = os.path.join(output_folder, name_without_ext + ".ply")
 
@@ -501,7 +516,15 @@ class TaskManager:
             with self.task_lock:
                 if self.task_status.get(task_id, {}).get("status") == "cancelled":
                     return
-
+                finished_task = self.task_status[task_id]
+                finished_task['completed_at'] = time.time()
+                finished_task['_generation_completed_monotonic'] = time.monotonic()
+                started = finished_task.get('_generation_started_monotonic')
+                if started is not None:
+                    finished_task.setdefault('details', {})['stage_durations'] = {
+                        'image_inference': round(max(0, inference_finished - started), 3),
+                        'image_postprocessing': round(max(0, time.monotonic() - inference_finished), 3),
+                    }
             self._update_image_metadata_status(task_id, "completed")
             try:
                 from backend.services import model_assets

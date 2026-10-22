@@ -86,7 +86,7 @@ def test_initial_view_falls_back_when_no_points_are_visible(tmp_path):
 
 
 def test_bundled_brush_has_priority_over_explicit_configuration(tmp_path, monkeypatch):
-    bundled = tmp_path / brush_engine.BRUSH_INSTALL_RELATIVE_PATH / 'brush_app.exe'
+    bundled = tmp_path / brush_engine.BRUSH_INSTALL_RELATIVE_PATH / 'brush-cli.exe'
     bundled.parent.mkdir(parents=True)
     bundled.write_bytes(b'bundled')
     configured = tmp_path / 'custom brush.exe'
@@ -107,7 +107,9 @@ def test_brush_train_command_matches_locked_cli_and_preserves_full_sh(tmp_path):
         'brush_growth_stop_iter': 6000, 'brush_max_splats': 1000000,
     })
     options = dict(zip(command[1:-1:2], command[2:-1:2]))
-    assert options['--total-steps'] == '8000'
+    assert options['--total-train-iters'] == '8000'
+    assert '--total-steps' not in options
+    assert options['--min-scale-factor'] == '0.1'
     assert options['--growth-stop-iter'] == '6000'
     assert options['--max-resolution'] == '1600'
     assert options['--max-splats'] == '1000000'
@@ -154,6 +156,10 @@ def test_progress_uses_actual_locked_brush_logs_and_ignores_elapsed_estimates():
     assert brush_engine.parse_brush_progress('Training took 2m 34s', 8000) is None
     assert brush_engine.parse_brush_progress('Refine iter 9000, 50000 splats.', 8000) is None
     assert brush_engine.parse_brush_progress('100/30000 Steps', 8000) is None
+    assert brush_engine.parse_brush_progress(
+        'Training progress: iteration=3790 total=15000 elapsed_secs=58.653 lod=0', 15000,
+    )['step'] == 3790
+    assert brush_engine.parse_brush_progress('Training progress: iteration=20 total=30000', 15000) is None
 
 
 def test_best_colmap_submodel_is_chosen_by_registered_views_not_folder_zero(tmp_path):
@@ -367,9 +373,9 @@ def test_invalid_gaussian_export_is_rejected(tmp_path, failure):
 
 def test_windows_official_release_is_locked_and_other_platforms_are_explicit():
     locked = install_brush.resolve_release('Windows', 'AMD64')
-    assert locked['url'] == 'https://github.com/ArthurBrussee/brush/releases/download/v0.3.0/brush-app-x86_64-pc-windows-msvc.zip'
-    assert locked['archive_sha256'] == 'b68e3e9cf052d51bf3ee30776fa5a364de7f2ba13b58443128ff797bb7bcfcd6'
-    assert locked['binary_sha256'] == '37e46cbf808b9983dd15a5f9a25328dbe43e7e06d53c4f59fbeaeb10e3a5b34a'
+    assert locked['url'] == 'https://github.com/ooolabdev/OOOBrush/releases/download/ooo-v1.0.0/OOOBrush-x86_64-pc-windows-msvc.zip'
+    assert locked['archive_sha256'] == '2d02edd7bfe1f7a4b665b34b73c4dfb80a5464c543195c0380980754103b5301'
+    assert locked['binary_sha256'] == 'f65bba1c7fcbdbb13e9299897ecb885f90f30555bee9452a526e372eacf338df'
     with pytest.raises(RuntimeError, match='supports'):
         install_brush.resolve_release('Windows', 'arm64')
 

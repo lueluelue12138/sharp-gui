@@ -439,7 +439,7 @@ def save_edited_model(paths, asset_id, payload):
         metadata = {key: copy.deepcopy(source_metadata[key]) for key in (
             'source_media_type', 'source_media_id', 'source_name', 'source_video_path', 'source_mime_type',
             'source_identity', 'source_media_version',
-            'mode', 'quality', 'custom_options', 'engine', 'resolved_engine', 'reconstruction',
+            'mode', 'quality', 'custom_options', 'engine', 'resolved_engine', 'reconstruction', 'generation',
         ) if key in source_metadata}
         metadata.update({'generator': 'model_editor', 'display_name': name,
                     'viewer_orientation': 'default', 'viewer_transform': None,

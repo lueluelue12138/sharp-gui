@@ -23,6 +23,32 @@ export type ModelAssetDensity = 'comfortable' | 'compact' | 'expanded';
 
 export type ModelAssetThumbnailState = 'ready' | 'missing' | 'pending' | 'error';
 
+export interface ModelGenerationSummary {
+  schema_version: number;
+  kind: string;
+  engine: string;
+  engine_version?: string;
+  engine_commit?: string;
+  recipe_version?: string;
+  duration_seconds?: number;
+  stage_durations?: Record<string, number>;
+  started_at?: string;
+  completed_at?: string;
+  quality?: string;
+  device?: string;
+  source_width?: number;
+  source_height?: number;
+  source_duration_seconds?: number;
+  sampling_fps?: number;
+  extracted_frames?: number;
+  registered_frames?: number;
+  registration_ratio?: number;
+  training_iterations?: number;
+  training_resolution?: number;
+  max_splats?: number;
+  splat_count?: number;
+}
+
 export interface ModelAssetFile {
   format: ModelAssetFormat;
   filename: string;
@@ -38,6 +64,7 @@ export interface ModelAssetFile {
 }
 
 export interface ModelAsset {
+  generation?: ModelGenerationSummary | null;
   source_generation_kind?: 'edited' | 'reconstruction';
   source_parent_asset_id?: string | null;
   quality?: string | null;

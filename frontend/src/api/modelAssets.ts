@@ -44,6 +44,7 @@ export async function fetchModelAssets(
 }
 
 export async function fetchModelAsset(id: string): Promise<ModelAsset> {
+  // Detail includes the persisted generation summary and model-format metadata.
   return apiGet<ModelAsset>(`/api/model-assets/${encodeURIComponent(id)}`);
 }
 

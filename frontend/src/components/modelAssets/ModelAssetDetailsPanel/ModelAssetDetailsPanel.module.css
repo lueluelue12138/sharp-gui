@@ -277,6 +277,37 @@
   margin: 0;
 }
 
+.generationSummary {
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.generationSummary h3 {
+  margin: 0 0 var(--space-3);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.generationSummary p {
+  margin: 0 0 var(--space-3);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.generationStages {
+  margin-top: var(--space-3);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.generationStages summary {
+  cursor: pointer;
+  padding: var(--space-2) 0;
+}
+
 .fieldRow {
   display: grid;
   grid-template-columns: minmax(100px, 0.45fr) minmax(0, 1fr);

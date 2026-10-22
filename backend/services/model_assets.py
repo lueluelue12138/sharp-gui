@@ -660,6 +660,7 @@ def build_generated_asset(paths, asset_id, files, record=None, include_details=F
         "source_parent_asset_id": (metadata.get('editing') or {}).get('source_asset_id'),
         "source_generation_kind": 'edited' if metadata.get('editing') else 'reconstruction',
         "quality": metadata.get('quality'),
+        "generation": metadata.get('generation') if isinstance(metadata.get('generation'), dict) else None,
         "source_name": metadata.get("source_name") or original_filename,
         "source_video_url": source_video_url,
         "image_url": f"/api/original/{quote(asset_id, safe='')}" if original_filename else None,

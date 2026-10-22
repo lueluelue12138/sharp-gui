@@ -174,7 +174,7 @@ def test_vram_budget_cannot_exceed_detected_12gb(monkeypatch, configured, expect
     assert video_reconstruction.effective_vram_budget(configured) == expected
     for quality in ('preview', 'high', 'extreme'):
         profile = video_reconstruction.resolve_quality_profile(quality, '12gb', engine='brush')
-        assert profile['brush_max_splats'] == 1_500_000
+        assert profile['brush_max_splats'] == {'preview': 500_000, 'high': 1_000_000, 'extreme': 1_500_000}[quality]
         assert profile['frame_count'] <= 1200
         assert profile['max_resolution'] <= 3840
         assert profile['brush_growth_stop_iter'] < profile['max_num_iterations']
@@ -304,7 +304,7 @@ def test_auto_custom_request_retains_brush_resolution(monkeypatch):
                                                           engine='brush')
     assert profile['max_resolution'] == 3200
     assert profile['frame_count'] == 120
-    assert profile['brush_growth_stop_iter'] == 14400
+    assert profile['brush_growth_stop_iter'] == 15300
 
 
 @pytest.mark.parametrize('stream_duration, format_duration, fps, expected_fps', [
@@ -350,13 +350,30 @@ def test_colmap_3_and_4_option_names_match_real_cli_contract(tmp_path, monkeypat
     names = video_geometry.colmap_option_names({})
     assert names == (extractor, matcher)
     profile = video_reconstruction.resolve_quality_profile('extreme', '12gb', engine='brush')
-    features, matches, mapper = video_geometry.build_colmap_commands(tmp_path, profile, names)
+    features, matches, nonlocal_matches, mapper = video_geometry.build_colmap_commands(tmp_path, profile, names)
     assert features[features.index('--ImageReader.single_camera') + 1] == '1'
     assert features[features.index(f'--{extractor}.max_image_size') + 1] == '3200'
     assert features[features.index('--SiftExtraction.max_num_features') + 1] == '16384'
     assert f'--{matcher}.use_gpu' in matches
     assert matches[matches.index('--SequentialMatching.overlap') + 1] == '10'
-    assert mapper[mapper.index('--Mapper.tri_ignore_two_view_tracks') + 1] == '0'
+    assert '--Mapper.tri_ignore_two_view_tracks' not in mapper
+    assert nonlocal_matches[1] == 'matches_importer'
+    assert nonlocal_matches[nonlocal_matches.index('--match_type') + 1] == 'pairs'
+
+
+def test_nonlocal_pairs_are_bounded_reuse_only_extracted_views_and_include_endpoints(tmp_path):
+    images = tmp_path / 'images'
+    images.mkdir()
+    for index in range(1, 1201):
+        (images / f'frame_{index:06d}.jpg').touch()
+    summary = video_geometry.write_nonlocal_match_pairs(tmp_path)
+    pairs = [line.split() for line in (tmp_path / 'nonlocal-pairs.txt').read_text().splitlines()]
+    assert summary['keyframes'] == 24
+    assert summary['candidate_pairs'] == len(pairs) <= 276
+    assert ['frame_000001.jpg', 'frame_001200.jpg'] in pairs
+    assert len({tuple(pair) for pair in pairs}) == len(pairs)
+    assert all(int(right[6:12]) - int(left[6:12]) > 10 for left, right in pairs)
+    assert all((images / name).is_file() for pair in pairs for name in pair)
 
 
 def test_geometry_rescue_uses_more_frames_and_exhaustive_matching(video_task):
@@ -446,7 +463,7 @@ def test_brush_pipeline_publishes_real_sh3_ply_spz_and_final_report(video_task, 
         assert len(list((dataset / 'images').glob('*.jpg'))) == 38
         assert '--downscale-factor' not in command
         assert command[command.index('--max-resolution') + 1] == '1920'
-        assert command[command.index('--max-splats') + 1] == '1500000'
+        assert command[command.index('--max-splats') + 1] == '1000000'
         assert command[command.index('--sh-degree') + 1] == '3'
         output = Path(command[command.index('--export-path') + 1]) / brush_engine.BRUSH_EXPORT_NAME
         exported.append(write_gaussian_ply(output))
@@ -467,7 +484,13 @@ def test_brush_pipeline_publishes_real_sh3_ply_spz_and_final_report(video_task, 
     assert metadata['source_media_type'] == 'video'
     assert metadata['viewer_camera'] is not None
     assert model_gallery.build_gallery_item(manager.paths, 'synthetic')['viewer_camera'] == metadata['viewer_camera']
-    asset = model_assets.sync_generated_model_asset(manager.paths, 'synthetic')
+    # 完成事件前缓存就应包含最终摘要，不能依赖详情读取或手动刷新补写。
+    asset = next(item for item in model_assets.list_model_assets(manager.paths, {})['items']
+                 if item['id'] == 'synthetic')
+    assert asset['generation'] == metadata['generation']
+    assert asset['generation']['engine_version'] == brush_engine.BRUSH_VERSION
+    assert asset['generation']['completed_at']
+    assert asset['point_count'] == 25
     assert asset['viewer_camera'] == metadata['viewer_camera']
     report = metadata['reconstruction']
     assert report['geometry']['registered_frames'] == 38
@@ -513,14 +536,15 @@ def test_brush_oom_retry_preserves_high_resolution_and_isolates_outputs(
     first, second = brush_commands
     assert first[first.index('--export-path') + 1] != second[second.index('--export-path') + 1]
     assert second[second.index('--max-resolution') + 1] == str(expected_resolution)
-    assert second[second.index('--max-splats') + 1] == '1005000'
-    assert second[second.index('--total-steps') + 1] == first[first.index('--total-steps') + 1]
+    expected_cap = {'preview': 335000, 'high': 670000, 'extreme': 1005000, 'custom': 1005000}[quality]
+    assert second[second.index('--max-splats') + 1] == str(expected_cap)
+    assert second[second.index('--total-train-iters') + 1] == first[first.index('--total-train-iters') + 1]
     assert task['details']['brush_oom_retry']['max_resolution'] == expected_resolution
     if second_has_output:
         assert task['status'] == 'completed'
         assert Path(task['output_path']).read_bytes() == final_bytes[0]
         metadata = model_gallery.read_model_metadata(manager.paths, 'synthetic')
-        assert metadata['reconstruction']['brush_oom_retry']['max_splats'] == 1_005_000
+        assert metadata['reconstruction']['brush_oom_retry']['max_splats'] == expected_cap
     else:
         assert task['status'] == 'failed'
         assert task['error_code'] == video_reconstruction.ERROR_OUTPUT_MISSING
@@ -616,8 +640,8 @@ def test_non_oom_failure_never_retries_or_publishes_partial_ply(video_task, monk
     assert not Path(task['spz_path']).exists()
     command = commands[0]
     assert command[command.index('--max-resolution') + 1] == ('1920' if quality == 'high' else '3840')
-    assert command[command.index('--total-steps') + 1] == ('15000' if quality == 'high' else '30000')
-    assert command[command.index('--max-splats') + 1] == '1500000'
+    assert command[command.index('--total-train-iters') + 1] == ('15000' if quality == 'high' else '30000')
+    assert command[command.index('--max-splats') + 1] == ('1000000' if quality == 'high' else '1500000')
 
 
 def test_gpu_failure_codes_have_translations_in_the_existing_task_queue():

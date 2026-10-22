@@ -7,7 +7,7 @@
   },
   "defaultBranch": "main",
   "updateProtocolRevision": 1,
-  "portableRuntimeRevision": 3,
+  "portableRuntimeRevision": 4,
   "minimumGitVersion": "2.30.0",
   "frontend": {
     "builtAssetsRequired": true,

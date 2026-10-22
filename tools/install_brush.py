@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""下载并校验固定 Brush v0.3.0，不改动 Python/CUDA 或全局 PATH。"""
+"""下载并校验固定 OOOBrush，不改动 Python/CUDA 或全局 PATH。"""
 
 from __future__ import annotations
 
@@ -24,33 +24,33 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from backend.services.brush_engine import BRUSH_COMMIT, BRUSH_INSTALL_RELATIVE_PATH, BRUSH_VERSION
+from backend.services.brush_engine import BRUSH_COMMIT, BRUSH_INSTALL_RELATIVE_PATH, BRUSH_RELEASE_TAG, BRUSH_VERSION
 
 
 RELEASES = {
     ('windows', 'x86_64'): {
-        'archive': 'brush-app-x86_64-pc-windows-msvc.zip',
-        'archive_sha256': 'b68e3e9cf052d51bf3ee30776fa5a364de7f2ba13b58443128ff797bb7bcfcd6',
-        'binary': 'brush_app.exe',
-        'binary_sha256': '37e46cbf808b9983dd15a5f9a25328dbe43e7e06d53c4f59fbeaeb10e3a5b34a',
+        'archive': 'OOOBrush-x86_64-pc-windows-msvc.zip',
+        'archive_sha256': '2d02edd7bfe1f7a4b665b34b73c4dfb80a5464c543195c0380980754103b5301',
+        'binary': 'brush-cli.exe',
+        'binary_sha256': 'f65bba1c7fcbdbb13e9299897ecb885f90f30555bee9452a526e372eacf338df',
     },
     ('linux', 'x86_64'): {
-        'archive': 'brush-app-x86_64-unknown-linux-gnu.tar.xz',
-        'archive_sha256': '4f0f9a8785d1951c62df26aae247c02c5bba32b00f40b06df4e1c9b867399e20',
-        'binary': 'brush_app',
-        'binary_sha256': '13d28ee06a388bc4e987774e890b594d60a75bba26064e82b4ee338a78f158a4',
+        'archive': 'OOOBrush-x86_64-unknown-linux-gnu.tar.gz',
+        'archive_sha256': 'eea89703d98b2fcc090309746ef4ef54271ef402c2b67e644ed7ac1390dcfb4e',
+        'binary': 'brush-cli',
+        'binary_sha256': 'ca819f94716c04add531e69e5f6812a2d1e9a8cefbc2803da000d905d4fccb0a',
     },
     ('darwin', 'arm64'): {
-        'archive': 'brush-app-aarch64-apple-darwin.tar.xz',
-        'archive_sha256': '65b2631398c839be3c1d4d7160fe2326389dec87830aac0710985e6690a1048c',
-        'binary': 'brush_app',
-        'binary_sha256': None,
+        'archive': 'OOOBrush-aarch64-apple-darwin.tar.gz',
+        'archive_sha256': '5a47aabf185b9ca5697d760d30f9fbb9e6da7b199137bcc8c8fcf488f84c0869',
+        'binary': 'brush-cli',
+        'binary_sha256': 'da613b4ed1c551f41e448d8ab0dc9caf0f80bfd9f6943542e1b02c93d19ca74a',
     },
 }
 REQUIRED_CLI_FLAGS = (
-    '--total-steps', '--max-resolution', '--refine-every', '--max-splats',
+    '--total-train-iters', '--max-resolution', '--refine-every', '--max-splats',
     '--growth-grad-threshold', '--growth-select-fraction', '--growth-stop-iter',
-    '--sh-degree', '--export-path', '--export-name', '--export-every',
+    '--sh-degree', '--min-scale-factor', '--export-path', '--export-name', '--export-every',
 )
 BRUSH_LICENSE_TEXT = """
                                  Apache License
@@ -277,11 +277,11 @@ def resolve_release(system=None, machine=None):
     if release is None:
         raise RuntimeError(
             'Automatic Brush installation supports Windows x64, Linux x64 and macOS arm64 only. '
-            'Build official tag v0.3.0 and set SHARP_BRUSH_EXECUTABLE on other platforms.'
+            f'Build OOOBrush tag {BRUSH_RELEASE_TAG} and set SHARP_BRUSH_EXECUTABLE on other platforms.'
         )
     return {
         **release, 'platform': system_name, 'architecture': architecture,
-        'url': f'https://github.com/ArthurBrussee/brush/releases/download/v{BRUSH_VERSION}/{release["archive"]}',
+        'url': f'https://github.com/ooolabdev/OOOBrush/releases/download/{BRUSH_RELEASE_TAG}/{release["archive"]}',
     }
 
 
@@ -337,7 +337,7 @@ def extract_archive(archive, destination):
                 with bundle.open(member) as source, target.open('wb') as output:
                     shutil.copyfileobj(source, output)
         return
-    with tarfile.open(archive, mode='r:xz') as bundle:
+    with tarfile.open(archive, mode='r:*') as bundle:
         for member in bundle:
             target = _safe_archive_target(destination, member.name)
             if member.isdir():
@@ -432,9 +432,9 @@ def install_brush(destination=None, archive=None, force=False, verify_cli=True):
         shutil.copy2(anchors[0], installation / release['binary'])
         (installation / 'LICENSE.txt').write_text(BRUSH_LICENSE_TEXT, encoding='utf-8', newline='\n')
         (installation / 'THIRD_PARTY_NOTICES.txt').write_text(
-            f'Brush {BRUSH_VERSION}\nLicense: Apache-2.0\n'
-            'Copyright and attribution: Arthur Brussee and Brush contributors.\n'
-            f'Upstream source: https://github.com/ArthurBrussee/brush/tree/{BRUSH_COMMIT}\n'
+            f'OOOBrush {BRUSH_VERSION}\nLicense: Apache-2.0\n'
+            'Copyright and attribution: Arthur Brussee, Brush and OOOBrush contributors.\n'
+            f'Upstream source: https://github.com/ooolabdev/OOOBrush/tree/{BRUSH_COMMIT}\n'
             f'Official release: {release["url"]}\n'
             'The bundled executable is unmodified. LICENSE.txt contains the complete license.\n'
             'Additional files and notices from the official archive are retained under upstream-release/.\n',

@@ -16,7 +16,7 @@ from werkzeug.utils import secure_filename
 
 from backend import runtime
 from backend.config import get_video_reconstruction_config
-from backend.services import brush_engine, model_gallery, photo_gallery, video_geometry
+from backend.services import brush_engine, model_gallery, model_generation, photo_gallery, video_geometry
 from backend.services.model_orientation import VIEWER_ORIENTATION_Y_FRONT
 from backend.services.static_files import is_real_path_inside
 
@@ -362,27 +362,29 @@ def validate_upload_request(form_data, uploaded_file):
 def resolve_brush_quality_profile(quality, vram_budget, custom_options=None):
     """固定 Brush 日程，并分别控制 SfM 与训练图像的真实长边。"""
     presets = {
-        'preview': (6, 9, 1600, 1200, 4096, 8000, 6000, 0.00004, 0.15),
+        'preview': (6, 9, 1600, 1200, 4096, 8000, 7000, 0.0022, 0.11),
         # 中档对齐 OOOSplat 均衡档的实际工作图、帧覆盖和配准预算。
-        'high': (8, 12, 1920, 1600, 8192, 15000, 12000, 0.00003, 0.2),
-        'extreme': (12, 15, 3840, 3200, 16384, 30000, 25000, 0.00002, 0.3),
+        'high': (8, 12, 1920, 1600, 8192, 15000, 13000, 0.002, 0.12),
+        'extreme': (12, 15, 3840, 3200, 16384, 30000, 23000, 0.0016, 0.14),
     }
     fps, rescue_fps, resolution, sfm_resolution, features, iterations, stop, threshold, fraction = presets.get(quality, presets['high'])
-    if vram_budget == '8gb':
-        resolution = min(resolution, 1920)
-        max_splats = 1000000
-    elif vram_budget in {'16gb', '24gb'}:
-        max_splats = 4000000
-    else:
-        max_splats = 1500000
+    # 引擎版本与增密阈值必须一起变化；这不是旧 0.3.0 梯度口径。
+    max_splats = 500000 if quality == 'preview' else 1000000
+    if quality in {'extreme', CUSTOM_RECONSTRUCTION_QUALITY}:
+        max_splats = 4000000 if vram_budget in {'16gb', '24gb'} else 1500000
+        if vram_budget == '8gb':
+            resolution, stop, threshold, fraction = min(resolution, 1920), 21000, 0.0018, 0.13
+            max_splats = 1000000
     profile = {
         'engine': 'brush', 'sampling_fps': fps, 'rescue_sampling_fps': rescue_fps, 'frame_count': 1200,
         'max_resolution': resolution, 'sfm_max_resolution': sfm_resolution,
-        'sfm_max_features': features, 'sfm_allow_two_view_tracks': quality == 'extreme',
+        # 普通不透明视频不启用仅两个视图支持的点，避免引入弱约束几何。
+        'sfm_max_features': features, 'sfm_allow_two_view_tracks': False,
+        'sfm_nonlocal_matching': quality != CUSTOM_RECONSTRUCTION_QUALITY,
         'max_num_iterations': iterations, 'matching_method': 'sequential',
         'brush_growth_grad_threshold': threshold, 'brush_growth_select_fraction': fraction,
         'brush_growth_stop_iter': stop, 'brush_max_splats': max_splats,
-        'vram_budget': vram_budget,
+        'vram_budget': vram_budget, 'recipe_version': brush_engine.BRUSH_RECIPE_VERSION,
     }
     if quality == CUSTOM_RECONSTRUCTION_QUALITY:
         options, error = normalize_custom_quality_options(custom_options, 'brush')
@@ -390,7 +392,7 @@ def resolve_brush_quality_profile(quality, vram_budget, custom_options=None):
             raise ValueError(error['error'])
         profile.update(options)
         profile['sampling_fps'] = None
-        profile['brush_growth_stop_iter'] = max(1, round(options['max_num_iterations'] * 0.8))
+        profile['brush_growth_stop_iter'] = max(1, round(options['max_num_iterations'] * 0.85))
     return profile
 
 
@@ -812,6 +814,7 @@ def build_video_model_metadata(task):
         "source_media_type": "video",
         "viewer_orientation": VIEWER_ORIENTATION_Y_FRONT,
         'viewer_camera': details.get('viewer_camera'),
+        'point_count': (details.get('output_stats') or {}).get('vertex_count'),
         "source_media_id": task.get("source_media_id"),
         "source_identity": task.get('source_identity'),
         "source_media_version": task.get('source_media_version'),
@@ -825,6 +828,10 @@ def build_video_model_metadata(task):
         "engine": task.get("engine"),
         "resolved_engine": task.get("resolved_engine"),
         'reconstruction': report,
+        'generation': model_generation.build_generation_summary(
+            task, engine='OOOBrush', engine_version=brush_engine.BRUSH_VERSION,
+            engine_commit=brush_engine.BRUSH_COMMIT,
+        ) if task.get('completed_at') is not None else None,
     }
 
 
@@ -875,10 +882,14 @@ def update_task(task_manager, task_id, **patch):
             if stage_changed:
                 stage_started = task.get("stage_started_at")
                 if previous_stage and stage_started:
-                    prev_stage_duration = now - stage_started
+                    monotonic_start = task.get('_stage_started_monotonic')
+                    prev_stage_duration = max(0, time.monotonic() - monotonic_start) if monotonic_start is not None else max(0, now - stage_started)
                     durations = task.setdefault("details", {}).setdefault("stage_durations", {})
-                    durations[previous_stage] = round(prev_stage_duration, 1)
+                    durations[previous_stage] = round(durations.get(previous_stage, 0) + prev_stage_duration, 3)
                 task["stage_started_at"] = now
+                task['_stage_started_monotonic'] = time.monotonic()
+            if patch.get('status') == 'completed':
+                task['_generation_completed_monotonic'] = time.monotonic()
             task.update(patch)
             started_at = task.get("started_at")
             total_elapsed = (now - started_at) if started_at else None
@@ -1875,14 +1886,6 @@ def run_video_reconstruction_task(task_manager, task_id, task):
             cleanup_failed()
             return
 
-        try:
-            from backend.services import model_assets
-
-            model_id = os.path.splitext(os.path.basename(task["output_path"]))[0]
-            model_assets.sync_generated_model_asset(task_manager.paths, model_id)
-        except Exception as exc:
-            runtime.log("WARN", f"Model asset catalog sync failed after video task {task_id}: {exc}")
-
         update_task(
             task_manager,
             task_id,
@@ -1900,6 +1903,13 @@ def run_video_reconstruction_task(task_manager, task_id, task):
             model_gallery.write_model_metadata(task_manager.paths, task['output_name'], build_video_model_metadata(task))
         except OSError as exc:
             runtime.log('WARN', f'Video task {task_id} could not save its final reconstruction report: {exc}')
+        try:
+            from backend.services import model_assets
+
+            # 摘要写完再同步缓存，避免列表先读到 generation=None 的旧快照。
+            model_assets.sync_generated_model_asset(task_manager.paths, task['output_name'])
+        except Exception as exc:
+            runtime.log('WARN', f'Model asset catalog sync failed after video task {task_id}: {exc}')
         clean_job_dir(job_dir, keep_intermediate)
     except video_geometry.InvalidVideoError as exc:
         update_task(task_manager, task_id, status='failed', error=str(exc), error_code=ERROR_INVALID_VIDEO)

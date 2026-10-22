@@ -81,7 +81,7 @@ export function ModelAssetDetailsPanel({
   onRefreshCover,
   onClose,
 }: ModelAssetDetailsPanelProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const coverInputRef = useRef<HTMLInputElement | null>(null);
   const [activeTab, setActiveTab] = useState<DetailsTab>('details');
   const [isEditing, setIsEditing] = useState(false);
@@ -95,6 +95,36 @@ export function ModelAssetDetailsPanel({
   const displaySize = modelSource?.size ?? asset?.primary_size ?? asset?.size ?? 0;
   const primaryFormat = (modelSource?.format ?? asset?.primary_format ?? asset?.formats?.[0] ?? 'ply').toUpperCase();
   const hasSourcePreview = Boolean(asset?.image_url || asset?.source_video_url);
+  const generation = asset?.generation;
+  const formatDuration = (value: number) => {
+    if (value < 60) return t('modelAssetDurationSeconds', { seconds: Number(value.toFixed(1)) });
+    const total = Math.round(value);
+    if (total < 3600) return t('modelAssetDurationMinutes', { minutes: Math.floor(total / 60), seconds: total % 60 });
+    return t('modelAssetDurationHours', {
+      hours: Math.floor(total / 3600), minutes: Math.floor((total % 3600) / 60), seconds: total % 60,
+    });
+  };
+  const generationFields: [string, string][] = [];
+  if (generation) {
+    generationFields.push([
+      t('modelAssetGenerationDuration'),
+      typeof generation.duration_seconds === 'number' && Number.isFinite(generation.duration_seconds) && generation.duration_seconds >= 0
+        ? formatDuration(generation.duration_seconds) : t('modelAssetNotRecorded'),
+    ]);
+    generationFields.push([t('modelAssetGenerationEngine'), [generation.engine, generation.engine_version].filter(Boolean).join(' ')]);
+    if (generation.quality) generationFields.push([t('videoReconQualityLabel'), t(`videoReconQuality.${generation.quality}`)]);
+    if (generation.source_width && generation.source_height) {
+      generationFields.push([t('modelAssetGenerationInput'), `${generation.source_width} × ${generation.source_height}`]);
+    }
+    if (generation.extracted_frames != null && generation.registered_frames != null) {
+      generationFields.push([t('modelAssetRegisteredFrames'), `${generation.registered_frames} / ${generation.extracted_frames}`]);
+    }
+    if (generation.training_iterations) {
+      generationFields.push([t('modelAssetTrainingIterations'), generation.training_iterations.toLocaleString(i18n.language)]);
+    }
+    if (generation.training_resolution) generationFields.push([t('modelAssetTrainingResolution'), `${generation.training_resolution} px`]);
+    if (generation.device) generationFields.push([t('modelAssetGenerationDevice'), generation.device]);
+  }
   const fields = useMemo(() => {
     if (!asset) {
       return [];
@@ -378,14 +408,42 @@ export function ModelAssetDetailsPanel({
 
       <div className={styles.detailBody}>
         {activeTab === 'details' ? (
-          <dl className={styles.fieldList}>
-            {fields.map(([label, value]) => (
-              <div key={label} className={styles.fieldRow}>
-                <dt>{label}</dt>
-                <dd data-tooltip={value}>{value}</dd>
-              </div>
-            ))}
-          </dl>
+          <>
+            {asset.is_generated ? (
+              <section className={styles.generationSummary} aria-label={t('modelAssetGenerationSummary')}>
+                <h3>{t('modelAssetGenerationSummary')}</h3>
+                {asset.source_generation_kind === 'edited' ? <p>{t('modelAssetGenerationInherited')}</p> : null}
+                {generationFields.length ? (
+                  <dl className={styles.fieldList}>
+                    {generationFields.map(([label, value]) => (
+                      <div key={label} className={styles.fieldRow}><dt>{label}</dt><dd data-tooltip={value}>{value}</dd></div>
+                    ))}
+                  </dl>
+                ) : <p>{t('modelAssetNoGenerationRecord')}</p>}
+                {generation?.stage_durations && Object.keys(generation.stage_durations).length ? (
+                  <details className={styles.generationStages}>
+                    <summary>{t('modelAssetGenerationStages')}</summary>
+                    <dl className={styles.fieldList}>
+                      {Object.entries(generation.stage_durations).filter(([, value]) => Number.isFinite(value) && value >= 0).map(([key, value]) => (
+                        <div key={key} className={styles.fieldRow}>
+                          <dt>{t(`modelAssetGenerationStage.${key}`, { defaultValue: t('modelAssetGenerationOther') })}</dt>
+                          <dd>{formatDuration(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                ) : null}
+              </section>
+            ) : null}
+            <dl className={styles.fieldList}>
+              {fields.map(([label, value]) => (
+                <div key={label} className={styles.fieldRow}>
+                  <dt>{label}</dt>
+                  <dd data-tooltip={value}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </>
         ) : (
           <dl className={styles.fieldList}>
             {metadataEntries.length > 0 ? metadataEntries.map(([key, value]) => (

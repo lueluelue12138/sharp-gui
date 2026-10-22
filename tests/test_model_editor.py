@@ -140,6 +140,7 @@ def test_edited_video_copies_keep_metadata_playback_and_shared_source_until_last
         'source_video_path': str(video), 'source_mime_type': 'video/mp4',
         'generator': 'video_3dgs', 'quality': 'high', 'engine': 'brush',
         'reconstruction': {'geometry': {'registered_frames': 180}},
+        'generation': {'schema_version': 1, 'engine': 'OOOBrush', 'duration_seconds': 456},
         'point_count': 9, 'bounding_box': [0, 0, 0, 8, 1, 2],
     })
     model_assets.sync_generated_model_asset(paths, 'source')
@@ -151,6 +152,7 @@ def test_edited_video_copies_keep_metadata_playback_and_shared_source_until_last
     assert edited['note'] == 'keep this note'
     metadata = model_gallery.read_model_metadata(paths, edited['id'])
     assert metadata['quality'] == 'high'
+    assert edited['generation']['duration_seconds'] == 456
     assert metadata['reconstruction']['geometry']['registered_frames'] == 180
     assert metadata['point_count'] == 7
     assert 'bounding_box' not in metadata
@@ -200,6 +202,7 @@ def test_overwrite_keeps_id_source_profile_and_replaces_all_generated_variants(a
     model_gallery.write_model_metadata(paths, 'source', {
         'source_media_type': 'video', 'source_media_id': 'album-video', 'source_name': 'Original.mp4',
         'generator': 'video_3dgs', 'quality': 'high', 'reconstruction': {'frames': 180},
+        'generation': {'schema_version': 1, 'engine': 'OOOBrush', 'duration_seconds': 123.5},
         'custom_source_info': {'keep': True}, 'bounding_box': [1, 2, 3],
     })
     model_assets.update_model_asset_profile(paths, 'source', {'display_name': 'Camera', 'tags': ['keep'], 'note': 'original note'})
@@ -210,6 +213,7 @@ def test_overwrite_keeps_id_source_profile_and_replaces_all_generated_variants(a
     assert response.status_code == 200
     edited = response.get_json()
     assert edited['id'] == 'source'
+    assert edited['generation']['duration_seconds'] == 123.5
     assert edited['created_at'] == previous['created_at']
     assert edited['name'] == 'Camera'
     assert edited['tags'] == ['keep'] and edited['note'] == 'original note'

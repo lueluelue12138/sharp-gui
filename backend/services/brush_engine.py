@@ -12,14 +12,17 @@ import time
 from pathlib import Path, PurePosixPath
 
 
-BRUSH_VERSION = '0.3.0'
-BRUSH_COMMIT = '3edecbb2fe79d3e2c87eeab85b15e0b1dd10d486'
-BRUSH_INSTALL_RELATIVE_PATH = Path('.sharp-gui-tools') / 'brush' / f'v{BRUSH_VERSION}'
+BRUSH_VERSION = '1.0.0'
+BRUSH_COMMIT = '866a7d65b4d6a591ba0d52a88f8b20ea3465c1e5'
+BRUSH_RELEASE_TAG = 'ooo-v1.0.0'
+BRUSH_INSTALL_RELATIVE_PATH = Path('.sharp-gui-tools') / 'brush' / BRUSH_RELEASE_TAG
+BRUSH_RECIPE_VERSION = 'ooobrush-video-v1'
 BRUSH_EXPORT_NAME = 'final.ply'
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _ANSI_ESCAPE = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
 _REFINE_PROGRESS = re.compile(r'\bRefine iter\s+(\d+),\s*([\d,]+)\s+splats\b', re.IGNORECASE)
 _BAR_PROGRESS = re.compile(r'\b(\d+)\s*/\s*(\d+)\s+Steps\b', re.IGNORECASE)
+_TRAIN_PROGRESS = re.compile(r'\bTraining progress:\s*iteration=(\d+)\s+total=(\d+)\b')
 _PLY_TYPES = {
     'char': 'i1', 'int8': 'i1', 'uchar': 'u1', 'uint8': 'u1',
     'short': '<i2', 'int16': '<i2', 'ushort': '<u2', 'uint16': '<u2',
@@ -36,7 +39,7 @@ def find_brush_executable(base_dir=None, environ=None):
     """优先使用固定包内引擎，再查显式配置和 PATH；导入时不启动进程。"""
     root = Path(base_dir) if base_dir is not None else _PROJECT_ROOT
     process_env = os.environ if environ is None else environ
-    names = ('brush_app.exe', 'brush_app') if os.name == 'nt' else ('brush_app', 'brush_app.exe')
+    names = ('brush-cli.exe', 'brush-cli') if os.name == 'nt' else ('brush-cli', 'brush-cli.exe')
     for name in names:
         bundled = root / BRUSH_INSTALL_RELATIVE_PATH / name
         if bundled.is_file():
@@ -72,7 +75,7 @@ def _positive_integer(value, name):
 
 
 def build_brush_train_command(executable, dataset_dir, output_dir, profile):
-    """将业务质量档转换为固定 v0.3.0 参数，保留完整 SH 导出。"""
+    """将版本化配方转换为固定 OOOBrush CLI，保留完整 SH 和尺度滤波导出。"""
     steps = _positive_integer(_profile_value(
         profile, ('brush_iterations', 'max_num_iterations', 'total_steps'), 30000,
     ), 'total_steps')
@@ -83,8 +86,9 @@ def build_brush_train_command(executable, dataset_dir, output_dir, profile):
         profile, ('brush_refine_every', 'refine_every'), 200,
     ), 'refine_every')
     command = [
-        str(executable), '--total-steps', str(steps), '--max-resolution', str(resolution),
+        str(executable), '--total-train-iters', str(steps), '--max-resolution', str(resolution),
         '--refine-every', str(refine_every), '--sh-degree', '3',
+        '--min-scale-factor', '0.1',
     ]
     max_splats = _profile_value(profile, ('brush_max_splats', 'max_splats'), None)
     if max_splats is not None:
@@ -144,7 +148,7 @@ def parse_brush_progress(line, total_steps):
         splat_count = int(match.group(2).replace(',', ''))
         total = int(total_steps)
     else:
-        match = _BAR_PROGRESS.search(cleaned)
+        match = _TRAIN_PROGRESS.search(cleaned) or _BAR_PROGRESS.search(cleaned)
         if not match:
             return None
         step, total = int(match.group(1)), int(match.group(2))
