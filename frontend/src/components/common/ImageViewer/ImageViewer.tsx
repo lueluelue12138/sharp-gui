@@ -1,6 +1,7 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { convertPhotosToModels } from '@/api';
+import { Button } from '@/components/common/Button';
 import { useAppStore } from '@/store/useAppStore';
 import {
   ChevronLeftIcon,
@@ -11,6 +12,7 @@ import {
   FullscreenIcon,
   PauseIcon,
   PlayIcon,
+  SpatialReframingIcon,
   SparklesIcon,
   VolumeIcon,
   VolumeMutedIcon,
@@ -19,8 +21,10 @@ import {
   createChromeSafePhotoPreviewUrl,
   shouldUseChromeSafePhotoPreview,
 } from '@/utils/ultraHdrPreview';
+import { downloadFile } from '@/utils/fileDownload';
 import { getGallerySourceVideoUrl } from '@/utils/gallery';
 import styles from './ImageViewer.module.css';
+import type { PhotoItem } from '@/types';
 import { SourceModelBadge } from '@/components/photoGallery/SourceModelBadge';
 
 const VIDEO_LONG_PRESS_MS = 260;
@@ -79,7 +83,7 @@ function unlockScreenOrientation(): void {
   }
 }
 
-export function ImageViewer() {
+export function ImageViewer({ onAdjustAngle }: { onAdjustAngle?: (photo: PhotoItem) => void } = {}) {
   const {
     previewImage,
     previewPhoto,
@@ -808,42 +812,21 @@ export function ImageViewer() {
 
   const handleDownload = async () => {
     if (isDownloading) return;
-    
+    const downloadUrl = previewPhoto
+      ? previewPhoto.download_url
+      : sourceVideoUrl
+        ? `${sourceVideoUrl}?download=1`
+        : `/api/original/${encodeURIComponent(previewImage?.id ?? '')}?download=1`;
+
     try {
       setIsDownloading(true);
-      // Fetch the blob directly to bypass browser's default exact view behavior
-      const downloadUrl = previewPhoto
-        ? previewPhoto.download_url
-        : sourceVideoUrl
-          ? `${sourceVideoUrl}?download=1`
-          : `/api/original/${encodeURIComponent(previewImage?.id ?? '')}?download=1`;
-      const response = await fetch(downloadUrl, { credentials: 'same-origin' });
-      if (!response.ok) throw new Error('Download failed');
-      
-      const blob = await response.blob();
-      const headerFilename = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];
-      const filename = previewPhoto?.name ?? previewImage?.source_name ?? headerFilename ?? `${activePreview.id}.jpg`;
-      
-      // Create temporary link and click it
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      
-      // Cleanup
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      await downloadFile(downloadUrl, {
+        filename: previewPhoto?.name ?? previewImage?.source_name ?? undefined,
+        fallbackFilename: `${activePreview.id}.jpg`,
+      });
     } catch (err) {
       console.error('Download error:', err);
-      // Fallback
-      const fallbackUrl = previewPhoto
-        ? previewPhoto.download_url
-        : sourceVideoUrl
-          ? `${sourceVideoUrl}?download=1`
-          : `/api/original/${encodeURIComponent(previewImage?.id ?? '')}?download=1`;
-      window.open(fallbackUrl, '_blank');
+      window.open(downloadUrl, '_blank');
     } finally {
       setIsDownloading(false);
     }
@@ -1118,6 +1101,12 @@ export function ImageViewer() {
     >
       <div className={styles.controls} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsDragging(false); }}>
         {previewPhoto ? <SourceModelBadge item={previewPhoto} preview /> : null}
+        {onAdjustAngle && previewPhoto?.media_type === 'image' && (
+          <Button className={styles.angleBtn} variant="secondary" type="button" icon={<SpatialReframingIcon />}
+            aria-label={t('portrait.title')} onClick={() => onAdjustAngle(previewPhoto)} data-tooltip={t('portrait.title')}>
+            {t('portrait.title')}
+          </Button>
+        )}
         {previewPhoto && !(modelSourceLinks[previewPhoto.id]?.total_count ?? previewPhoto.model_link?.total_count) && previewPhoto.media_type === 'image' ? (
           <button
             className={`${styles.controlBtn} ${isConverting ? styles.downloading : ''}`}

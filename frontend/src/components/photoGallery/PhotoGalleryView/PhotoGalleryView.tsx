@@ -6,7 +6,6 @@ import { useShallow } from 'zustand/react/shallow';
 import {
   ApiError,
   addPhotoAlbum,
-  browseFolder,
   convertPhotosToModels,
   downloadPhotos,
   fetchPhotoAlbumPhotos,
@@ -20,6 +19,7 @@ import { PhotoMasonryGrid } from '@/components/photoGallery/PhotoMasonryGrid';
 import { PhotoSelectionBar } from '@/components/photoGallery/PhotoSelectionBar';
 import { PhotoToolbar } from '@/components/photoGallery/PhotoToolbar';
 import type { PhotoToolbarMode } from '@/components/photoGallery/PhotoToolbar';
+import { usePhotoAlbumFolderPicker } from '@/hooks/usePhotoAlbumFolderPicker';
 import { useAppStore } from '@/store';
 import { getPhotoAlbumErrorKey, isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import type { PhotoItem, PhotoMediaType } from '@/types';
@@ -62,7 +62,7 @@ function getTouchDistance(touches: TouchList) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-export function PhotoGalleryView() {
+export function PhotoGalleryView({ hidden, onAdjustAngle }: { hidden?: boolean; onAdjustAngle: () => void }) {
   const { t } = useTranslation();
   const sourceRevision = useAppStore((state) => state.modelSourceRevision);
   const sourceServerRevision = useAppStore((state) => state.modelSourceServerRevision);
@@ -473,28 +473,10 @@ export function PhotoGalleryView() {
     }
   }, [isAddingAlbum, refreshAlbums, setCurrentPhotoAlbum, t]);
 
-  const handleAddAlbum = useCallback(async () => {
-    if (!isLocalAccess) {
-      return;
-    }
-
-    let selectedPath: string | undefined;
-    try {
-      const result = await browseFolder(t('photoSelectFolder'));
-      if (result.success && result.path) {
-        selectedPath = result.path;
-      }
-    } catch {
-      // Fall back to manual path input.
-    }
-
-    if (!selectedPath) {
-      setPathDialogOpen(true);
-      return;
-    }
-
-    void submitAlbumPath(selectedPath);
-  }, [isLocalAccess, submitAlbumPath, t]);
+  const { isPickingFolder, pickAlbumFolder } = usePhotoAlbumFolderPicker(
+    isLocalAccess && !isAddingAlbum, submitAlbumPath, () => setPathDialogOpen(true),
+    (message) => setNotice({ tone: 'error', message }),
+  );
 
   const handleRefresh = useCallback(async () => {
     try {
@@ -723,7 +705,7 @@ export function PhotoGalleryView() {
   }, [isDownloading, selectedPhotoIds, t]);
 
   return (
-    <div className={styles.root}>
+    <div className={styles.root} hidden={hidden}>
       <div className={styles.backdrop} />
       <div
         ref={scrollRef}
@@ -748,7 +730,9 @@ export function PhotoGalleryView() {
           isUploadingPhotos={isUploadingPhotos}
           uploadingPhotoCount={uploadingPhotoCount}
           mode={toolbarMode}
-          onAddAlbum={handleAddAlbum}
+          isPickingFolder={isPickingFolder}
+          onAddAlbum={pickAlbumFolder}
+          onAdjustAngle={onAdjustAngle}
           onUploadPhotos={handleUploadPhotos}
           onRefresh={handleRefresh}
           onMediaTypeChange={handleMediaTypeChange}

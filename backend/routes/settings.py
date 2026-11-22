@@ -183,8 +183,12 @@ def browse_folder():
     if not g.is_owner:
         return jsonify({"error": "Only available from localhost"}), 403
 
-    data = request.get_json() or {}
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify({"success": False, "error": "Folder picker options must be a JSON object."}), 400
     title = data.get("title", "Select Folder")
     initial_dir = data.get("initial_dir", os.path.expanduser("~"))
+    if any(not isinstance(value, str) or "\0" in value for value in (title, initial_dir)):
+        return jsonify({"success": False, "error": "Invalid title or folder path."}), 400
     payload, status_code = browse_folder_native(title, initial_dir)
     return jsonify(payload), status_code

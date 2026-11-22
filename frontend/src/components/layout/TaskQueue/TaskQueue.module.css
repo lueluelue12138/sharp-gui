@@ -65,6 +65,27 @@
     transform: translateY(-1px);
 }
 
+.angleTask { width: 100%; gap: 2px; padding: 3px 4px; }
+.angleTask[data-selected='true'] { border-color: var(--editor-accent); }
+.angleOpen, .angleClose {
+    display: flex;
+    align-items: center;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    cursor: pointer;
+}
+.angleOpen { flex: 1; min-width: 0; gap: 7px; padding: 7px 4px; text-align: left; font: inherit; }
+.angleClose { flex: none; width: 32px; height: 40px; justify-content: center; color: var(--text-muted); }
+.angleClose:hover { color: var(--danger-color); background: var(--glass-bg-light); }
+.angleOpen:focus-visible, .angleClose:focus-visible { outline: 2px solid var(--editor-accent); }
+.angleStage, .angleStatus { font-size: 10px; color: var(--text-secondary); }
+.angleStage { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.angleStatus { display: grid; gap: 2px; text-align: right; white-space: nowrap; }
+.angleStatus strong { color: var(--editor-accent); font-variant-numeric: tabular-nums; }
+.angleChevron { flex: none; color: var(--text-muted); }
+.angleTask .progressFill { display: block; }
+
 @media (prefers-color-scheme: dark) {
     .queueItem {
         background: rgba(40, 40, 45, 0.5);

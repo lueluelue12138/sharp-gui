@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { CSSProperties, DragEvent } from 'react';
 
+import { LoaderCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -13,6 +14,7 @@ import {
   PlusIcon,
   ResetIcon,
   SortIcon,
+  SpatialReframingIcon,
   SparklesIcon,
 } from '@/components/common/Icons';
 import { SelectMenu } from '@/components/common/SelectMenu';
@@ -35,11 +37,13 @@ interface PhotoToolbarProps {
   gridColumns: number;
   isLocalAccess: boolean;
   isLoading: boolean;
+  isPickingFolder: boolean;
   canUploadPhotos: boolean;
   isUploadingPhotos: boolean;
   uploadingPhotoCount: number;
   mode: PhotoToolbarMode;
   onAddAlbum: () => void;
+  onAdjustAngle: () => void;
   onUploadPhotos: (files: FileList | File[]) => Promise<void> | void;
   onRefresh: () => void;
   onMediaTypeChange: (mediaType: PhotoMediaType) => void;
@@ -62,11 +66,13 @@ export function PhotoToolbar({
   gridColumns,
   isLocalAccess,
   isLoading,
+  isPickingFolder,
   canUploadPhotos,
   isUploadingPhotos,
   uploadingPhotoCount,
   mode,
   onAddAlbum,
+  onAdjustAngle,
   onUploadPhotos,
   onRefresh,
   onMediaTypeChange,
@@ -460,6 +466,11 @@ export function PhotoToolbar({
             <span>{selectionMode ? t('photoDoneSelecting') : t('photoSelect')}</span>
           </button>
 
+          <button type="button" className={`${styles.textBtn} ${styles.angleAction}`} onClick={onAdjustAngle}
+            aria-label={t('portrait.title')} data-tooltip={t('portrait.title')}>
+            <SpatialReframingIcon width={16} height={16} /><span>{t('portrait.title')}</span>
+          </button>
+
           <button
             className={styles.primaryBtn}
             onClick={selectedCount > 0 ? onConvertSelected : onToggleSelection}
@@ -478,12 +489,14 @@ export function PhotoToolbar({
             <button
               className={[styles.iconBtn, styles.addBtn].join(' ')}
               onClick={onAddAlbum}
-              title={t('photoAddAlbum')}
+              title={t(isPickingFolder ? 'photoFolderPickerWaiting' : 'photoAddAlbum')}
+              disabled={isPickingFolder}
+              aria-busy={isPickingFolder}
               tabIndex={isExpandedMode ? undefined : -1}
               aria-hidden={!isExpandedMode}
               type="button"
             >
-              <PlusIcon width={16} height={16} />
+              {isPickingFolder ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <PlusIcon width={16} height={16} />}
             </button>
           ) : null}
         </div>

@@ -22,6 +22,7 @@ interface SelectMenuProps {
   showSelectedLabel?: boolean;
   disabled?: boolean;
   className?: string;
+  menuClassName?: string;
   portal?: boolean;
 }
 
@@ -35,6 +36,7 @@ export function SelectMenu({
   showSelectedLabel = true,
   disabled = false,
   className = '',
+  menuClassName = '',
   portal = false,
 }: SelectMenuProps) {
   const listboxId = useId();
@@ -61,7 +63,10 @@ export function SelectMenu({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsOpen(false);
-        if (portal && menuRef.current?.contains(document.activeElement)) rootRef.current?.querySelector('button')?.focus();
+        if (portal && menuRef.current?.contains(document.activeElement)) {
+          event.preventDefault();
+          rootRef.current?.querySelector('button')?.focus();
+        }
       }
     };
 
@@ -107,7 +112,7 @@ export function SelectMenu({
   }, [onChange]);
 
   const menu = isOpen && !disabled ? (
-    <div ref={menuRef} id={listboxId} className={[styles.menu, portal && styles.portalMenu].filter(Boolean).join(' ')} role="listbox" aria-label={ariaLabel} onKeyDown={event => {
+    <div ref={menuRef} id={listboxId} className={[styles.menu, portal && styles.portalMenu, menuClassName].filter(Boolean).join(' ')} role="listbox" aria-label={ariaLabel} onKeyDown={event => {
       if (!portal) return;
       const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="option"]')];
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement);

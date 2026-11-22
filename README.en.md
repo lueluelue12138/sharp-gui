@@ -374,6 +374,16 @@ Check **Settings → Updates**: **Stable** uses formal releases, while **Latest*
 
 ---
 
+## Spatial Reframing
+
+Start Sharp GUI and open **Spatial Reframing** from the gallery toolbar or a single-photo preview. If ComfyUI is offline on a Windows host, click **Start ComfyUI** to open the installed Comfy Desktop app and wait for it to connect automatically. LAN devices with remote generation permission can also start ComfyUI on the host. For a custom installation without a Start Menu shortcut, set `SHARP_PORTRAIT_COMFY_EXE` on the host to the absolute path of the Comfy Desktop executable.
+
+Upload a photo, build a 3D preview, choose a camera angle, and repair the image. You can paint a mask, crop or upload a reference close-up, refine the selected area, compare results, and download them. Camera paths support keyframes, preview playback, and export as a PNG sequence with `transforms.json`.
+
+The workbench connects to ComfyUI at `http://127.0.0.1:8000` by default. To use another port, set `SHARP_PORTRAIT_COMFY_URL` before starting Sharp GUI, for example `http://127.0.0.1:8188`. Install the custom nodes and models used by the SHARP Portrait Angle Qwen 2.1 Turbo INT8 mask-refinement workflow on the host. The connection status lists detected missing components. ComfyUI saves the results to its output directory, and you can download them from the browser.
+
+On another computer or phone on the same network, open the host's Sharp GUI address. On the host, enable the LAN access gate and remote generation in **Settings → Access & Security**, then unlock the other device with the access code. The 3D preview requires WebGL 2. The host processes the photo and runs the models locally.
+
 ## 🔐 LAN Access Gate and Privacy Boundary
 
 - **Access settings**: Access & security is the second Settings category. Configure LAN access and an access code there. The gate is off by default; once enabled, other devices must unlock first.

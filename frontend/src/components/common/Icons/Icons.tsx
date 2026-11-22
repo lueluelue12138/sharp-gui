@@ -7,6 +7,15 @@ import type { SVGProps } from 'react';
 
 type IconProps = SVGProps<SVGSVGElement>;
 
+export function SpatialReframingIcon(props: IconProps) {
+  return (
+    <svg fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true" {...props}>
+      <path d="M12 3.5v9l8.5 4.9m-8.5-4.9-8.5 4.9" />
+      <path d="m8.6 5.8 3.4-2.3 3.4 2.3M4.2 13.6l-.7 3.8 3.6 1.6m12.7-5.4.7 3.8-3.6 1.6" />
+    </svg>
+  );
+}
+
 // Menu icon (hamburger)
 export function MenuIcon(props: IconProps) {
   return (

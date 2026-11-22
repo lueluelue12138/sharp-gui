@@ -264,7 +264,7 @@ function Ensure-Cu126Venv {
         Pop-Location
     }
 
-    & $python -m pip install flask | Out-Host
+    & $python -m pip install flask 'websocket-client>=1.8,<2' | Out-Host
     if ($LASTEXITCODE -ne 0) {
         Fail "安装 Flask 到 cu126 环境失败"
     }

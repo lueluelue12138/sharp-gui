@@ -802,3 +802,19 @@
     transform: none;
   }
 }
+
+.controls .angleBtn {
+  height: 44px;
+  padding-inline: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-lg);
+  background: rgba(255, 255, 255, 0.15);
+  backdrop-filter: blur(10px);
+  color: white;
+  font-weight: 600;
+}
+.controls .angleBtn:hover { background: rgba(255, 255, 255, 0.25); }
+@media (max-width: 340px) {
+  .controls .angleBtn { width: 44px; padding-inline: 0; }
+  .angleBtn > span:last-child { display: none; }
+}

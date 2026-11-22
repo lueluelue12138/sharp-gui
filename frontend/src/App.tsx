@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -13,8 +13,9 @@ import {
   generateFromImages,
   importModelAssets,
 } from '@/api';
+import { recentPortraitJobs, uploadPortrait } from '@/api/portrait';
 import { AccessGate, AccessSetupPrompt } from '@/components/auth';
-import { ImageViewer, Loading } from '@/components/common';
+import { ConfirmDialog, ImageViewer, Loading } from '@/components/common';
 import { CloseIcon, CloudUploadIcon } from '@/components/common/Icons';
 import { ParticleBackground } from '@/components/common/ParticleBackground';
 import { GlobalTooltip } from '@/components/common/Tooltip';
@@ -32,12 +33,18 @@ import {
   VideoReconstructionGuide,
 } from '@/components/photoGallery';
 import { ViewerCanvas } from '@/components/viewer/ViewerCanvas/ViewerCanvas';
+import { PortraitWorkbench } from '@/components/portrait/PortraitWorkbench';
+import { restoreCaptureView } from '@/components/portrait/PortraitWorkbench/portraitRenderer';
 import { useTaskQueue } from '@/hooks/useTaskQueue';
 import { useModelSourceLinks } from '@/hooks/useModelSources';
 import { SourceModelPanel } from '@/components/photoGallery/SourceModelPanel';
 import { useAppStore } from '@/store';
+import { clearPortraitSession, newPortraitId, readPortraitSession, removePortraitDraft, savePortraitDraft, savePortraitSession } from '@/store/portraitSession';
+import type { AngleWorkspace, PortraitWorkspaceActions } from '@/store/portraitSession';
 import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import { detectImportedModelOrientation } from '@/utils/importedModelPreview';
+import type { PhotoItem } from '@/types';
+import type { PortraitTask } from '@/types/portrait';
 import type {
   ModelAssetImportFileEntry,
   ModelAssetImportPhase,
@@ -46,6 +53,9 @@ import type {
 import './App.css';
 
 const ACCESS_SETUP_PROMPT_SUPPRESSED_KEY = 'sharp-access-setup-prompt-suppressed';
+const AngleWorkbench = memo(PortraitWorkbench);
+const PHOTO_PICKER_WORKSPACE = 'photo-picker';
+
 type DroppedModelFormat = 'ply' | 'splat' | 'spz' | 'rad';
 type ModelAssetImportOrigin = 'library' | 'preview' | 'main-batch';
 
@@ -165,6 +175,20 @@ function App() {
   const { t } = useTranslation();
   const [showAccessSetupPrompt, setShowAccessSetupPrompt] = useState(false);
   const [modelAssetLibraryOpen, setModelAssetLibraryOpen] = useState(false);
+  const [restoredAngles] = useState(readPortraitSession);
+  const [angleWorkspaces, setAngleWorkspaces] = useState<AngleWorkspace[]>(restoredAngles.workspaces);
+  const [activeAngleId, setActiveAngleId] = useState<string | null>(restoredAngles.active);
+  const [angleTasks, setAngleTasks] = useState<PortraitTask[]>(restoredAngles.tasks);
+  const [legacyRecoveryDone, setLegacyRecoveryDone] = useState(Boolean(restoredAngles.legacyRecoveryDone || restoredAngles.workspaces.length));
+  const angleActions = useRef(new Map<string, PortraitWorkspaceActions>());
+  const [angleCancellation, setAngleCancellation] = useState<{ task: PortraitTask; fromWorkbench: boolean }>();
+  const [cancellingAngle, setCancellingAngle] = useState(false);
+  const [angleCancellationError, setAngleCancellationError] = useState<string>();
+  const [angleCacheRevision, setAngleCacheRevision] = useState(0);
+  const angleTasksActive = angleTasks.some(({ status }) => status === 'queued' || status === 'running');
+  const clearAnglePreviews = useCallback(() => setAngleCacheRevision((revision) => revision + 1), []);
+  const restoredAngleView = useRef(false);
+  const hadAngleAccess = useRef(false);
   const [temporaryModelPreview, setTemporaryModelPreview] = useState<TemporaryModelPreview | null>(null);
   const temporaryModelPreviewRef = useRef<TemporaryModelPreview | null>(null);
   const [modelAssetImportDialog, setModelAssetImportDialog] = useState<ModelAssetImportDialogState | null>(null);
@@ -248,6 +272,145 @@ function App() {
   );
   const canWriteModelAssets = canGenerateModels;
   const canDeleteModelAssets = isOwnerAccess;
+  const angleActive = activeView === 'photos' && activeAngleId !== null;
+  const hasPrivateAccess = isAuthenticated || isOwnerAccess;
+
+  const closeAngle = useCallback(() => setActiveAngleId(null), []);
+
+  useEffect(() => {
+    if (!authStatus) return;
+    if (hasPrivateAccess) {
+      hadAngleAccess.current = true;
+      if (!restoredAngleView.current) {
+        restoredAngleView.current = true;
+        if (restoredAngles.active) useAppStore.getState().setActiveView('photos');
+      }
+    } else if (hadAngleAccess.current) {
+      hadAngleAccess.current = false;
+      closeAngle();
+      setAngleWorkspaces([]);
+      setAngleTasks([]);
+      setLegacyRecoveryDone(false);
+      setAngleCancellation(undefined);
+      clearPortraitSession();
+    }
+  }, [authStatus, closeAngle, hasPrivateAccess, restoredAngles.active]);
+
+  useLayoutEffect(() => {
+    if (hasPrivateAccess) savePortraitSession({
+      workspaces: angleWorkspaces, tasks: angleTasks, active: angleActive ? activeAngleId : null, legacyRecoveryDone,
+    });
+  }, [activeAngleId, angleActive, angleTasks, angleWorkspaces, hasPrivateAccess, legacyRecoveryDone]);
+
+  useEffect(() => {
+    if (!isOwnerAccess || legacyRecoveryDone) return;
+    const controller = new AbortController();
+    void recentPortraitJobs(controller.signal).then((jobs) => {
+      if (controller.signal.aborted) return;
+      const workspaces = jobs.map((job, index) => {
+        const id = `recovered:${job.id}`;
+        savePortraitDraft(id, {
+          source: job.source, model: job.model ?? undefined, lens: job.lens, edge: job.edge,
+          ...(job.camera && job.model ? restoreCaptureView(job.camera, job.model) : {}),
+          pending: { stage: job.stage, startedAt: job.started_at, job: job.job },
+        });
+        return { id, uploadName: t('portrait.recoveredPhoto', { number: index + 1 }) };
+      });
+      if (workspaces.length) setAngleWorkspaces((previous) => [...previous, ...workspaces]);
+      setLegacyRecoveryDone(true);
+    }).catch(() => {});
+    return () => controller.abort();
+  }, [isOwnerAccess, legacyRecoveryDone, t]);
+
+  const selectAngle = useCallback((id: string) => {
+    const store = useAppStore.getState();
+    store.setPreviewPhoto(null);
+    store.setActiveView('photos');
+    setSidebarOpen(false);
+    setActiveAngleId(id);
+  }, [setSidebarOpen]);
+
+  const updateAngleTask = useCallback((task: PortraitTask) => {
+    setAngleTasks((previous) => {
+      const last = previous.find((item) => item.workspaceId === task.workspaceId);
+      if (!last) return [task, ...previous];
+      if (last.stage === task.stage && last.status === task.status && last.percent === task.percent
+          && last.startedAt === task.startedAt && last.filename === task.filename) return previous;
+      return previous.map((item) => item.workspaceId === task.workspaceId ? task : item);
+    });
+  }, []);
+
+  const registerAngleActions = useCallback((id: string, actions: PortraitWorkspaceActions) => {
+    const registered = angleActions.current;
+    registered.set(id, actions);
+    return () => { registered.delete(id); };
+  }, []);
+
+  const removeAngle = useCallback((id: string) => {
+    angleActions.current.get(id)?.dispose();
+    removePortraitDraft(id);
+    setAngleWorkspaces((previous) => previous.filter((workspace) => workspace.id !== id));
+    setAngleTasks((previous) => previous.filter((task) => task.workspaceId !== id));
+    setActiveAngleId((active) => active === id ? null : active);
+  }, []);
+
+  const requestCloseAngle = useCallback((id: string, fromWorkbench = false) => {
+    const task = angleTasks.find((item) => item.workspaceId === id);
+    if (task && (task.status === 'running' || task.status === 'queued')) {
+      setAngleCancellation({ task, fromWorkbench });
+      setAngleCancellationError(undefined);
+    } else {
+      removeAngle(id);
+    }
+  }, [angleTasks, removeAngle]);
+
+  async function cancelAngleTask() {
+    if (!angleCancellation || cancellingAngle) return;
+    const id = angleCancellation.task.workspaceId;
+    const actions = angleActions.current.get(id);
+    if (!actions) {
+      setAngleCancellationError(t('portrait.taskQueue.cancelError'));
+      return;
+    }
+    setCancellingAngle(true);
+    setAngleCancellationError(undefined);
+    try {
+      await actions.cancel();
+      removeAngle(id);
+      setAngleCancellation(undefined);
+    } catch (problem) {
+      const code = problem instanceof ApiError ? problem.data?.code : undefined;
+      setAngleCancellationError(t(code === 'portraitOffline' ? 'portrait.taskQueue.cancelOffline'
+        : code === 'portraitExpired' ? 'portrait.taskQueue.cancelUnavailable' : 'portrait.taskQueue.cancelError'));
+    } finally {
+      setCancellingAngle(false);
+    }
+  }
+
+  function openPhotoGallery() {
+    closeAngle();
+    useAppStore.getState().setActiveView('photos');
+    setSidebarOpen(false);
+  }
+
+  function openAngle(photo?: PhotoItem) {
+    const id = photo ? `gallery:${photo.id}` : PHOTO_PICKER_WORKSPACE;
+    setAngleWorkspaces((previous) => previous.some((workspace) => workspace.id === id) ? previous : [...previous, { id, photo }]);
+    selectAngle(id);
+  }
+
+  const openAngleUpload = useCallback((file: File) => {
+    const id = `upload:${newPortraitId()}`;
+    const startedAt = Date.now();
+    const controller = new AbortController();
+    const result = uploadPortrait('source', file, controller.signal);
+    // The receiving workbench handles the error once it mounts.
+    void result.catch(() => {});
+    setAngleWorkspaces((previous) => [...previous, {
+      id, upload: { filename: file.name, startedAt, result, abort: () => controller.abort() },
+    }]);
+    selectAngle(id);
+  }, [selectAngle]);
 
   const replaceTemporaryModelPreview = useCallback((next: TemporaryModelPreview | null) => {
     const previous = temporaryModelPreviewRef.current;
@@ -674,30 +837,43 @@ function App() {
 
       {/* Sidebar */}
       <Sidebar
+        onOpenGallery={openPhotoGallery}
+        angleTasks={angleTasks}
+        activeAngleId={angleActive ? activeAngleId : null}
+        onOpenAngle={selectAngle}
+        onCloseAngle={requestCloseAngle}
         canGenerateModels={canGenerateModels}
         onGenerationBlocked={showGenerationPermissionError}
         onUpload={handleUpload}
       >
         {activeView === 'photos' ? (
-          <PhotoAlbumList />
-        ) : (
+          <PhotoAlbumList onOpenAlbum={closeAngle} />
+        ) : activeView === 'models' ? (
           <ModelAssetSidebarPanel
             canDeleteAssets={canDeleteModelAssets}
             onOpenLibrary={openModelAssetLibrary}
             onOpenModel={closeModelAssetLibrary}
           />
-        )}
+        ) : null}
       </Sidebar>
       
       {/* Main content */}
       <main 
         className={`main-content ${!sidebarCollapsed ? 'sidebar-expanded' : ''}`}
-        onDragOver={handleMainDragOver}
-        onDrop={handleFileDrop}
+        onDragOver={angleActive ? undefined : handleMainDragOver}
+        onDrop={angleActive ? undefined : handleFileDrop}
       >
         {activeView === 'models' ? <ParticleBackground /> : null}
         
-        {activeView === 'photos' ? <PhotoGalleryView /> : (
+        {angleWorkspaces.map((workspace) => (
+          <AngleWorkbench key={workspace.id} workspaceId={workspace.id} active={angleActive && activeAngleId === workspace.id}
+            canGenerate={canGenerateModels} galleryPhoto={workspace.photo} initialUpload={workspace.upload}
+            uploadName={workspace.uploadName} savedTask={restoredAngles.tasks.find((task) => task.workspaceId === workspace.id)}
+            previewCacheRevision={angleCacheRevision} canClearCache={!angleTasksActive} onCacheCleared={clearAnglePreviews}
+            onBack={closeAngle} onClose={requestCloseAngle} onChoosePhoto={openAngleUpload}
+            onTaskUpdate={updateAngleTask} registerActions={registerAngleActions} />
+        ))}
+        {activeView === 'photos' ? <PhotoGalleryView hidden={angleActive} onAdjustAngle={() => openAngle()} /> : (
           modelAssetLibraryOpen && !currentModelUrl ? (
             <ModelAssetLibraryView
               canWriteAssets={canWriteModelAssets}
@@ -802,12 +978,29 @@ function App() {
       <Help showCloseModel />
       
       {/* Lightbox / Image Viewer */}
-      <ImageViewer />
+      <ImageViewer onAdjustAngle={openAngle} />
       <SourceModelPanel />
 
       <VideoReconstructionDialog />
 
       <VideoReconstructionGuide />
+
+      {angleCancellation && <ConfirmDialog
+        isOpen
+        title={t('portrait.taskQueue.cancelTitle')}
+        message={angleCancellationError ?? (cancellingAngle ? t('portrait.taskQueue.cancelling')
+          : t('portrait.taskQueue.cancelMessage', { name: angleCancellation.task.filename }))}
+        confirmLabel={t('portrait.taskQueue.cancelTitle')}
+        cancelLabel={t(angleCancellation.fromWorkbench ? 'portrait.taskQueue.backInBackground' : 'portrait.taskQueue.keep')}
+        danger
+        isBusy={cancellingAngle}
+        onConfirm={() => void cancelAngleTask()}
+        onClose={() => { if (!cancellingAngle) setAngleCancellation(undefined); }}
+        onCancel={() => {
+          if (angleCancellation.fromWorkbench) closeAngle();
+          setAngleCancellation(undefined);
+        }}
+      />}
 
       <ModelAssetImportDialog
         isOpen={Boolean(modelAssetImportDialog)}

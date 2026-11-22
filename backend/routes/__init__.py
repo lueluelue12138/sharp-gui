@@ -6,6 +6,7 @@ from backend.routes import (
     gallery,
     model_assets,
     photo_gallery,
+    portrait,
     settings,
     tasks,
     updates,
@@ -18,6 +19,7 @@ def register_routes(app):
     app.register_blueprint(gallery.bp)
     app.register_blueprint(model_assets.bp)
     app.register_blueprint(photo_gallery.bp)
+    app.register_blueprint(portrait.bp)
     app.register_blueprint(video_reconstruction.bp)
     app.register_blueprint(tasks.bp)
     app.register_blueprint(updates.bp)

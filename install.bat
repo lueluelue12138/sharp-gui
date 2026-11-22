@@ -586,7 +586,7 @@ if !ERRORLEVEL! neq 0 (
 )
 
 echo 安装 GUI 依赖...
-pip install flask
+pip install flask "websocket-client>=1.8,<2"
 
 echo [OK] Python 依赖安装完成
 

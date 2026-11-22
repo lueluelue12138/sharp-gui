@@ -1,7 +1,7 @@
 import { apiGet, apiPost } from './client';
 import type { ModelFormat, VideoReconstructionConfig } from '@/types';
 import type { AuthStatusResponse } from '@/types/auth';
-import type { ConfigurationPreview, ConfigurationRestoreResult } from '@/types/configuration';
+import type { ConfigurationPreview, ConfigurationRestoreResult, FolderBrowseResult } from '@/types/configuration';
 
 export interface SettingsData {
   config_file?: string | null;
@@ -83,8 +83,8 @@ export async function saveSettings(
 export async function browseFolder(
   title: string,
   initialDir?: string
-): Promise<{ success: boolean; path?: string; error?: string }> {
-  return apiPost('/api/browse-folder', { title, initial_dir: initialDir });
+): Promise<FolderBrowseResult> {
+  return apiPost('/api/browse-folder', { title, initial_dir: initialDir }, { timeout: 125000 });
 }
 
 /**

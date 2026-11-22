@@ -332,13 +332,17 @@ def get_required_access_level(access_config=None):
         return ACCESS_UNLOCKED
     if path == "/api/video-reconstructions/status":
         return ACCESS_UNLOCKED
+    if path == '/api/portrait/recent':
+        return ACCESS_OWNER
+    if path.startswith('/api/portrait/') and method in {'GET', 'HEAD'}:
+        return ACCESS_UNLOCKED
     if path in {
         "/api/generate",
         "/api/model-assets/import",
         "/api/photo-conversions",
         "/api/video-reconstructions",
         "/api/video-reconstructions/upload",
-    }:
+    } or (path.startswith('/api/portrait/') and method == 'POST'):
         access_config = access_config or get_access_control_config(persist_missing=False)
         if not is_access_control_enabled(access_config):
             return ACCESS_OWNER

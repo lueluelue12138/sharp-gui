@@ -14,16 +14,22 @@ import {
 } from '@/components/common/Icons';
 import { Button } from '@/components/common/Button';
 import { TaskQueue } from '@/components/layout/TaskQueue';
+import type { PortraitTask } from '@/types/portrait';
 import styles from './Sidebar.module.css';
 
 interface SidebarProps {
   canGenerateModels: boolean;
   onGenerationBlocked: () => void;
   onUpload: (files: FileList) => void;
+  onOpenGallery: () => void;
+  angleTasks: PortraitTask[];
+  activeAngleId: string | null;
+  onOpenAngle: (id: string) => void;
+  onCloseAngle: (id: string) => void;
   children?: React.ReactNode;
 }
 
-export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, children }: SidebarProps) {
+export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, onOpenGallery, angleTasks, activeAngleId, onOpenAngle, onCloseAngle, children }: SidebarProps) {
   const { t, i18n } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -186,7 +192,7 @@ export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, chil
                 styles.viewTab,
                 activeView === 'photos' ? styles.viewTabActive : '',
               ].filter(Boolean).join(' ')}
-              onClick={() => setActiveView('photos')}
+              onClick={onOpenGallery}
               role="tab"
               aria-selected={activeView === 'photos'}
               type="button"
@@ -199,7 +205,7 @@ export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, chil
 
         {/* Content (Queue + Gallery) */}
         <div className={styles.content}>
-          {activeView === 'models' ? <TaskQueue /> : null}
+          <TaskQueue angleTasks={angleTasks} activeAngleId={activeAngleId} onOpenAngle={onOpenAngle} onCloseAngle={onCloseAngle} />
           <div className={styles.galleryPane}>
             {children}
           </div>

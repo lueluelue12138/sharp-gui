@@ -1060,3 +1060,10 @@
     width: 100%;
   }
 }
+
+.angleAction { flex: 0 0 auto; }
+.compact .angleAction { display: inline-flex; }
+@media (max-width: 1100px) {
+  .compact .angleAction > span { display: none; }
+  .compact .angleAction { min-width: 36px; padding-inline: 0; }
+}

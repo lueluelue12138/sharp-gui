@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
+import { ChevronRight, Square, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { useAppStore } from '@/store/useAppStore';
@@ -9,6 +10,7 @@ import { cancelTask } from '@/api';
 import { isActiveTaskStatus } from '@/utils';
 
 import type { Task } from '@/types';
+import type { PortraitTask } from '@/types/portrait';
 
 import styles from './TaskQueue.module.css';
 
@@ -55,9 +57,17 @@ const CancelIcon = () => (
     </svg>
 );
 
-export const TaskQueue: React.FC = () => {
+function isActiveAngle(status: PortraitTask['status']) {
+    return status === 'queued' || status === 'running';
+}
+
+export function TaskQueue({ angleTasks, activeAngleId, onOpenAngle, onCloseAngle }: {
+    angleTasks: PortraitTask[]; activeAngleId: string | null; onOpenAngle: (id: string) => void;
+    onCloseAngle: (id: string) => void;
+}) {
     const { t } = useTranslation();
-    const { tasks, removeTask } = useAppStore();
+    const tasks = useAppStore((state) => state.tasks);
+    const removeTask = useAppStore((state) => state.removeTask);
 
     // Keep failed tasks visible for diagnostics alongside all active states.
     const activeTasks = tasks.filter(
@@ -104,10 +114,13 @@ export const TaskQueue: React.FC = () => {
         }
     };
 
-    // Don't render if no active tasks
-    if (activeTasks.length === 0) {
+    if (activeTasks.length === 0 && angleTasks.length === 0) {
         return null;
     }
+
+    const sortedAngles = [...angleTasks].sort((first, second) => (
+        Number(isActiveAngle(second.status)) - Number(isActiveAngle(first.status)) || second.startedAt - first.startedAt
+    ));
 
     const getTaskStageText = (task: Task) => {
         if (task.status === 'processing' && task.stage) {
@@ -135,8 +148,39 @@ export const TaskQueue: React.FC = () => {
     };
 
     return (
-        <div className={styles.container}>
+        <section className={styles.container} aria-label={t('processingQueue')}>
             <div className={styles.sectionTitle}>{t('processingQueue')}</div>
+
+            {sortedAngles.map(task => {
+                const { icon, color } = getStatusInfo(task.status === 'queued' ? 'pending' : task.status);
+                const selected = task.workspaceId === activeAngleId;
+                const stage = t(`portrait.taskQueue.stage.${task.stage}`);
+                const status = t(`portrait.taskQueue.status.${task.status}`);
+                const active = isActiveAngle(task.status);
+                const action = t(active ? 'portrait.taskQueue.cancel' : 'portrait.taskQueue.close', { name: task.filename });
+                return (
+                    <div key={task.workspaceId} className={`${styles.queueItem} ${styles.angleTask}`} data-selected={selected}>
+                        <button type="button" className={styles.angleOpen} onClick={() => onOpenAngle(task.workspaceId)}
+                            aria-current={selected ? 'true' : undefined}
+                            aria-label={t('portrait.taskQueue.open', { name: task.filename, stage, status })}>
+                            <span className={styles.statusIcon} style={{ color }} aria-hidden="true">{icon}</span>
+                            <span className={styles.itemContent}>
+                                <span className={styles.filename} data-tooltip={task.filename}>{task.filename}</span>
+                                <span className={styles.angleStage}>{t('portrait.title')} · {stage}</span>
+                                {task.percent !== undefined && <span className={styles.progressBar} aria-hidden="true">
+                                    <span className={styles.progressFill} style={{ width: `${task.percent}%` }} />
+                                </span>}
+                            </span>
+                            <span className={styles.angleStatus}>{status}{task.percent !== undefined && <strong>{task.percent}%</strong>}</span>
+                            <ChevronRight className={styles.angleChevron} size={14} aria-hidden="true" />
+                        </button>
+                        <button type="button" className={styles.angleClose} aria-label={action} data-tooltip={action}
+                            onClick={() => onCloseAngle(task.workspaceId)}>
+                            {active ? <Square size={12} aria-hidden="true" /> : <X size={15} aria-hidden="true" />}
+                        </button>
+                    </div>
+                );
+            })}
             
             {activeTasks.map(task => {
                 const { icon, color } = getStatusInfo(task.status);
@@ -204,6 +248,6 @@ export const TaskQueue: React.FC = () => {
                     </div>
                 );
             })}
-        </div>
+        </section>
     );
-};
+}

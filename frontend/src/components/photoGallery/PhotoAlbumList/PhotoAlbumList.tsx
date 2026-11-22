@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 
+import { LoaderCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 
 import {
   addPhotoAlbum,
-  browseFolder,
   deletePhotoAlbum,
   fetchPhotoAlbums,
   rescanPhotoAlbum,
@@ -20,13 +20,14 @@ import {
 } from '@/components/common/Icons';
 import { ConfirmDialog } from '@/components/common/ConfirmDialog';
 import { TextInputDialog } from '@/components/common/TextInputDialog';
+import { usePhotoAlbumFolderPicker } from '@/hooks/usePhotoAlbumFolderPicker';
 import { useAppStore } from '@/store';
 import { getPhotoAlbumErrorKey, isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import type { PhotoAlbum } from '@/types';
 
 import styles from './PhotoAlbumList.module.css';
 
-export function PhotoAlbumList() {
+export function PhotoAlbumList({ onOpenAlbum }: { onOpenAlbum?: () => void }) {
   const { t } = useTranslation();
   const [isBusy, setIsBusy] = useState(false);
   const [pathDialogOpen, setPathDialogOpen] = useState(false);
@@ -114,6 +115,7 @@ export function PhotoAlbumList() {
       const freshAlbum = response.albums.find((item) => item.id === album.id);
       if (isPhotoAlbumAvailable(freshAlbum)) {
         setCurrentPhotoAlbum(album.id);
+        onOpenAlbum?.();
         setMessage(null);
       } else {
         setMessage(t(getPhotoAlbumErrorKey(freshAlbum?.code)));
@@ -123,7 +125,7 @@ export function PhotoAlbumList() {
     } finally {
       setIsBusy(false);
     }
-  }, [isBusy, setCurrentPhotoAlbum, setPhotoAlbums, t]);
+  }, [isBusy, onOpenAlbum, setCurrentPhotoAlbum, setPhotoAlbums, t]);
 
   const submitAlbumPath = useCallback(async (selectedPath: string) => {
     if (!selectedPath.trim() || isBusy) {
@@ -147,38 +149,10 @@ export function PhotoAlbumList() {
     }
   }, [isBusy, refreshAlbums, setCurrentPhotoAlbum, t]);
 
-  const handleAddAlbum = useCallback(async () => {
-    if (!isLocalAccess || isBusy) {
-      return;
-    }
-
-    try {
-      setIsBusy(true);
-      setMessage(null);
-      let selectedPath: string | undefined;
-
-      try {
-        const result = await browseFolder(t('photoSelectFolder'));
-        if (result.success && result.path) {
-          selectedPath = result.path;
-        }
-      } catch {
-        // Fall back to manual path input below.
-      }
-
-      if (!selectedPath) {
-        setPathDialogOpen(true);
-        return;
-      }
-
-      await submitAlbumPath(selectedPath);
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : t('photoAlbumAddFailed');
-      setMessage(errorMessage);
-    } finally {
-      setIsBusy(false);
-    }
-  }, [isBusy, isLocalAccess, submitAlbumPath, t]);
+  const { isPickingFolder, pickAlbumFolder } = usePhotoAlbumFolderPicker(
+    isLocalAccess && !isBusy, submitAlbumPath, () => setPathDialogOpen(true), setMessage,
+  );
+  const addFolderLabel = t(isPickingFolder ? 'photoFolderPickerWaiting' : 'photoAddAlbum');
 
   const handleDeleteAlbum = useCallback(async (
     event: React.MouseEvent<HTMLButtonElement>,
@@ -235,13 +209,14 @@ export function PhotoAlbumList() {
         </div>
         <button
           className={styles.addBtn}
-          onClick={handleAddAlbum}
-          disabled={!isLocalAccess || isBusy}
-          data-tooltip={isLocalAccess ? t('photoAddAlbum') : t('photoLocalOnly')}
-          aria-label={t('photoAddAlbum')}
+          onClick={pickAlbumFolder}
+          disabled={!isLocalAccess || isBusy || isPickingFolder}
+          data-tooltip={isLocalAccess ? addFolderLabel : t('photoLocalOnly')}
+          aria-label={addFolderLabel}
+          aria-busy={isPickingFolder}
           type="button"
         >
-          <PlusIcon width={16} height={16} />
+          {isPickingFolder ? <LoaderCircle size={16} className="spin" aria-hidden="true" /> : <PlusIcon width={16} height={16} />}
         </button>
       </div>
 
@@ -268,8 +243,8 @@ export function PhotoAlbumList() {
               : isLocalAccess ? t('photoNoAlbums') : t('photoNoAlbumsRemote')}
           </p>
           {isLocalAccess ? (
-            <button className={styles.emptyBtn} onClick={handleAddAlbum} type="button">
-              {t('photoAddAlbum')}
+            <button className={styles.emptyBtn} onClick={pickAlbumFolder} disabled={isBusy || isPickingFolder} type="button">
+              {addFolderLabel}
             </button>
           ) : null}
         </div>

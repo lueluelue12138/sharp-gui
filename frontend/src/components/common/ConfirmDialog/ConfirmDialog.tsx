@@ -15,6 +15,7 @@ interface ConfirmDialogProps {
   danger?: boolean;
   onConfirm: () => void;
   onClose: () => void;
+  onCancel?: () => void;
 }
 
 export function ConfirmDialog({
@@ -27,6 +28,7 @@ export function ConfirmDialog({
   danger = false,
   onConfirm,
   onClose,
+  onCancel,
 }: ConfirmDialogProps) {
   const { t } = useTranslation();
 
@@ -35,7 +37,7 @@ export function ConfirmDialog({
       <div className={styles.body}>
         <p>{message}</p>
         <div className={styles.actions}>
-          <Button variant="secondary" onClick={onClose} disabled={isBusy} type="button">
+          <Button variant="secondary" onClick={onCancel ?? onClose} disabled={isBusy} type="button">
             {cancelLabel ?? t('cancel')}
           </Button>
           <Button

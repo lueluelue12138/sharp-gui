@@ -1,0 +1,26 @@
+.segments { min-width: 0; display: inline-flex; flex-wrap: wrap; gap: 3px; padding: 4px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
+.segments button { box-shadow: none; white-space: nowrap; }
+.segments button[aria-pressed='true'] { background: var(--glass-bg); color: var(--editor-accent); }
+.raisedMenu[role='listbox'] { z-index: 1400; }
+.pixelChoice { display: grid; gap: 8px; }
+.field, .rangeField, .toggleField { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 0.86rem; }
+.field > span, .rangeField > span { color: var(--text-secondary); }
+.rangeField { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0 8px; }
+.rangeField output { font-size: 0.8rem; font-variant-numeric: tabular-nums; color: var(--editor-accent); }
+.range { grid-column: 1 / -1; width: 100%; min-width: 0; height: 30px; appearance: none; background: transparent; cursor: pointer; margin: 0; outline-offset: 1px; }
+.range:disabled { opacity: .45; cursor: default; }
+.range::-webkit-slider-runnable-track { height: 5px; border-radius: 9px; background: linear-gradient(to right, var(--accent-blue) var(--range-value), color-mix(in srgb, var(--text-primary) 16%, transparent) var(--range-value)); }
+.range::-moz-range-track { height: 5px; border-radius: 9px; background: linear-gradient(to right, var(--accent-blue) var(--range-value), color-mix(in srgb, var(--text-primary) 16%, transparent) var(--range-value)); }
+.range::-webkit-slider-thumb { appearance: none; width: 15px; height: 15px; margin-top: -5px; background: var(--editor-accent); border: 2px solid var(--bg-color); border-radius: 50%; box-shadow: 0 1px 5px #0004; }
+.range::-moz-range-thumb { width: 12px; height: 12px; background: var(--editor-accent); border: 2px solid var(--bg-color); border-radius: 50%; }
+.number { min-width: 0; display: inline-flex; align-items: center; gap: 2px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
+.number button { min-width: 33px; padding-inline: 5px; box-shadow: none; }
+.number input { width: 4em; min-width: 0; background: transparent; border: 0; color: var(--text-primary); font: inherit; text-align: center; padding: 7px 2px; font-variant-numeric: tabular-nums; }
+.number input:only-child { width: 10em; }
+.toggleField { min-height: 41px; width: 100%; color: var(--text-secondary); cursor: pointer; text-align: left; }
+.toggleField:disabled { opacity: .45; cursor: default; }
+.toggleField i { width: 37px; height: 21px; border-radius: 20px; background: color-mix(in srgb, var(--text-primary) 20%, transparent); padding: 3px; flex: none; }
+.toggleField i::before { display: block; content: ''; width: 15px; height: 15px; border-radius: 100%; background: #fff; }
+.toggleField[aria-checked='true'] i { background: var(--accent-blue); }
+.toggleField[aria-checked='true'] i::before { transform: translateX(16px); }
+@media (pointer: coarse) { .segments button { min-height: 38px; } .range { height: 38px; } .number button { min-height: 40px; } }
