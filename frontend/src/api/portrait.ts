@@ -15,8 +15,8 @@ export function downloadVisualWorkflow(name: VisualWorkflowName) {
   });
 }
 
-export function portraitAvailability(signal?: AbortSignal, edit = false) {
-  return apiGet<PortraitAvailability>(`${base}${edit ? '/edit' : ''}/status`, { signal });
+export function portraitAvailability(signal?: AbortSignal, tool?: 'edit' | 'extend') {
+  return apiGet<PortraitAvailability>(`${base}${tool ? `/${tool}` : ''}/status`, { signal });
 }
 
 export function startPortraitEngine() {
@@ -27,21 +27,21 @@ export function recentPortraitJobs(signal: AbortSignal) {
   return apiGet<RecoveredPortrait[]>(`${base}/recent`, { signal });
 }
 
-export function uploadPortrait(kind: 'source' | 'reference' | 'mask' | 'capture' | 'edit-source', image: Blob, signal?: AbortSignal) {
+export function uploadPortrait(kind: 'source' | 'reference' | 'mask' | 'capture' | 'edit-source' | 'extend-source', image: Blob, signal?: AbortSignal) {
   const form = new FormData();
   form.append('image', image);
   return apiPostFormData<PortraitUpload>(`${base}/uploads/${kind}`, form, { signal, timeout: 120000 });
 }
 
-export function openGalleryPhoto(photoId: string, signal: AbortSignal, kind: 'source' | 'reference' | 'edit-source' = 'source') {
+export function openGalleryPhoto(photoId: string, signal: AbortSignal, kind: 'source' | 'reference' | 'edit-source' | 'extend-source' = 'source') {
   return apiPost<PortraitUpload>(`${base}/gallery-source/${encodeURIComponent(photoId)}?kind=${kind}`, {}, { signal, timeout: 120000 });
 }
 
-export function prepareEditMask(source: string, image: Blob, signal: AbortSignal) {
+export function prepareEditMask(source: string, image: Blob, signal: AbortSignal, tool: 'edit' | 'extend' = 'edit') {
   const form = new FormData();
   form.append('source', source);
   form.append('image', image);
-  return apiPostFormData<{ token: string }>(`${base}/edit/mask`, form, { signal, timeout: 120000 });
+  return apiPostFormData<{ token: string }>(`${base}/${tool}/mask`, form, { signal, timeout: 120000 });
 }
 
 function resultToken(image: string) {

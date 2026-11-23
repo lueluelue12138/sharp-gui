@@ -68,6 +68,49 @@ def test_edit_accepts_manual_and_larger_sample_sizes(edge):
     assert graph['368']['inputs']['ghs_dom'] == str(edge)
 
 
+@pytest.mark.parametrize(('pads', 'ratio', 'fill'), [
+    ([-26, -25, 0, 640], '9:16', True),
+    ([-25, -25, 0, 0], '自由比例', False),
+])
+def test_extend_passes_exact_canvas_pixels_to_native_workflow(monkeypatch, pads, ratio, fill):
+    source = BytesIO()
+    Image.new('RGB', (1221, 1440)).save(source, 'PNG')
+    monkeypatch.setattr(workflow, 'open_media', lambda _: BytesIO(source.getvalue()))
+    graph, targets = workflow.build_extend_prompt(SOURCE, {
+        'size': [1221, 1440], 'pads': pads, 'unit': 'percent', 'ratio': ratio,
+        'color': '#a2b4c6', 'multiple': 32, 'output_edge': 5120,
+        'sample_edge': 3840, 'seed': 456, 'prompt': 'Extend along the brick wall.',
+    })
+    original = workflow.extend_workflow_template()
+    for node in original.keys() - {'1', '2', '18', '27', '46', '48'}:
+        assert graph[node] == original[node]
+    assert graph['1']['inputs']['image'] == 'sharp_gui_portrait/source.png'
+    assert graph['2']['inputs']['Text'] == 'Extend along the brick wall.'
+    assert graph['18']['inputs']['noise_seed'] == 456
+    assert graph['27']['inputs']['值'] == 3840
+    board = graph['48']['inputs']
+    assert board['外补颜色'] == '#a2b4c6'
+    assert board['整除数'] == 32
+    assert board['遮罩'] == ['1', 1]
+    assert json.loads(board['gh_visual_layout'])['pads'] == pads
+    assert targets == (['46', '51'] if fill else ['46'])
+    assert graph['46']['inputs']['images'] == (['25', 0] if fill else ['48', 0])
+
+
+def test_extend_returns_native_canvas_comparison_and_final_result(app, client, monkeypatch):
+    result = {'filename': 'ComfyUI_00001_.png', 'subfolder': '', 'type': 'output'}
+    before = {'filename': 'comfy.compare.b_temp_00001_.png', 'subfolder': '', 'type': 'temp'}
+    [job] = signed(app, ('job', {'id': '00000000-0000-4000-8000-000000000012', 'stage': 'extend'}))
+    monkeypatch.setattr(workflow, 'get_job', lambda _: {'state': 'done', 'outputs': {
+        '46': {'images': [result]}, '51': {'b_images': [before]},
+    }})
+    image_token, before_token = signed(app, ('media', ['image', result]), ('media', ['image', before]))
+    data = client.get(f'/api/portrait/jobs/{job}').json
+    assert data['state'] == 'done'
+    assert data['result']['image'].endswith(image_token)
+    assert data['result']['before'].endswith(before_token)
+
+
 def test_native_mask_upload_keeps_rgb_and_rejects_small_disjoint_selections(monkeypatch):
     source = Image.new('RGB', (100, 100), (125, 56, 212))
     coverage = Image.new('RGBA', source.size, (0, 0, 0, 0))

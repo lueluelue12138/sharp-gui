@@ -460,16 +460,18 @@
   display: flex;
   gap: 12px;
   z-index: 1001;
-  animation: fadeIn 0.5s ease forwards;
-  animation-delay: 0.2s;
-  opacity: 0;
+}
+
+.glass,
+.controls .photoTools > button {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
 .controlBtn {
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
   color: white;
   width: 44px;
   height: 44px;
@@ -479,7 +481,6 @@
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
 }
 
 .controlBtn:hover {
@@ -561,11 +562,6 @@
   gap: 14px;
   border-radius: 999px;
   color: white;
-  background: rgba(255, 255, 255, 0.14);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
 }
 
 .videoInfoPanel {
@@ -806,10 +802,7 @@
 .controls .photoTools > button {
   height: 44px;
   padding-inline: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.15);
-  backdrop-filter: blur(10px);
   color: white;
   font-weight: 600;
 }

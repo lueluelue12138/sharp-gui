@@ -1,0 +1,88 @@
+.board { display: grid; min-width: 0; gap: 10px; }
+.boardHeader, .footer, .units, .color { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; }
+.boardHeader > div:first-child { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.boardHeader strong, .units, .color { font-size: .85rem; }
+.boardHeader output, .footer { color: var(--text-secondary); font-size: .8rem; font-variant-numeric: tabular-nums; }
+.actions { display: flex; align-items: center; gap: 2px; }
+.actions button[aria-pressed='true'] { color: var(--accent-blue-text, #76baff); background: var(--glass-bg); }
+.stage {
+  position: relative;
+  overflow: hidden;
+  height: clamp(325px, 60dvh, 740px);
+  isolation: isolate;
+  border-radius: var(--radius-lg);
+  background: radial-gradient(circle, #8a98aa42 1px, transparent 1.5px) -1px -1px / 17px 17px, #151a22;
+}
+.stage[data-panning='true'] { cursor: grab; touch-action: none; }
+.stage[data-panning='true']:active { cursor: grabbing; }
+.loader { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.frame { position: absolute; left: 50%; top: 50%; outline: 1px solid var(--accent-blue-text, #76baff); }
+.content { position: absolute; inset: 0; overflow: hidden; }
+.image { position: absolute; touch-action: none; user-select: none; }
+.image[data-movable='true'] { cursor: move; }
+.image img, .mask { display: block; width: 100%; height: 100%; pointer-events: none; }
+.image img { border-radius: 0; object-fit: fill; }
+.mask { position: absolute; inset: 0; mask-size: 100% 100%; }
+.handle {
+  position: absolute;
+  inset: auto;
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  padding: 0;
+  color: white;
+  touch-action: none;
+}
+.handle::before { content: ''; width: 10px; height: 10px; border-radius: 3px; background: #eaf5ff; box-shadow: 0 0 0 1px #285579, 0 1px 5px #0008; }
+.handle:not(:disabled):hover::before, .handle:focus-visible::before { background: #76baff; }
+.handle:disabled { opacity: .6; }
+.handle span {
+  position: absolute;
+  color: #eaf5ff;
+  background: #101822eb;
+  border: 1px solid #9cd4ff33;
+  border-radius: 6px;
+  padding: 2px 5px;
+  font-size: .7rem;
+  line-height: 1.15;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.handle[data-side='left'] { left: 0; top: 50%; height: 100%; cursor: ew-resize; }
+.handle[data-side='right'] { left: 100%; top: 50%; height: 100%; cursor: ew-resize; }
+.handle[data-side='top'] { left: 50%; top: 0; width: 100%; cursor: ns-resize; }
+.handle[data-side='bottom'] { left: 50%; top: 100%; width: 100%; cursor: ns-resize; }
+.handle[data-side='left'] span { left: 24px; }
+.handle[data-side='right'] span { right: 24px; }
+.handle[data-side='top'] span { top: 24px; }
+.handle[data-side='bottom'] span { bottom: 24px; }
+.handle[data-side='topLeft'] { left: 0; top: 0; cursor: nwse-resize; }
+.handle[data-side='topRight'] { left: 100%; top: 0; cursor: nesw-resize; }
+.handle[data-side='bottomLeft'] { left: 0; top: 100%; cursor: nesw-resize; }
+.handle[data-side='bottomRight'] { left: 100%; top: 100%; cursor: nwse-resize; }
+.footer > span { flex: 1 1 190px; }
+.footer > button { width: auto; }
+.edges { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 14px; }
+.edges > div { display: grid; gap: 4px; }
+.edges input { min-width: 0; width: 3.5em; }
+.color span { display: inline-flex; align-items: center; gap: 8px; color: var(--text-secondary); font-size: .8rem; }
+.color input { width: 36px; height: 28px; border: 1px solid var(--angle-line); border-radius: 6px; background: transparent; cursor: pointer; }
+.prompt { display: grid; gap: 7px; font-size: .85rem; }
+.prompt textarea { width: 100%; min-height: 92px; resize: vertical; padding: 10px 12px; font: inherit; line-height: 1.5;
+  color: var(--text-primary); background: var(--glass-bg); border: 1px solid var(--angle-line); border-radius: var(--radius-md); }
+.prompt textarea:focus-visible { outline: 2px solid var(--accent-blue); outline-offset: 1px; }
+@media (max-width: 850px) {
+  .stage { height: clamp(240px, 43dvh, 460px); }
+}
+@media (pointer: coarse) {
+  .handle { width: 44px; height: 44px; }
+  .handle[data-side='left'] span { left: 28px; }
+  .handle[data-side='right'] span { right: 28px; }
+  .handle[data-side='top'] span { top: 28px; }
+  .handle[data-side='bottom'] span { bottom: 28px; }
+}

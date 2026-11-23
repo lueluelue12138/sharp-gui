@@ -8,7 +8,7 @@ import { Button } from '@/components/common/Button';
 import { SelectMenu } from '@/components/common/SelectMenu';
 import workbenchStyles from '@/components/portrait/PortraitWorkbench/PortraitWorkbench.module.css';
 import styles from '@/components/portrait/WorkbenchControls/WorkbenchControls.module.css';
-import type { PortraitCacheRelease, PortraitProgress } from '@/types/portrait';
+import type { PortraitCacheRelease, PortraitProgress, PortraitTask } from '@/types/portrait';
 import { progressPercent } from '@/utils/portraitProgress';
 
 const largeEdges = [2560, 2880, 3072, 3200, 3584, 3840];
@@ -68,6 +68,18 @@ export function WorkflowProgress({ progress, nodeName }: { progress: PortraitPro
   </>;
 }
 
+export function BatchProgress({ task, nodeNames }: { task: PortraitTask; nodeNames: Record<string, string> }) {
+  const { t } = useTranslation();
+  const progress = task.progress ?? { state: task.status === 'running' ? 'running' : 'queued' };
+  return <>
+    <div className={workbenchStyles.statusTitle}>
+      <strong>{t(`portrait.progress.${task.stage}`)}</strong>
+      {task.batch && <span>{task.batch.index} / {task.batch.count}</span>}
+    </div>
+    <WorkflowProgress progress={progress} nodeName={progress.node ? nodeNames[progress.node] ?? 'processing' : undefined} />
+  </>;
+}
+
 export function ReleaseCacheButton({ disabled, canClearCache, onClick }: {
   disabled?: boolean; canClearCache: boolean; onClick: () => void;
 }) {
@@ -116,7 +128,7 @@ export function NumberField({ label, value, min, max, step = 1, disabled, onChan
     <span>{label}</span><div className={styles.number}>
       {steppers && <Button variant="ghost" size="sm" type="button" iconOnly icon={<Minus size={15} />}
         aria-label={`${label} −`} disabled={disabled || value <= min} onClick={() => update(value - step)} />}
-      <input aria-label={label} type="text" inputMode={step % 1 ? 'decimal' : 'numeric'} disabled={disabled}
+      <input aria-label={label} type="text" inputMode={min < 0 ? 'text' : step % 1 ? 'decimal' : 'numeric'} disabled={disabled}
         value={draft ?? value} onChange={(event) => setDraft(event.currentTarget.value)} onBlur={commit}
         onKeyDown={(event) => {
           if (event.key === 'Enter') event.currentTarget.blur();

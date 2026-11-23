@@ -32,7 +32,9 @@ except ImportError:
 
 WORKFLOW_FILE = Path(__file__).with_name('portrait_workflow.json')
 EDIT_WORKFLOW_FILE = Path(__file__).with_name('image_edit_workflow.json')
-VISUAL_WORKFLOWS = {'photo-edit', 'spatial-reframing'}
+EXTEND_WORKFLOW_FILE = Path(__file__).with_name('image_extend_workflow.json')
+VISUAL_WORKFLOWS = {'photo-edit', 'photo-extend', 'spatial-reframing'}
+EXTEND_RATIOS = {'自由比例', '原始比例', '1:1', '2:3', '3:2', '3:4', '4:3', '5:7', '9:16', '16:9', '21:9', '1:2', '2:1'}
 DEFAULT_URL = 'http://127.0.0.1:8000'
 COMFY_START_TIMEOUT = 150
 _comfy_launch_lock = Lock()
@@ -133,6 +135,11 @@ def edit_workflow_template():
     return json.loads(EDIT_WORKFLOW_FILE.read_text(encoding='utf-8'))
 
 
+@lru_cache(maxsize=1)
+def extend_workflow_template():
+    return json.loads(EXTEND_WORKFLOW_FILE.read_text(encoding='utf-8'))
+
+
 def visual_workflow_file(name):
     if name not in VISUAL_WORKFLOWS:
         raise PortraitError('portraitInvalid', 'Unknown visual workflow.', 404)
@@ -208,7 +215,7 @@ def edit_capability(url, interval):
     return missing, optimizer_missing
 
 
-def status(*, edit=False):
+def status(*, edit=False, extend=False):
     global _comfy_launch_deadline
     result = {'repair_prompt': workflow_template()['12']['inputs']['prompt'],
               'can_start': hasattr(os, 'startfile')}
@@ -216,6 +223,13 @@ def status(*, edit=False):
         url, interval = comfy_url(), int(time.monotonic() // 20)
         if edit:
             missing, result['optimizer_missing'] = edit_capability(url, interval)
+        elif extend:
+            info = comfy_node_info(url, interval)
+            template = extend_workflow_template()
+            missing = sorted({node['class_type'] for node in template.values()}.difference(info))
+            missing.extend(missing_inputs(info, template, [
+                ('14', 'unet_name'), ('8', 'clip_name'), ('9', 'vae_name'), ('17', 'lora_name'),
+            ]))
         else:
             missing = capability(url, interval)
     except PortraitError as error:
@@ -296,13 +310,14 @@ def upload_image(kind, upload):
     return upload_image_stream(kind, upload.stream)
 
 
-def upload_image_stream(kind, stream, *, from_result=False, edit_source=False):
-    prepared, _, _ = prepare_image_upload(kind, stream, from_result=from_result, edit_source=edit_source)
+def upload_image_stream(kind, stream, *, from_result=False, edit_source=False, extend_source=False):
+    prepared, _, _ = prepare_image_upload(kind, stream, from_result=from_result, edit_source=edit_source,
+                                            extend_source=extend_source)
     storage, folder = UPLOADS[kind]
     return upload_png(prepared, storage, folder, f'{uuid4()}.png')
 
 
-def prepare_image_upload(kind, stream, *, from_result=False, edit_source=False):
+def prepare_image_upload(kind, stream, *, from_result=False, edit_source=False, extend_source=False):
     if kind not in UPLOADS:
         raise PortraitError('portraitInvalidImage', 'Select a supported image.')
     limit = MAX_RESULT if from_result else upload_limit(kind)
@@ -317,7 +332,7 @@ def prepare_image_upload(kind, stream, *, from_result=False, edit_source=False):
             # Camera JPEGs can include an auxiliary image in an MPF segment.
             # Pillow opens them as MPO and starts on the primary JPEG frame.
             image_format = 'JPEG' if image.format == 'MPO' else image.format
-            if image_format not in PHOTO_EXTENSIONS or image.width * image.height > 40_000_000:
+            if image_format not in PHOTO_EXTENSIONS or image.width * image.height > (8192**2 if from_result else 40_000_000):
                 raise ValueError
             if from_result and image_format != 'PNG':
                 raise ValueError
@@ -330,6 +345,9 @@ def prepare_image_upload(kind, stream, *, from_result=False, edit_source=False):
                     background = Image.new('RGB', rgba.size, 'white')
                     background.paste(rgba, mask=rgba.getchannel('A'))
                     image = background
+                elif extend_source and ('A' in image.getbands() or 'transparency' in image.info):
+                    rgba = image.convert('RGBA')
+                    image = rgba if rgba.getchannel('A').getextrema()[0] < 255 else image.convert('RGB')
                 else:
                     image = image.convert('RGB')
                 encoded = io.BytesIO()
@@ -351,11 +369,12 @@ def uploaded_original_path(paths, filename):
     return path
 
 
-def upload_source_photo(paths, upload, *, edit_source=False):
+def upload_source_photo(paths, upload, *, edit_source=False, extend_source=False):
     """保存上传文件的原始字节，并把工作用的 PNG 交给 ComfyUI。"""
     if upload is None:
         raise PortraitError('portraitInvalidImage', 'Select a supported image.')
-    prepared, original, image_format = prepare_image_upload('source', upload.stream, edit_source=edit_source)
+    prepared, original, image_format = prepare_image_upload('source', upload.stream, edit_source=edit_source,
+                                                             extend_source=extend_source)
     name = (upload.filename or '').replace('\\', '/').rsplit('/', 1)[-1]
     stem, extension = os.path.splitext(re.sub(r'[\x00-\x1f<>:"|?*]', '_', name))
     extensions = PHOTO_EXTENSIONS[image_format]
@@ -436,7 +455,7 @@ def has_local_edit_area(alpha):
     return False
 
 
-def prepare_edit_mask(source, upload):
+def prepare_edit_mask(source, upload, *, extend=False):
     if upload is None:
         raise PortraitError('portraitInvalidImage', 'Select a supported mask.')
     try:
@@ -444,15 +463,18 @@ def prepare_edit_mask(source, upload):
             if mask.format != 'PNG' or mask.mode != 'RGBA' or max(mask.size) > 4096:
                 raise ValueError
             with Image.open(io.BytesIO(original.read(MAX_RESULT + 1))) as image:
-                if image.width * image.height > 40_000_000:
+                if image.width * image.height > (8192**2 if extend else 40_000_000):
                     raise ValueError
                 alpha = mask.getchannel('A').resize(image.size, Image.Resampling.NEAREST)
-                if not has_local_edit_area(alpha):
+                if not extend and not has_local_edit_area(alpha):
                     raise PortraitError('editMaskTooSmall', 'Expand the local mask to keep the edit confined to the selected region.')
                 # This is the native Goohai clipspace format. RGB stays intact and
                 # selected pixels are represented by inverted alpha.
                 rgba = image.convert('RGBA')
-                rgba.putalpha(ImageOps.invert(alpha))
+                keep = ImageOps.invert(alpha)
+                if extend:
+                    keep = Image.fromarray((np.asarray(keep, dtype=np.uint16) * np.asarray(rgba.getchannel('A')) // 255).astype(np.uint8))
+                rgba.putalpha(keep)
                 encoded = io.BytesIO()
                 rgba.save(encoded, 'PNG', compress_level=2)
     except (ValueError, OSError, Image.DecompressionBombError) as error:
@@ -565,6 +587,85 @@ def submit_edit(source, options, *, reference=None, masked=None):
     return submit_prompt('edit', source, options, prompt, ['370', '386'])
 
 
+def build_extend_prompt(source, options, *, masked=None):
+    template = extend_workflow_template()
+    prompt = copy.deepcopy(template)
+    board = prompt['48']['inputs']
+    text = options.get('prompt', '')
+    if not isinstance(text, str) or len(text) > 4000:
+        raise PortraitError('portraitInvalid', 'The supplemental prompt can contain up to 4,000 characters.')
+
+    # These inputs are normalized PNGs. Read just IHDR to check the canvas
+    # against the actual source, including workspaces saved before this feature.
+    with open_media(source) as image:
+        header = image.read(26)
+    if not header.startswith(b'\x89PNG\r\n\x1a\n') or len(header) != 26:
+        raise PortraitError('portraitInvalidImage', 'The source photo could not be read.')
+    width, height = int.from_bytes(header[16:20], 'big'), int.from_bytes(header[20:24], 'big')
+    has_alpha = header[25] in (4, 6)
+    size = options.get('size')
+    if size != [width, height]:
+        raise PortraitError('extendSourceSize', 'The source dimensions have changed. Reload the photo.')
+    pads = options.get('pads')
+    if not isinstance(pads, list) or len(pads) != 4:
+        raise PortraitError('portraitInvalid', 'Supply four canvas edges.')
+    left, right, top, bottom = (number(value, -8192 * 8, 8192 * 8, integer=True) for value in pads)
+    total_w, total_h = width + left + right, height + top + bottom
+    if min(total_w, total_h) < 1 or total_w * total_h > 8192**2:
+        raise PortraitError('extendCanvasTooLarge', 'Use a canvas of at most 67 megapixels.')
+    unit = options.get('unit')
+    ratio = options.get('ratio')
+    multiple = options.get('multiple', board['整除数'])
+    color = options.get('color', board['外补颜色'])
+    translated = options.get('translated', False)
+    if (unit not in ('pixels', 'percent') or not isinstance(ratio, str) or ratio not in EXTEND_RATIOS
+            or type(multiple) is not int or multiple not in (0, 8, 16, 32, 64) or type(translated) is not bool
+            or not isinstance(color, str) or not re.fullmatch(r'#[0-9a-fA-F]{6}', color)):
+        raise PortraitError('portraitInvalid', 'Invalid canvas settings.')
+    output_edge = number(options.get('output_edge', board['最大输出长边']), 0, 8192, integer=True)
+    if multiple and max(pads) <= 0 and min(total_w, total_h) < multiple:
+        # Native rounding can upscale a very narrow crop even with an output limit.
+        if max(total_w, total_h) * multiple**2 / min(total_w, total_h) > 8192**2:
+            raise PortraitError('extendCanvasTooLarge', 'Use a canvas of at most 67 megapixels.')
+    if not translated:
+        for first, second, dimension in ((left, right, width), (top, bottom, height)):
+            if max(0, -first) + max(0, -second) > dimension - math.ceil(dimension * 0.1):
+                raise PortraitError('portraitInvalid', 'Invalid canvas crop.')
+        if ratio not in ('自由比例', '原始比例'):
+            rw, rh = map(int, ratio.split(':'))
+            if total_w * rh != total_h * rw:
+                raise PortraitError('portraitInvalid', 'The canvas does not match the selected aspect ratio.')
+        if ratio == '原始比例' and abs(total_w * height - total_h * width) > max(width, height):
+            raise PortraitError('portraitInvalid', 'The canvas does not match the original aspect ratio.')
+    unit_label = '像素' if unit == 'pixels' else '百分比'
+    raw = [max(-3000, min(3000, math.floor((v if unit == 'pixels' else 100 * v / base) + 0.5)))
+           for v, base in zip(pads, (width, width, height, height))]
+    board.update(zip(('左', '右', '上', '下'), raw))
+    board.update({'单位': unit_label, '整除数': multiple, '外补颜色': color,
+                  '最大输出长边': output_edge,
+                  'gh_visual_ratio': ratio, 'gh_visual_layout': json.dumps({
+                      'signature': [width, height, unit_label, *raw], 'pads': pads, 'translated': translated,
+                  }, separators=(',', ':'))})
+    image = masked or source
+    prompt['1']['inputs']['image'] = f'{image["subfolder"]}/{image["filename"]}' + (' [input]' if masked else '')
+    prompt['2']['inputs']['Text'] = text.strip()
+    seed = options.get('seed')
+    prompt['18']['inputs']['noise_seed'] = (secrets.randbelow(2**50) if seed is None
+                                           else number(seed, 0, 2**53 - 1, integer=True))
+    maximum = number(options.get('sample_edge', 2048), 768, MAX_PIXEL_EDGE, integer=True)
+    prompt['27']['inputs'].update({'值': maximum, 'ghs_dom': str(maximum)})
+    if not masked and not has_alpha and max(pads) <= 0:
+        # There is nothing for the sampler to fill. Export the board's crop or resize.
+        prompt['46']['inputs']['images'] = ['48', 0]
+        return prompt, ['46']
+    return prompt, ['46', '51']
+
+
+def submit_extend(source, options, *, masked=None):
+    prompt, targets = build_extend_prompt(source, options, masked=masked)
+    return submit_prompt('extend', source, options, prompt, targets)
+
+
 def submit(stage, source, options, *, model_token=None, capture=None, detail=None):
     prompt = copy.deepcopy(workflow_template())
     prompt['1']['inputs']['image'] = f'{source["subfolder"]}/{source["filename"]}'
@@ -632,7 +733,7 @@ def submit_prompt(stage, source, options, prompt, targets):
             raise PortraitError('portraitInvalid', 'Invalid portrait request ID.')
         fingerprint = hashlib.sha256(json.dumps([stage, source, options], sort_keys=True).encode()).hexdigest()
         submission.update(prompt_id=request_id, extra_data={'sharp_gui_portrait_request': fingerprint})
-        if stage == 'edit':
+        if stage in {'edit', 'extend'}:
             submission['extra_data']['sharp_gui_edit_source'] = source['filename']
     connection = None
     try:

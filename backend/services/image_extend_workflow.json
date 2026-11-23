@@ -1,0 +1,438 @@
+{
+  "1": {
+    "inputs": {
+      "image": "无",
+      "保留透明通道": false
+    },
+    "class_type": "LoadImageGoohai",
+    "_meta": {
+      "title": "加载图像 孤海"
+    }
+  },
+  "2": {
+    "inputs": {
+      "Text": ""
+    },
+    "class_type": "DF_Text_Box",
+    "_meta": {
+      "title": "补充提示词"
+    }
+  },
+  "5": {
+    "inputs": {
+      "宽度": 512,
+      "高度": 512,
+      "缩放方法": "按长边等比例",
+      "将边缩放到": [
+        "28",
+        0
+      ],
+      "缩放插值": "Lanczos",
+      "缩放模式": "拉伸",
+      "固定方向": "居中",
+      "执行条件": "总是",
+      "填充颜色": "#808080",
+      "整除数": 32,
+      "图像": [
+        "24",
+        1
+      ]
+    },
+    "class_type": "图像缩放V2_孤海",
+    "_meta": {
+      "title": "图像缩放V2 孤海"
+    }
+  },
+  "7": {
+    "inputs": {
+      "prompt": [
+        "32",
+        0
+      ],
+      "negative_prompt": "",
+      "latent_width": [
+        "5",
+        1
+      ],
+      "latent_height": [
+        "5",
+        2
+      ],
+      "mode": "填充",
+      "ref_image_size": "自动",
+      "clip": [
+        "8",
+        0
+      ],
+      "vae": [
+        "9",
+        0
+      ],
+      "image_01": [
+        "5",
+        0
+      ]
+    },
+    "class_type": "TextEncodeQwenImage21GH",
+    "_meta": {
+      "title": "Qwen Image 2.1 文本编码 GH"
+    }
+  },
+  "8": {
+    "inputs": {
+      "clip_name": "qwen3vl_8b_int8_convrot.safetensors",
+      "type": "qwen_image",
+      "device": "default"
+    },
+    "class_type": "CLIPLoader",
+    "_meta": {
+      "title": "加载CLIP"
+    }
+  },
+  "9": {
+    "inputs": {
+      "vae_name": "qwen_image_2.1_vae_bf16.safetensors"
+    },
+    "class_type": "VAELoader",
+    "_meta": {
+      "title": "加载VAE"
+    }
+  },
+  "14": {
+    "inputs": {
+      "unet_name": "qwen_image_2.1_turbo_int8_convrot.safetensors",
+      "weight_dtype": "default"
+    },
+    "class_type": "UNETLoader",
+    "_meta": {
+      "title": "UNet加载器"
+    }
+  },
+  "15": {
+    "inputs": {
+      "sampler_name": "euler"
+    },
+    "class_type": "KSamplerSelect",
+    "_meta": {
+      "title": "K采样器选择"
+    }
+  },
+  "16": {
+    "inputs": {
+      "sigmas": "1.0, 0.978453, 0.954180, 0.926626, 0.895080, 0.845148, 0.704534, 0.414568, 0.150000, 0"
+    },
+    "class_type": "ManualSigmas",
+    "_meta": {
+      "title": "自定义Sigmas"
+    }
+  },
+  "17": {
+    "inputs": {
+      "lora_name": "Qwen2.1_扩图_GH_3750.safetensors",
+      "strength_model": 0.7,
+      "model": [
+        "14",
+        0
+      ]
+    },
+    "class_type": "LoraLoaderModelOnly",
+    "_meta": {
+      "title": "LoRA加载器（仅模型）"
+    }
+  },
+  "18": {
+    "inputs": {
+      "noise_seed": 135851079645392
+    },
+    "class_type": "RandomNoise",
+    "_meta": {
+      "title": "随机噪波"
+    }
+  },
+  "19": {
+    "inputs": {
+      "noise": [
+        "18",
+        0
+      ],
+      "guider": [
+        "20",
+        0
+      ],
+      "sampler": [
+        "15",
+        0
+      ],
+      "sigmas": [
+        "16",
+        0
+      ],
+      "latent_image": [
+        "7",
+        2
+      ]
+    },
+    "class_type": "SamplerCustomAdvanced",
+    "_meta": {
+      "title": "自定义采样器（高级）"
+    }
+  },
+  "20": {
+    "inputs": {
+      "model": [
+        "17",
+        0
+      ],
+      "conditioning": [
+        "7",
+        0
+      ]
+    },
+    "class_type": "BasicGuider",
+    "_meta": {
+      "title": "基本引导器"
+    }
+  },
+  "21": {
+    "inputs": {
+      "samples": [
+        "19",
+        0
+      ],
+      "vae": [
+        "9",
+        0
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "VAE解码"
+    }
+  },
+  "24": {
+    "inputs": {
+      "遮罩填充": false,
+      "扩展系数上": [
+        "39",
+        1
+      ],
+      "扩展系数下": [
+        "39",
+        1
+      ],
+      "扩展系数左": [
+        "39",
+        3
+      ],
+      "扩展系数右": [
+        "39",
+        3
+      ],
+      "输出尺寸": "原像素",
+      "自定义宽": 1024,
+      "自定义高": 1024,
+      "倍数取整": 0,
+      "图像": [
+        "48",
+        0
+      ],
+      "遮罩": [
+        "48",
+        1
+      ]
+    },
+    "class_type": "GH_MaskCropV2",
+    "_meta": {
+      "title": "孤海-遮罩裁剪V2"
+    }
+  },
+  "25": {
+    "inputs": {
+      "遮罩扩展百分比": 3,
+      "遮罩羽化百分比": 3,
+      "颜色还原强度": 1,
+      "接缝": [
+        "24",
+        0
+      ],
+      "裁剪图像": [
+        "21",
+        0
+      ]
+    },
+    "class_type": "GH_CropRestore",
+    "_meta": {
+      "title": "孤海-裁剪恢复"
+    }
+  },
+  "27": {
+    "inputs": {
+      "值": 2048,
+      "output_type": "int",
+      "ghs_dom": "2048"
+    },
+    "class_type": "GoohaiUniversalSlider",
+    "_meta": {
+      "title": "最大采样尺寸（长边）"
+    }
+  },
+  "28": {
+    "inputs": {
+      "值1": "min(max(1024,b),a)",
+      "值2": "",
+      "a": [
+        "27",
+        0
+      ],
+      "b": [
+        "30",
+        0
+      ]
+    },
+    "class_type": "数学运算_孤海",
+    "_meta": {
+      "title": "数学运算 孤海"
+    }
+  },
+  "30": {
+    "inputs": {
+      "图像": [
+        "24",
+        1
+      ]
+    },
+    "class_type": "长边短边",
+    "_meta": {
+      "title": "长边短边"
+    }
+  },
+  "32": {
+    "inputs": {
+      "separator": "",
+      "text1": [
+        "33",
+        0
+      ],
+      "text2": [
+        "2",
+        0
+      ]
+    },
+    "class_type": "CR Text Concatenate",
+    "_meta": {
+      "title": "文本联结"
+    }
+  },
+  "33": {
+    "inputs": {
+      "value": "移除图像中的灰色区域，无缝自然延展为完整图像。"
+    },
+    "class_type": "easy string",
+    "_meta": {
+      "title": "字符串"
+    }
+  },
+  "39": {
+    "inputs": {
+      "值1": "1.0 if b==d else (2/3*(b-d))/min(c,d)+1.0",
+      "值2": "1.0 if a==c else (2/3*(a-c))/min(c,d)+1.0",
+      "a": [
+        "40",
+        1
+      ],
+      "b": [
+        "40",
+        2
+      ],
+      "c": [
+        "40",
+        3
+      ],
+      "d": [
+        "40",
+        4
+      ]
+    },
+    "class_type": "数学运算_孤海",
+    "_meta": {
+      "title": "数学运算 孤海"
+    }
+  },
+  "40": {
+    "inputs": {
+      "上扩百分比": 0,
+      "下扩百分比": 0,
+      "左扩百分比": 0,
+      "右扩百分比": 0,
+      "遮罩": [
+        "48",
+        1
+      ]
+    },
+    "class_type": "孤海遮罩分析",
+    "_meta": {
+      "title": "孤海-遮罩分析"
+    }
+  },
+  "46": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "25",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "保存图像"
+    }
+  },
+  "48": {
+    "inputs": {
+      "单位": "百分比",
+      "左": -2,
+      "右": -2,
+      "上": 0,
+      "下": 44,
+      "最大输出长边": 5120,
+      "整除数": 0,
+      "外补颜色": "#808080",
+      "gh_visual_ratio": "9:16",
+      "gh_visual_layout": "",
+      "图像": [
+        "1",
+        0
+      ],
+      "遮罩": [
+        "1",
+        1
+      ]
+    },
+    "class_type": "孤海外补画板可视化",
+    "_meta": {
+      "title": "外补画板（可视化）"
+    }
+  },
+  "51": {
+    "inputs": {
+      "compare_view": {
+        "__value__": [
+          "",
+          ""
+        ]
+      },
+      "image_a": [
+        "25",
+        0
+      ],
+      "image_b": [
+        "48",
+        0
+      ]
+    },
+    "class_type": "ImageCompare",
+    "_meta": {
+      "title": "图像对比"
+    }
+  }
+}

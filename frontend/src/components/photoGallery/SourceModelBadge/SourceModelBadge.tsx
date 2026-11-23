@@ -11,9 +11,10 @@ import styles from './SourceModelBadge.module.css';
 interface SourceModelBadgeProps {
   item: PhotoItem;
   preview?: boolean;
+  previewActionClassName?: string;
 }
 
-export function SourceModelBadge({ item, preview = false }: SourceModelBadgeProps) {
+export function SourceModelBadge({ item, preview = false, previewActionClassName }: SourceModelBadgeProps) {
   const { t } = useTranslation();
   const link = useAppStore((state) => state.modelSourceLinks[item.id]) ?? item.model_link;
   const tasks = useAppStore((state) => state.tasks);
@@ -48,7 +49,7 @@ export function SourceModelBadge({ item, preview = false }: SourceModelBadgeProp
           {preview && count > 0 ? (
             <button
               type="button"
-              className={styles.allModels}
+              className={[styles.allModels, previewActionClassName].filter(Boolean).join(' ')}
               onClick={() => void open(item, true)}
               aria-label={allLabel}
               data-tooltip={allLabel}

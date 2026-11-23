@@ -1100,12 +1100,12 @@ export function ImageViewer({ onPhotoTool }: { onPhotoTool?: (tool: PhotoTool, p
       onDoubleClick={handleDoubleClick}
     >
       <div className={styles.controls} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsDragging(false); }}>
-        {previewPhoto ? <SourceModelBadge item={previewPhoto} preview /> : null}
+        {previewPhoto ? <SourceModelBadge item={previewPhoto} preview previewActionClassName={styles.glass} /> : null}
         {onPhotoTool && previewPhoto?.media_type === 'image' &&
           <PhotoToolMenu className={styles.photoTools} onSelect={(tool) => onPhotoTool(tool, previewPhoto)} />}
         {previewPhoto && !(modelSourceLinks[previewPhoto.id]?.total_count ?? previewPhoto.model_link?.total_count) && previewPhoto.media_type === 'image' ? (
           <button
-            className={`${styles.controlBtn} ${isConverting ? styles.downloading : ''}`}
+            className={`${styles.controlBtn} ${styles.glass} ${isConverting ? styles.downloading : ''}`}
             onClick={handleConvertPhoto}
             data-tooltip={t('photoConvertOne')}
             disabled={isConverting}
@@ -1116,7 +1116,7 @@ export function ImageViewer({ onPhotoTool }: { onPhotoTool?: (tool: PhotoTool, p
         ) : null}
         {previewPhoto && !(modelSourceLinks[previewPhoto.id]?.total_count ?? previewPhoto.model_link?.total_count) && previewPhoto.media_type === 'video' ? (
           <button
-            className={styles.controlBtn}
+            className={`${styles.controlBtn} ${styles.glass}`}
             onClick={handleReconstructVideo}
             data-tooltip={t('videoReconGenerate3d')}
             type="button"
@@ -1125,7 +1125,7 @@ export function ImageViewer({ onPhotoTool }: { onPhotoTool?: (tool: PhotoTool, p
           </button>
         ) : null}
         <button 
-          className={`${styles.controlBtn} ${isDownloading ? styles.downloading : ''}`} 
+          className={`${styles.controlBtn} ${styles.glass} ${isDownloading ? styles.downloading : ''}`}
           onClick={handleDownload}
           data-tooltip={previewPhoto ? t('photoDownload') : t('download')}
           disabled={isDownloading}
@@ -1134,7 +1134,7 @@ export function ImageViewer({ onPhotoTool }: { onPhotoTool?: (tool: PhotoTool, p
           <DownloadIcon width={20} height={20} />
         </button>
         <button 
-          className={styles.controlBtn} 
+          className={`${styles.controlBtn} ${styles.glass}`}
           onClick={handleClose}
           data-tooltip={t('cancel') || 'Close'}
           type="button"
@@ -1510,6 +1510,7 @@ export function ImageViewer({ onPhotoTool }: { onPhotoTool?: (tool: PhotoTool, p
         <div
           className={[
             styles.infoPanel,
+            styles.glass,
             isVideoPreview ? styles.videoInfoPanel : '',
           ].filter(Boolean).join(' ')}
           onClick={(event) => event.stopPropagation()}

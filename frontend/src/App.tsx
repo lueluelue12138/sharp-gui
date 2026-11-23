@@ -179,8 +179,9 @@ function App() {
   const [modelAssetLibraryOpen, setModelAssetLibraryOpen] = useState(false);
   const [restoredAngles] = useState(readPortraitSession);
   const [angleWorkspaces, setAngleWorkspaces] = useState<AngleWorkspace[]>(restoredAngles.workspaces);
-  const [activeAngleId, setActiveAngleId] = useState<string | null>(restoredAngles.active);
-  const [angleTasks, setAngleTasks] = useState<PortraitTask[]>(restoredAngles.tasks);
+  const [{ active: activeAngleId, tasks: angleTasks }, setAngleQueue] = useState({
+    active: restoredAngles.active, tasks: restoredAngles.tasks,
+  });
   const [legacyRecoveryDone, setLegacyRecoveryDone] = useState(Boolean(restoredAngles.legacyRecoveryDone || restoredAngles.workspaces.length));
   const angleActions = useRef(new Map<string, PortraitWorkspaceActions>());
   const batchPreparations = useRef(new Map<AbortController, string>());
@@ -281,7 +282,11 @@ function App() {
   const angleActive = activeView === 'photos' && activeAngleId !== null;
   const hasPrivateAccess = isAuthenticated || isOwnerAccess;
 
-  const closeAngle = useCallback(() => setActiveAngleId(null), []);
+  const relatedTasks = angleActive ? angleTasks.filter((task) => task.originId === activeAngleId) : [];
+  const visibleBatchTask = relatedTasks.find((task) => task.status === 'running')
+    ?? relatedTasks.filter((task) => task.status === 'queued').sort((a, b) => a.startedAt - b.startedAt)[0];
+
+  const closeAngle = useCallback(() => setAngleQueue((previous) => ({ ...previous, active: null })), []);
 
   useEffect(() => {
     if (!authStatus) return;
@@ -294,14 +299,13 @@ function App() {
     } else if (hadAngleAccess.current) {
       hadAngleAccess.current = false;
       for (const controller of batchPreparations.current.keys()) controller.abort();
-      closeAngle();
       setAngleWorkspaces([]);
-      setAngleTasks([]);
+      setAngleQueue({ active: null, tasks: [] });
       setLegacyRecoveryDone(false);
       setAngleCancellation(undefined);
       clearPortraitSession();
     }
-  }, [authStatus, closeAngle, hasPrivateAccess, restoredAngles.active]);
+  }, [authStatus, hasPrivateAccess, restoredAngles.active]);
 
   useLayoutEffect(() => {
     if (hasPrivateAccess) savePortraitSession({
@@ -334,7 +338,7 @@ function App() {
     store.setPreviewPhoto(null);
     store.setActiveView('photos');
     setSidebarOpen(false);
-    setActiveAngleId(id);
+    setAngleQueue((previous) => ({ ...previous, active: id }));
   }, [setSidebarOpen]);
 
   const markPortraitSubmitted = useCallback((id: string) => {
@@ -345,12 +349,24 @@ function App() {
 
   const updateAngleTask = useCallback((task: PortraitTask) => {
     if (task.status === 'completed' || task.status === 'failed') markPortraitSubmitted(task.workspaceId);
-    setAngleTasks((previous) => {
-      const last = previous.find((item) => item.workspaceId === task.workspaceId);
-      if (!last) return [task, ...previous];
-      if (last.stage === task.stage && last.status === task.status && last.percent === task.percent
+    const mayOpenResult = task.status === 'completed' && useAppStore.getState().activeView === 'photos';
+    const preparingOrigins = mayOpenResult ? new Set(batchPreparations.current.values()) : undefined;
+    setAngleQueue((previous) => {
+      const last = previous.tasks.find((item) => item.workspaceId === task.workspaceId);
+      if (!last) return { ...previous, tasks: [task, ...previous.tasks] };
+      if (last.stage === task.stage && last.status === task.status
+          && last.progress?.node === task.progress?.node && last.progress?.value === task.progress?.value
+          && last.progress?.max === task.progress?.max
           && last.startedAt === task.startedAt && last.filename === task.filename) return previous;
-      return previous.map((item) => item.workspaceId === task.workspaceId ? { ...item, ...task } : item);
+      const origin = last.originId;
+      const openResult = mayOpenResult && origin && origin === previous.active && !preparingOrigins?.has(origin)
+        && !previous.tasks.some((item) => item.originId === origin && item.workspaceId !== task.workspaceId
+          && (item.status === 'queued' || item.status === 'running'));
+      return {
+        active: openResult ? task.workspaceId : previous.active,
+        tasks: previous.tasks.map((item) => item.workspaceId === task.workspaceId
+          ? { ...item, ...task, progress: task.progress } : item),
+      };
     });
   }, [markPortraitSubmitted]);
 
@@ -365,7 +381,7 @@ function App() {
     const queued = preparationOrder.current.then(async () => {
       const { draft, options } = await prepared;
       controller.signal.throwIfAborted();
-      const tool = stage === 'edit' ? 'edit' : 'reframe';
+      const tool = stage === 'edit' || stage === 'extend' ? stage : 'reframe';
       const workspaces: AngleWorkspace[] = [];
       const tasks: PortraitTask[] = [];
       for (let index = 0; index < count; index += 1) {
@@ -373,15 +389,15 @@ function App() {
         const seed = typeof options.seed === 'number' ? Number((BigInt(options.seed) + BigInt(index)) % (1n << 53n)) : undefined;
         const jobOptions = seed === undefined ? options : { ...options, seed };
         const variant = seed === undefined ? draft
-          : stage === 'edit' ? { ...draft, edit: { ...draft.edit, seed: String(seed) } } : { ...draft, seed };
+          : tool === 'reframe' ? { ...draft, seed } : { ...draft, edit: { ...draft.edit, seed: String(seed) } };
         const initialDraft = { ...variant, pending: { stage, options: jobOptions, startedAt, requestId: id } };
         savePortraitDraft(id, initialDraft);
         workspaces.push({ id, tool, photo, uploadName: filename, queueState: 'waiting', initialDraft });
-        tasks.push({ workspaceId: id, filename, stage, tool, status: 'queued', startedAt,
+        tasks.push({ workspaceId: id, originId, filename, stage, tool, status: 'queued', startedAt,
           batch: count > 1 ? { index: index + 1, count } : undefined });
       }
       setAngleWorkspaces((previous) => [...previous, ...workspaces]);
-      setAngleTasks((previous) => [...tasks, ...previous]);
+      setAngleQueue((previous) => ({ ...previous, tasks: [...tasks, ...previous.tasks] }));
     }).finally(() => {
       batchPreparations.current.delete(controller);
       setPreparingBatches((previous) => previous - 1);
@@ -403,8 +419,10 @@ function App() {
     angleActions.current.get(id)?.dispose();
     removePortraitDraft(id);
     setAngleWorkspaces((previous) => previous.filter((workspace) => workspace.id !== id));
-    setAngleTasks((previous) => previous.filter((task) => task.workspaceId !== id));
-    setActiveAngleId((active) => active === id ? null : active);
+    setAngleQueue((previous) => ({
+      active: previous.active === id ? null : previous.active,
+      tasks: previous.tasks.filter((task) => task.workspaceId !== id),
+    }));
   }, []);
 
   const requestCloseAngle = useCallback((id: string, fromWorkbench = false) => {
@@ -448,7 +466,7 @@ function App() {
 
   const openPhotoTool = useCallback((tool: PhotoTool, photo?: PhotoItem) => {
     const photoKey = photo ? `gallery:${photo.id}` : PHOTO_PICKER_WORKSPACE;
-    const id = tool === 'edit' ? `edit:${photoKey}` : photoKey;
+    const id = tool === 'reframe' ? photoKey : `${tool}:${photoKey}`;
     setAngleWorkspaces((previous) => previous.some((workspace) => workspace.id === id) ? previous : [...previous, { id, tool, photo }]);
     selectAngle(id);
   }, [selectAngle]);
@@ -468,12 +486,9 @@ function App() {
   const openAngleUpload = useCallback((file: File) => {
     openToolSource('reframe', file.name, (signal) => uploadPortrait('source', file, signal));
   }, [openToolSource]);
-  const openEditUpload = useCallback((file: File) => {
-    openToolSource('edit', file.name, (signal) => uploadPortrait('edit-source', file, signal));
+  const openImageUpload = useCallback((tool: 'edit' | 'extend', file: File) => {
+    openToolSource(tool, file.name, (signal) => uploadPortrait(`${tool}-source`, file, signal));
   }, [openToolSource]);
-  const openEditGallery = useCallback((photo: PhotoItem) => {
-    openPhotoTool('edit', photo);
-  }, [openPhotoTool]);
   const openToolResult = useCallback((tool: PhotoTool, image: string, name?: string) => {
     openToolSource(tool, name ?? t('photoTools.result'), (signal) => openPortraitResult(image, signal));
   }, [openToolSource, t]);
@@ -934,17 +949,19 @@ function App() {
       >
         {activeView === 'models' ? <ParticleBackground /> : null}
         
-        {angleWorkspaces.map((workspace) => workspace.tool === 'edit' ?
-          <EditWorkbench key={workspace.id} workspaceId={workspace.id} active={angleActive && activeAngleId === workspace.id}
+        {angleWorkspaces.map((workspace) => workspace.tool === 'edit' || workspace.tool === 'extend' ?
+          <EditWorkbench key={workspace.id} tool={workspace.tool} workspaceId={workspace.id} active={angleActive && activeAngleId === workspace.id}
+            batchTask={visibleBatchTask?.originId === workspace.id ? visibleBatchTask : undefined}
             canGenerate={canGenerateModels} galleryPhoto={workspace.photo} initialUpload={workspace.upload}
             canClearCache={!angleTasksActive} onCacheCleared={clearAnglePreviews}
             uploadName={workspace.uploadName} savedTask={restoredAngles.tasks.find((task) => task.workspaceId === workspace.id)}
-            onBack={closeAngle} onClose={requestCloseAngle} onChoosePhoto={openEditUpload} onChooseGalleryPhoto={openEditGallery}
+            onBack={closeAngle} onClose={requestCloseAngle} onChoosePhoto={openImageUpload} onChooseGalleryPhoto={openPhotoTool}
             onTaskUpdate={updateAngleTask} onContinue={openToolResult} registerActions={registerAngleActions}
             enqueueBatch={enqueuePortraitBatch} onJobSubmitted={markPortraitSubmitted} initialDraft={workspace.initialDraft}
             waitForSubmission={workspace.queueState === 'waiting' && workspace.id !== nextPortraitSubmission} />
           : (
           <AngleWorkbench key={workspace.id} workspaceId={workspace.id} active={angleActive && activeAngleId === workspace.id}
+            batchTask={visibleBatchTask?.originId === workspace.id ? visibleBatchTask : undefined}
             canGenerate={canGenerateModels} galleryPhoto={workspace.photo} initialUpload={workspace.upload}
             uploadName={workspace.uploadName} savedTask={restoredAngles.tasks.find((task) => task.workspaceId === workspace.id)}
             previewCacheRevision={angleCacheRevision} canClearCache={!angleTasksActive} onCacheCleared={clearAnglePreviews}
@@ -1071,7 +1088,8 @@ function App() {
         title={t('portrait.taskQueue.cancelTitle')}
         message={angleCancellationError ?? (cancellingAngle ? t('portrait.taskQueue.cancelling')
           : t('portrait.taskQueue.cancelMessage', {
-            name: angleCancellation.task.filename, tool: t(angleCancellation.task.tool === 'edit' ? 'photoTools.edit' : 'portrait.title'),
+            name: angleCancellation.task.filename, tool: t(!angleCancellation.task.tool || angleCancellation.task.tool === 'reframe'
+              ? 'portrait.title' : `photoTools.${angleCancellation.task.tool}`),
           }))}
         confirmLabel={t('portrait.taskQueue.cancelTitle')}
         cancelLabel={t(angleCancellation.fromWorkbench ? 'portrait.taskQueue.backInBackground' : 'portrait.taskQueue.keep')}

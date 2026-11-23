@@ -8,6 +8,7 @@ import { useAppStore } from '@/store/useAppStore';
 import { cancelTask } from '@/api';
 
 import { isActiveTaskStatus } from '@/utils';
+import { progressPercent } from '@/utils/portraitProgress';
 
 import type { Task } from '@/types';
 import type { PortraitTask } from '@/types/portrait';
@@ -157,7 +158,9 @@ export function TaskQueue({ angleTasks, activeAngleId, onOpenAngle, onCloseAngle
                 const stage = t(`portrait.taskQueue.stage.${task.stage}`) + (task.batch ? ` · ${task.batch.index}/${task.batch.count}` : '');
                 const status = t(`portrait.taskQueue.status.${task.status}`);
                 const active = isActiveAngle(task.status);
-                const tool = t(task.tool === 'edit' ? 'photoTools.edit' : 'portrait.title');
+                const percent = task.status === 'completed' && task.stage !== 'upload'
+                    ? 100 : task.status === 'running' && task.progress ? progressPercent(task.progress) : undefined;
+                const tool = t(!task.tool || task.tool === 'reframe' ? 'portrait.title' : `photoTools.${task.tool}`);
                 const action = t(active ? 'portrait.taskQueue.cancel' : 'portrait.taskQueue.close', { name: task.filename, tool });
                 return (
                     <div key={task.workspaceId} className={`${styles.queueItem} ${styles.angleTask}`} data-selected={selected}>
@@ -168,11 +171,11 @@ export function TaskQueue({ angleTasks, activeAngleId, onOpenAngle, onCloseAngle
                             <span className={styles.itemContent}>
                                 <span className={styles.filename} data-tooltip={task.filename}>{task.filename}</span>
                                 <span className={styles.angleStage}>{tool} · {stage}</span>
-                                {task.percent !== undefined && <span className={styles.progressBar} aria-hidden="true">
-                                    <span className={styles.progressFill} style={{ width: `${task.percent}%` }} />
+                                {percent !== undefined && <span className={styles.progressBar} aria-hidden="true">
+                                    <span className={styles.progressFill} style={{ width: `${percent}%` }} />
                                 </span>}
                             </span>
-                            <span className={styles.angleStatus}>{status}{task.percent !== undefined && <strong>{task.percent}%</strong>}</span>
+                            <span className={styles.angleStatus}>{status}{percent !== undefined && <strong>{percent}%</strong>}</span>
                             <ChevronRight className={styles.angleChevron} size={14} aria-hidden="true" />
                         </button>
                         <button type="button" className={styles.angleClose} aria-label={action} data-tooltip={action}

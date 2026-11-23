@@ -8,7 +8,7 @@ import { cancelPortraitJob, openGalleryPhoto, portraitAvailability, releasePortr
 import { Button } from '@/components/common/Button';
 import { PhotoResultActions } from '@/components/photoGallery/PhotoResultActions';
 import { PhotoSourceDownload, PhotoSourcePreview } from '@/components/photoGallery/PhotoSourcePreview';
-import { BatchCount, BatchNotice, CacheReleaseStatus, NumberField, PixelChoice, RangeField, ReleaseCacheButton, Segments, ToggleField, WorkflowProgress } from '@/components/portrait/WorkbenchControls';
+import { BatchCount, BatchNotice, BatchProgress, CacheReleaseStatus, NumberField, PixelChoice, RangeField, ReleaseCacheButton, Segments, ToggleField, WorkflowProgress } from '@/components/portrait/WorkbenchControls';
 import { WorkflowInfo } from '@/components/portrait/WorkflowInfo';
 import { CameraEditor } from '@/components/portrait/PortraitWorkbench/CameraEditor';
 import { ImageComparison } from '@/components/portrait/PortraitWorkbench/ImageComparison';
@@ -22,7 +22,6 @@ import { newPortraitId, readPortraitDraft, savePortraitDraft } from '@/store/por
 import type { EnqueuePortraitBatch, PortraitBatchRequest, PortraitDraft, PortraitTrajectory, PortraitWorkspaceActions } from '@/store/portraitSession';
 import type { PhotoTool, PortraitAvailability, PortraitCacheRelease, PortraitCapture, PortraitFrame, PortraitModel, PortraitProgress, PortraitRepair, PortraitSourceUpload, PortraitStageResults, PortraitTask, PortraitTaskStage } from '@/types/portrait';
 import type { PhotoItem } from '@/types';
-import { progressPercent } from '@/utils/portraitProgress';
 import styles from '@/components/portrait/PortraitWorkbench/PortraitWorkbench.module.css';
 
 const outputEdges = [512, 768, 1024, 1280, 1536, 1920, 2048, 2304, 2560];
@@ -46,9 +45,9 @@ function canvasPng(canvas: HTMLCanvasElement) {
   ));
 }
 
-export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPhoto, initialUpload, uploadName, savedTask, initialDraft, previewCacheRevision, canClearCache, onCacheCleared, onBack, onClose, onChoosePhoto, onTaskUpdate, onContinue, registerActions, enqueueBatch, onJobSubmitted, waitForSubmission, backgroundJob }: {
+export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPhoto, initialUpload, uploadName, savedTask, batchTask, initialDraft, previewCacheRevision, canClearCache, onCacheCleared, onBack, onClose, onChoosePhoto, onTaskUpdate, onContinue, registerActions, enqueueBatch, onJobSubmitted, waitForSubmission, backgroundJob }: {
   workspaceId: string; active: boolean; canGenerate: boolean; galleryPhoto?: PhotoItem; initialUpload?: PortraitSourceUpload;
-  uploadName?: string; savedTask?: PortraitTask; initialDraft?: PortraitDraft;
+  uploadName?: string; savedTask?: PortraitTask; batchTask?: PortraitTask; initialDraft?: PortraitDraft;
   previewCacheRevision: number; canClearCache: boolean; onCacheCleared: () => void;
   onBack: () => void; onClose: (id: string, fromWorkbench: boolean) => void; onChoosePhoto: (file: File) => void; onTaskUpdate: (task: PortraitTask) => void;
   onContinue: (tool: PhotoTool, image: string, name?: string) => void;
@@ -260,16 +259,16 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
     setStage(action);
     const startedAt = restoring ? pending.current!.startedAt : Date.now();
     startedAtRef.current = startedAt;
-    function report(status: PortraitTask['status'], percent?: number) {
+    function report(status: PortraitTask['status'], progress?: PortraitProgress) {
       if (action !== 'release' && sourceName && !controller.signal.aborted) {
-        onTaskUpdate({ workspaceId, filename: sourceName, stage: action, status, startedAt, percent });
+        onTaskUpdate({ workspaceId, filename: sourceName, stage: action, status, startedAt, progress });
       }
     }
     report(initialStatus);
     try {
       await work(controller.signal, (next) => {
         setProgress(next);
-        report(next.state, progressPercent(next));
+        report(next.state, next);
       });
       controller.signal.throwIfAborted();
       report('completed');
@@ -728,12 +727,13 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
         </section>
       </>}
     </div>
-    {(stage || error || cacheRelease) && <aside className={`${styles.statusBar} ${error ? styles.error : ''}`} role={error ? 'alert' : 'status'}>
+    {(stage || error || cacheRelease || batchTask) && <aside className={`${styles.statusBar} ${error ? styles.error : ''}`} role={error ? 'alert' : 'status'}>
       {stage && <>
         <div className={styles.statusTitle}><strong>{t(`portrait.progress.${stage}`)}</strong>
           {stage === 'frame' && frameIndex && <span>{frameIndex.index} / {frameIndex.total}</span>}</div>
         {stage !== 'release' && stage !== 'upload' && <WorkflowProgress progress={progress} nodeName={nodeName} />}
       </>}
+      {!stage && batchTask && <BatchProgress task={batchTask} nodeNames={nodeNames} />}
       {error && <div className={styles.statusTitle}><div><strong>{errorKey || t('portrait.errors.portraitRunError')}</strong>
         {error.message && <small>{error.message}</small>}</div><Button variant="ghost" size="sm" type="button" onClick={() => setError(undefined)}>{t('close')}</Button></div>}
       {cacheRelease && <CacheReleaseStatus result={cacheRelease} onClose={() => setCacheRelease(undefined)} />}

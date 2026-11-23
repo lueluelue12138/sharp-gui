@@ -67,6 +67,11 @@ def edit_status():
     return jsonify(workflow.status(edit=True))
 
 
+@bp.get('/extend/status')
+def extend_status():
+    return jsonify(workflow.status(extend=True))
+
+
 @bp.get('/workflows/<name>')
 def visual_workflow(name):
     """查看项目随附的 ComfyUI 可视化工作流所需的节点和模型。"""
@@ -107,8 +112,9 @@ def start():
 def upload(kind):
     request.max_content_length = workflow.upload_limit(kind) + 65536
     photo = request.files.get('image')
-    if kind in {'source', 'edit-source'}:
-        media, original = workflow.upload_source_photo(current_app.config['PATH_CONTEXT'], photo, edit_source=kind == 'edit-source')
+    if kind in {'source', 'edit-source', 'extend-source'}:
+        media, original = workflow.upload_source_photo(current_app.config['PATH_CONTEXT'], photo,
+                                                       edit_source=kind == 'edit-source', extend_source=kind == 'extend-source')
         return uploaded_image('source', media, download_url=f'/api/portrait/source-original/{sign("source-original", original)}')
     media = workflow.upload_image(kind, photo)
     return uploaded_image(kind, media)
@@ -140,11 +146,14 @@ def gallery_source(photo_id):
     resolved = photo_gallery.resolve_photo_path(paths, photo_id)
     if not resolved:
         raise workflow.PortraitError('portraitGalleryMissing', 'The gallery photo is unavailable.', 404)
-    kind = 'reference' if request.args.get('kind') == 'reference' else 'source'
+    mode = request.args.get('kind')
+    kind = 'reference' if mode == 'reference' else 'source'
     try:
         with open(resolved[1], 'rb') as photo:
-            if request.args.get('kind') == 'edit-source':
+            if mode == 'edit-source':
                 media = workflow.upload_image_stream(kind, photo, edit_source=True)
+            elif mode == 'extend-source':
+                media = workflow.upload_image_stream(kind, photo, extend_source=True)
             else:
                 media = workflow.upload_image_stream(kind, photo)
     except OSError as error:
@@ -152,11 +161,12 @@ def gallery_source(photo_id):
     return uploaded_image(kind, media)
 
 
-@bp.post('/edit/mask')
-def edit_mask():
+@bp.post('/edit/mask', defaults={'extend': False})
+@bp.post('/extend/mask', defaults={'extend': True})
+def edit_mask(extend):
     request.max_content_length = workflow.MAX_UPLOAD + 65536
     source = read_token('source', request.form.get('source'))
-    media = workflow.prepare_edit_mask(source, request.files.get('image'))
+    media = workflow.prepare_edit_mask(source, request.files.get('image'), extend=extend)
     return jsonify(token=sign('edit-mask', {'source': source['filename'], 'media': media}))
 
 
@@ -204,7 +214,7 @@ def cancel_job():
 
 @bp.post('/jobs/<stage>')
 def submit(stage):
-    if stage not in {'build', 'repair', 'refine', 'frame', 'edit'}:
+    if stage not in {'build', 'repair', 'refine', 'frame', 'edit', 'extend'}:
         raise workflow.PortraitError('portraitInvalid', 'Unknown portrait stage.', 404)
     request.max_content_length = 65536
     options = request.get_json(silent=True)
@@ -213,14 +223,17 @@ def submit(stage):
     source = read_token('source', options.get('source'))
     kwargs = {}
     context = {'stage': stage, 'source': source['filename']}
-    if stage == 'edit':
-        reference = read_token('reference', options['reference']) if options.get('reference') else None
+    if stage in {'edit', 'extend'}:
         masked = None
         if options.get('mask'):
             mask = read_token('edit-mask', options['mask'])
             if mask['source'] != source['filename']:
                 raise workflow.PortraitError('portraitInvalid', 'Draw a mask for the current original photo.')
             masked = mask['media']
+        if stage == 'extend':
+            context['id'] = workflow.submit_extend(source, options, masked=masked)
+            return jsonify(job=sign('job', context)), 202
+        reference = read_token('reference', options['reference']) if options.get('reference') else None
         if options.get('area') not in ('full', 'local') or (options['area'] == 'local') != bool(masked):
             raise workflow.PortraitError('editMaskRequired', 'Draw a local mask or select full image.')
         context['id'] = workflow.submit_edit(source, options, reference=reference, masked=masked)
@@ -283,6 +296,11 @@ def job_status(job):
         prompts = outputs.get('386', {}).get('text', [])
         data = {'image': file_url(require_output(outputs, '370', 'images')),
                 'prompt': prompts[0] if prompts and isinstance(prompts[0], str) else ''}
+    elif stage == 'extend':
+        data = {'image': file_url(require_output(outputs, '46', 'images')), 'prompt': ''}
+        canvas = outputs.get('51', {}).get('b_images', [])
+        if canvas:
+            data['before'] = file_url(canvas[0])
     else:
         data = {'image': file_url(require_output(outputs, '31', 'images'))}
     return jsonify(state='done', result=data)

@@ -1,5 +1,6 @@
 import type { CameraView } from '@/components/portrait/PortraitWorkbench/portraitRenderer';
 import type { MaskStroke } from '@/components/portrait/PortraitWorkbench/MaskEditor';
+import type { OutpaintLayout } from '@/components/photoGallery/OutpaintBoard/geometry';
 import type {
   PhotoTool, PortraitCapture, PortraitFrame, PortraitModel, PortraitRepair, PortraitSourceUpload, PortraitStageResults, PortraitTask, PortraitUpload,
 } from '@/types/portrait';
@@ -15,7 +16,7 @@ export interface AngleWorkspace {
   initialDraft?: PortraitDraft;
 }
 
-export type QueuedPortraitStage = 'edit' | 'repair' | 'refine';
+export type QueuedPortraitStage = 'edit' | 'extend' | 'repair' | 'refine';
 
 export interface PortraitBatchRequest {
   stage: QueuedPortraitStage;
@@ -90,7 +91,8 @@ export interface ImageEditDraft {
   optimize?: boolean;
   edge?: number;
   seed?: string;
-  result?: PortraitStageResults['edit'];
+  result?: PortraitStageResults['extend'];
+  layout?: OutpaintLayout;
   page?: 'edit' | 'result';
 }
 
@@ -139,7 +141,7 @@ export function readPortraitSession(): PortraitSession {
     tasks: saved.tasks.map((task) => {
       if (task.status !== 'queued' && task.status !== 'running') return task;
       if (readPortraitDraft(task.workspaceId).pending) return task;
-      return { ...task, status: 'failed', percent: undefined };
+      return { ...task, status: 'failed', progress: undefined };
     }),
   };
 }

@@ -1,4 +1,4 @@
-export type PhotoTool = 'edit' | 'reframe';
+export type PhotoTool = 'edit' | 'extend' | 'reframe';
 
 export interface PortraitAvailability {
   ready: boolean;
@@ -84,6 +84,7 @@ export interface PortraitStageResults {
   refine: { image: string };
   frame: PortraitFrame;
   edit: { image: string; prompt: string };
+  extend: { image: string; prompt: string; before?: string };
 }
 
 export interface PortraitProgress {
@@ -93,7 +94,7 @@ export interface PortraitProgress {
   max?: number;
 }
 
-export type VisualWorkflowName = 'photo-edit' | 'spatial-reframing';
+export type VisualWorkflowName = 'photo-edit' | 'photo-extend' | 'spatial-reframing';
 
 export interface VisualWorkflowDependencies {
   extensions: string[];
@@ -110,8 +111,9 @@ export interface PortraitTask {
   stage: PortraitTaskStage;
   status: PortraitProgress['state'] | 'completed' | 'failed';
   startedAt: number;
-  percent?: number;
+  progress?: PortraitProgress;
   tool?: PhotoTool;
+  originId?: string;
   batch?: { index: number; count: number };
 }
 
