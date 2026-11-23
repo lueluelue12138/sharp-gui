@@ -1,13 +1,15 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { DragEvent } from 'react';
 
-import { ArrowLeft, Camera, ChevronRight, CloudUpload, Image as ImageIcon, Images, LoaderCircle, MemoryStick, Play, RefreshCw, Scan, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Camera, ChevronRight, CloudUpload, Image as ImageIcon, Images, LoaderCircle, Play, RefreshCw, Scan, Sparkles, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { ApiError } from '@/api/client';
 import { cancelPortraitJob, openGalleryPhoto, portraitAvailability, releasePortraitMemory, runPortrait, startPortraitEngine, uploadPortrait } from '@/api/portrait';
 import { Button } from '@/components/common/Button';
-import { NumberField, PixelChoice, RangeField, Segments, ToggleField } from '@/components/portrait/WorkbenchControls';
+import { PhotoResultActions } from '@/components/photoGallery/PhotoResultActions';
+import { PhotoSourceDownload, PhotoSourcePreview } from '@/components/photoGallery/PhotoSourcePreview';
+import { BatchCount, BatchNotice, CacheReleaseStatus, NumberField, PixelChoice, RangeField, ReleaseCacheButton, Segments, ToggleField, WorkflowProgress } from '@/components/portrait/WorkbenchControls';
+import { WorkflowInfo } from '@/components/portrait/WorkflowInfo';
 import { CameraEditor } from '@/components/portrait/PortraitWorkbench/CameraEditor';
 import { ImageComparison } from '@/components/portrait/PortraitWorkbench/ImageComparison';
 import { MaskEditor } from '@/components/portrait/PortraitWorkbench/MaskEditor';
@@ -15,13 +17,14 @@ import type { Crop } from '@/components/portrait/PortraitWorkbench/MaskEditor';
 import { Trajectory } from '@/components/portrait/PortraitWorkbench/Trajectory';
 import { cameraFrame } from '@/components/portrait/PortraitWorkbench/portraitRenderer';
 import type { CameraView, PortraitRenderer } from '@/components/portrait/PortraitWorkbench/portraitRenderer';
+import { useImageDrop, workbenchPhotoAccept } from '@/hooks/useImageDrop';
 import { newPortraitId, readPortraitDraft, savePortraitDraft } from '@/store/portraitSession';
-import type { PortraitDraft, PortraitTrajectory, PortraitWorkspaceActions } from '@/store/portraitSession';
-import type { PortraitAvailability, PortraitCacheRelease, PortraitCapture, PortraitFrame, PortraitModel, PortraitProgress, PortraitRepair, PortraitSourceUpload, PortraitStageResults, PortraitTask, PortraitTaskStage } from '@/types/portrait';
+import type { EnqueuePortraitBatch, PortraitBatchRequest, PortraitDraft, PortraitTrajectory, PortraitWorkspaceActions } from '@/store/portraitSession';
+import type { PhotoTool, PortraitAvailability, PortraitCacheRelease, PortraitCapture, PortraitFrame, PortraitModel, PortraitProgress, PortraitRepair, PortraitSourceUpload, PortraitStageResults, PortraitTask, PortraitTaskStage } from '@/types/portrait';
 import type { PhotoItem } from '@/types';
+import { progressPercent } from '@/utils/portraitProgress';
 import styles from '@/components/portrait/PortraitWorkbench/PortraitWorkbench.module.css';
 
-const photoAccept = 'image/jpeg,image/png,image/webp,image/bmp,image/heic,image/heif,.jpg,.jpeg,.png,.webp,.bmp,.heic,.heif';
 const outputEdges = [512, 768, 1024, 1280, 1536, 1920, 2048, 2304, 2560];
 const nodeNames: Record<string, string> = {
   '2': 'reconstruct', '3': 'framing', '6': 'fill', '7': 'loadModel', '8': 'loadModel', '9': 'loadModel',
@@ -29,10 +32,6 @@ const nodeNames: Record<string, string> = {
   '208': 'sampling', '217': 'decode', '31': 'save', '10000': 'save',
 };
 type Stage = PortraitTaskStage | 'release';
-
-function progressPercent(progress: PortraitProgress) {
-  return typeof progress.value === 'number' && progress.max ? Math.round(100 * progress.value / progress.max) : undefined;
-}
 
 function describeError(problem: unknown) {
   return {
@@ -47,15 +46,18 @@ function canvasPng(canvas: HTMLCanvasElement) {
   ));
 }
 
-export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPhoto, initialUpload, uploadName, savedTask, previewCacheRevision, canClearCache, onCacheCleared, onBack, onClose, onChoosePhoto, onTaskUpdate, registerActions }: {
+export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPhoto, initialUpload, uploadName, savedTask, initialDraft, previewCacheRevision, canClearCache, onCacheCleared, onBack, onClose, onChoosePhoto, onTaskUpdate, onContinue, registerActions, enqueueBatch, onJobSubmitted, waitForSubmission, backgroundJob }: {
   workspaceId: string; active: boolean; canGenerate: boolean; galleryPhoto?: PhotoItem; initialUpload?: PortraitSourceUpload;
-  uploadName?: string; savedTask?: PortraitTask;
+  uploadName?: string; savedTask?: PortraitTask; initialDraft?: PortraitDraft;
   previewCacheRevision: number; canClearCache: boolean; onCacheCleared: () => void;
   onBack: () => void; onClose: (id: string, fromWorkbench: boolean) => void; onChoosePhoto: (file: File) => void; onTaskUpdate: (task: PortraitTask) => void;
+  onContinue: (tool: PhotoTool, image: string, name?: string) => void;
   registerActions: (id: string, actions: PortraitWorkspaceActions) => () => void;
+  enqueueBatch: EnqueuePortraitBatch; onJobSubmitted: (id: string) => void;
+  waitForSubmission: boolean; backgroundJob: boolean;
 }) {
   const { t } = useTranslation();
-  const [saved] = useState(() => readPortraitDraft(workspaceId));
+  const [saved] = useState(() => initialDraft ?? readPortraitDraft(workspaceId));
   const [available, setAvailable] = useState<PortraitAvailability>();
   const [healthVersion, setHealthVersion] = useState(0);
   const [launchPending, setLaunchPending] = useState(false);
@@ -89,6 +91,10 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   const [repairPrompt, setRepairPrompt] = useState(saved.repairPrompt);
   const [matchCloseup, setMatchCloseup] = useState(saved.matchCloseup ?? true);
   const [seed, setSeed] = useState(saved.seed ?? 1);
+  const [randomSeed, setRandomSeed] = useState(saved.randomSeed ?? (saved.seed === undefined || saved.seed === 1));
+  const [batchCount, setBatchCount] = useState(saved.batchCount ?? 1);
+  const [preparing, setPreparing] = useState(0);
+  const [queued, setQueued] = useState(0);
   const [strength, setStrength] = useState(saved.strength ?? 0.44);
   const [referenceEdge, setReferenceEdge] = useState(saved.referenceEdge ?? 1536);
   const [sampleEdge, setSampleEdge] = useState(saved.sampleEdge ?? 2048);
@@ -101,7 +107,6 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   const [targetPainted, setTargetPainted] = useState(false);
   const [referencePainted, setReferencePainted] = useState(false);
   const [originalComparison, setOriginalComparison] = useState(true);
-  const [showDrag, setShowDrag] = useState(false);
   const [frameIndex, setFrameIndex] = useState<{ index: number; total: number }>();
   const rendererRef = useRef<PortraitRenderer>(null);
   const targetMask = useRef<HTMLCanvasElement>(null);
@@ -119,11 +124,12 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
     view: saved.view && JSON.stringify(saved.view) === JSON.stringify(saved.lastCapture.view) ? saved.view : saved.lastCapture.view,
   });
   const snapshot = useRef<PortraitDraft>(saved);
+  const repairCapture = useRef<{ view: CameraView; ratio: string; edge: number; result: Promise<PortraitCapture> } | null>(null);
   const resume = useRef<() => void>(null);
   snapshot.current = {
     source, model, base, refined, reference, crop, frames, view, page, maskTab, lens, ratio, edge, repairReferenceEdge,
     repairPrompt, matchCloseup, seed, strength, referenceEdge, sampleEdge, expand, feather, color, optimize, prompt, releaseOnRepair, error,
-    previewReleased, lastCapture: lastCapture.current,
+    previewReleased, lastCapture: lastCapture.current, batchCount, randomSeed,
   };
   function persist(patch: Partial<PortraitDraft> = {}) {
     if (disposed.current) return;
@@ -135,6 +141,8 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   const clearedRevision = useRef(previewCacheRevision);
   const busy = Boolean(stage);
   const locked = busy || !canGenerate || !available?.ready;
+  const sourceDrop = useImageDrop(([file]) => onChoosePhoto(file), { enabled: !locked });
+  const referenceDrop = useImageDrop(([file]) => pickReference(file), { enabled: !locked });
 
   useEffect(() => {
     if (!active) return;
@@ -169,6 +177,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
       initialUpload?.abort();
     }
     async function cancel() {
+      if (waitForSubmission) return;
       const job = pending.current;
       const source = job?.options?.source;
       const target = job?.job ? { job: job.job }
@@ -186,7 +195,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
       }
     }
     return registerActions(workspaceId, { dispose, cancel });
-  }, [initialUpload, registerActions, workspaceId]);
+  }, [initialUpload, registerActions, waitForSubmission, workspaceId]);
 
   useEffect(() => {
     const write = () => {
@@ -205,10 +214,10 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   }, [workspaceId]);
 
   useEffect(() => {
-    if (!saved.pending) return;
+    if (!saved.pending || waitForSubmission) return;
     const timer = window.setTimeout(() => resume.current?.(), 0);
     return () => window.clearTimeout(timer);
-  }, [saved.pending]);
+  }, [saved.pending, waitForSubmission]);
 
   useEffect(() => {
     if (clearedRevision.current === previewCacheRevision) return;
@@ -245,7 +254,8 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
     const controller = new AbortController();
     current.current = controller;
     setError(undefined);
-    setProgress({ state: 'running' });
+    const initialStatus = restoring && (backgroundJob || savedTask?.status === 'queued') ? 'queued' : 'running';
+    setProgress({ state: initialStatus });
     setCacheRelease(undefined);
     setStage(action);
     const startedAt = restoring ? pending.current!.startedAt : Date.now();
@@ -255,7 +265,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
         onTaskUpdate({ workspaceId, filename: sourceName, stage: action, status, startedAt, percent });
       }
     }
-    report('running');
+    report(initialStatus);
     try {
       await work(controller.signal, (next) => {
         setProgress(next);
@@ -294,6 +304,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
       job: savedJob.job, requestId: savedJob.requestId, onSubmitted: (job) => {
         pending.current = { ...(pending.current ?? savedJob), job };
         persist();
+        if (backgroundJob) onJobSubmitted(workspaceId);
       },
     });
   }
@@ -318,12 +329,6 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
       clearReference(); setReference(result);
       persist({ reference: result, crop: undefined });
     });
-  }
-
-  function dropPhoto(event: DragEvent) {
-    event.preventDefault(); event.stopPropagation(); setShowDrag(false);
-    const file = event.dataTransfer.files[0];
-    if (file && !locked) onChoosePhoto(file);
   }
 
   function build() {
@@ -369,38 +374,72 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
     }
   }
 
+  async function queueBatch(stage: 'repair' | 'refine', prepare: PortraitBatchRequest['prepare']) {
+    setPreparing((value) => value + batchCount);
+    setError(undefined);
+    try {
+      await enqueueBatch({ stage, count: batchCount, originId: workspaceId, photo: galleryPhoto,
+        filename: sourceName ?? t('photoTools.original'), prepare });
+      if (!disposed.current) setQueued(batchCount);
+    } catch (problem) {
+      if (!disposed.current) setError(describeError(problem));
+    } finally {
+      if (!disposed.current) setPreparing((value) => value - batchCount);
+    }
+  }
+
   function repair() {
     if (!view) return;
-    void perform('repair', async (signal, onProgress) => {
+    const inputDraft: PortraitDraft = {
+      ...snapshot.current, pending: undefined, error: undefined, page: 'frame', maskTab: 'target',
+      base: undefined, refined: undefined, reference: undefined, crop: undefined,
+    };
+    const repairSeed = randomSeed ? crypto.getRandomValues(new Uint32Array(1))[0] : seed;
+    void queueBatch('repair', async (signal) => {
       const cached = lastCapture.current;
-      const options = !previewReady && cached?.view === view && cached.ratio === ratio && cached.edge === edge
-        ? cached.options : await captureOptions(view, signal);
-      lastCapture.current = { view, ratio, edge, options };
+      let options: PortraitCapture;
+      const queuedCapture = repairCapture.current;
+      if (cached?.view === view && cached.ratio === ratio && cached.edge === edge) {
+        options = cached.options;
+      } else if (queuedCapture?.view === view && queuedCapture.ratio === ratio && queuedCapture.edge === edge) {
+        options = await queuedCapture.result;
+      } else {
+        const result = (async () => {
+          await queuedCapture?.result.catch(() => {});
+          return captureOptions(view, signal);
+        })();
+        repairCapture.current = { view, ratio, edge, result };
+        try {
+          options = await result;
+        } finally {
+          if (repairCapture.current?.result === result) repairCapture.current = null;
+        }
+      }
+      signal.throwIfAborted();
+      const capture = { view, ratio, edge, options };
+      lastCapture.current = capture;
       if (releaseOnRepair) { setPreviewReady(false); setPreviewReleased(true); }
-      persist({ lastCapture: lastCapture.current, previewReleased: previewReleased || releaseOnRepair });
+      persist({ lastCapture: capture, previewReleased: previewReleased || releaseOnRepair });
       const { referenceCrop, ...target } = options;
-      const result = await runTracked('repair', {
-        ...target, seed, repair_reference_edge: repairReferenceEdge, repair_prompt: repairPrompt,
-        reference_crop: matchCloseup ? referenceCrop : undefined,
-      }, onProgress, signal);
-      completeRepair(result);
+      return { draft: { ...inputDraft, lastCapture: capture, previewReleased: previewReleased || releaseOnRepair },
+        options: { ...target, seed: repairSeed, repair_reference_edge: repairReferenceEdge, repair_prompt: repairPrompt,
+          reference_crop: matchCloseup ? referenceCrop : undefined } };
     });
   }
 
   function refine() {
     const texture = targetMask.current;
     if (!source || !base || !texture || !targetPainted) return;
-    void perform('refine', async (signal, onProgress) => {
-      const mask = await uploadPortrait('mask', await canvasPng(texture), signal);
-      const referenceTexture = referenceMask.current;
-      const sourceMask = referencePainted && referenceTexture
-        ? await uploadPortrait('mask', await canvasPng(referenceTexture), signal) : undefined;
-      const result = await runTracked('refine', {
-        source: source.token, base: base.base, mask: mask.token, reference_mask: sourceMask?.token,
+    const inputDraft: PortraitDraft = { ...snapshot.current, pending: undefined, error: undefined, refined: undefined };
+    const referenceTexture = referencePainted ? referenceMask.current : null;
+    void queueBatch('refine', async (signal) => {
+      const [mask, sourceMask] = await Promise.all([
+        canvasPng(texture).then((image) => uploadPortrait('mask', image, signal)),
+        referenceTexture ? canvasPng(referenceTexture).then((image) => uploadPortrait('mask', image, signal)) : undefined,
+      ]);
+      return { draft: inputDraft, options: { source: source.token, base: base.base, mask: mask.token, reference_mask: sourceMask?.token,
         reference: reference?.token, crop, prompt, strength, reference_edge: referenceEdge,
-        sample_edge: sampleEdge, expand, feather, color, optimize,
-      }, onProgress, signal);
-      completeRefine(result);
+        sample_edge: sampleEdge, expand, feather, color, optimize } };
     });
   }
 
@@ -498,8 +537,9 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   const outputFrame = model && cameraFrame(model.intrinsics, ratio);
   const outputLabel = outputFrame ? [outputFrame.width, outputFrame.height].map((dimension) =>
     Math.max(64, Math.round(dimension * edge / Math.max(outputFrame.width, outputFrame.height) / 32) * 32)).join(' × ') : `${edge} px`;
-  const percent = progressPercent(progress);
   const nodeName = progress.node ? nodeNames[progress.node] ?? 'processing' : undefined;
+
+  if (backgroundJob && !active && stage !== 'frame') return null;
 
   return <div className={styles.workbench} ref={workbench} hidden={!active}>
     <div className={styles.inner}>
@@ -512,20 +552,18 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
           <h1>{t('portrait.title')}</h1>
         </div>
         <div className={styles.engineActions}>
+          {active && <WorkflowInfo workflow="spatial-reframing" title={t('portrait.title')} />}
           <Button variant="ghost" size="sm" type="button" className={styles.connection} data-ready={available?.ready ?? false}
             icon={<i className={styles.connectionDot} />} aria-label={t('portrait.refreshConnection')}
             onClick={() => { setLaunchError(undefined); setHealthVersion((version) => version + 1); }} disabled={busy || launchPending}>
             {t(`portrait.${connectionKey}`)} <RefreshCw size={13} />
           </Button>
-          <Button variant="secondary" size="sm" type="button" icon={<MemoryStick size={16} />} disabled={locked || !canClearCache}
-            data-tooltip={t(canClearCache ? 'portrait.releasePreviewHint' : 'portrait.errors.portraitEngineBusy')}
+          <ReleaseCacheButton disabled={locked} canClearCache={canClearCache}
             onClick={() => void perform('release', async (signal) => {
               const result = await releasePortraitMemory(signal);
               onCacheCleared();
               setCacheRelease(result);
-            })}>
-            {t('portrait.releaseEngine')}
-          </Button>
+            })} />
         </div>
         <Button variant="secondary" size="sm" type="button" iconOnly icon={<X size={18} />} className={styles.closeWorkspace}
           aria-label={t('portrait.closeWorkspace')} data-tooltip={t('portrait.closeWorkspace')} onClick={() => onClose(workspaceId, true)} />
@@ -556,33 +594,38 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
           { value: 'compare', label: t('portrait.repairResult'), icon: <Images size={16} />, disabled: !base },
           { value: 'refine', label: t('portrait.details'), icon: <Sparkles size={16} />, disabled: !base },
         ]} />
-        <div className={styles.sourceTools}>
-          {sourceUrl && <><img src={sourceUrl} alt="" /><span title={sourceName}>{sourceName}</span></>}
+        <div className={styles.sourceTools} {...sourceDrop}>
+          {sourceUrl && <PhotoSourcePreview src={sourceUrl} name={sourceName} width={galleryPhoto?.width} height={galleryPhoto?.height} />}
+          <PhotoSourceDownload photo={galleryPhoto} source={source} name={sourceName} />
           <Button variant="ghost" size="sm" type="button" icon={<CloudUpload size={17} />} disabled={locked} onClick={() => sourceInput.current?.click()}>
             {t(sourceUrl ? 'portrait.replacePhoto' : 'portrait.selectPhoto')}
           </Button>
-          <input ref={sourceInput} type="file" accept={photoAccept} hidden onChange={(event) => {
+          <input ref={sourceInput} type="file" accept={workbenchPhotoAccept} hidden onChange={(event) => {
             const file = event.currentTarget.files?.[0];
             if (file && !locked) onChoosePhoto(file);
             event.currentTarget.value = '';
           }} />
         </div>
       </div>
-      <div hidden={page !== 'frame'} className={styles.framePage}>
+      <div hidden={page !== 'frame'} className={styles.framePage} {...sourceDrop}>
         {model && sourceUrl ? <CameraEditor key={modelVersion} model={model} original={sourceUrl} view={view} onView={setView}
           enabled={active || capturing || stage === 'frame'}
           rendererRef={rendererRef} ratio={ratio} onRatio={setRatio} ready={previewReady} onReady={setPreviewReady}
-          released={previewReleased} onRelease={setPreviewReleased} disabled={busy} outputLabel={outputLabel}
-          action={<Button variant="primary" type="button" disabled={locked || !view || !canCapture} onClick={repair} icon={<Sparkles size={17} />}>
-            {t('portrait.repair')}
-          </Button>}
+          released={previewReleased} onRelease={setPreviewReleased} disabled={busy || capturing} outputLabel={outputLabel}
+          action={<div className={styles.batchActions}>
+            <BatchCount value={batchCount} onChange={setBatchCount} />
+            <Button type="button" disabled={!canGenerate || !available?.ready || (busy && stage !== 'repair') || !view || !canCapture}
+              onClick={repair} icon={<Sparkles size={17} />}>{t('portrait.repair')}</Button>
+            <BatchNotice preparing={preparing} queued={queued} />
+          </div>}
           settings={<>
-            <PixelChoice label={t('portrait.outputSize')} value={edge} values={outputEdges} allowCustom disabled={busy || previewReleased} onChange={setEdge} />
+            <PixelChoice label={t('portrait.outputSize')} value={edge} values={outputEdges} alignment={32} disabled={busy || capturing || previewReleased} onChange={setEdge} />
             <PixelChoice label={t('portrait.repairReferenceEdge')} value={repairReferenceEdge} values={outputEdges}
-              allowCustom disabled={busy} onChange={setRepairReferenceEdge} />
+              alignment={32} disabled={busy} onChange={setRepairReferenceEdge} />
             <ToggleField label={t('portrait.matchCloseup')} checked={matchCloseup} disabled={busy} onChange={setMatchCloseup} />
-            <NumberField label={t('portrait.seed')} value={seed} min={0} max={Number.MAX_SAFE_INTEGER} steppers={false}
-              disabled={busy} onChange={(value) => setSeed(Math.floor(value))} />
+            <ToggleField label={t('portrait.randomRepairSeed')} checked={randomSeed} disabled={busy} onChange={setRandomSeed} />
+            {!randomSeed && <NumberField label={t('portrait.seed')} value={seed} min={0} max={Number.MAX_SAFE_INTEGER} steppers={false}
+              disabled={busy} onChange={(value) => setSeed(Math.floor(value))} />}
             <ToggleField label={t('portrait.releaseOnRepair')} checked={releaseOnRepair} disabled={busy} onChange={setReleaseOnRepair} />
             <div className={styles.repairPrompt}>
               <label className={styles.prompt}>{t('portrait.repairPrompt')}
@@ -596,9 +639,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
           </>}
           trajectory={<Trajectory view={view} onView={setView} disabled={locked || !previewReady} onExport={exportTrajectory}
             exporting={stage === 'frame'} onStop={stopTrajectory} results={frames} />}
-        /> : <div className={`${styles.startStudio} ${showDrag ? styles.dragging : ''}`}
-          onDragOver={(event) => { event.preventDefault(); event.stopPropagation(); if (!locked) setShowDrag(true); }}
-          onDragLeave={() => setShowDrag(false)} onDrop={dropPhoto}>
+        /> : <div className={styles.startStudio}>
           {sourceUrl ? <img src={sourceUrl} alt={t('portrait.originalAngle')} /> : <div className={styles.startPlaceholder}>
             <CloudUpload size={41} strokeWidth={1.45} /><h2>{t('portrait.startTitle')}</h2><p>{t('portrait.formats')}</p>
             <Button variant="primary" size="lg" icon={<ImageIcon size={18} />} type="button" disabled={locked} onClick={() => sourceInput.current?.click()}>{t('portrait.selectPhoto')}</Button>
@@ -630,7 +671,9 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
             <Button variant="primary" size="sm" type="button" icon={<Sparkles size={17} />} onClick={() => navigate('refine')}>{t('portrait.goRefine')}</Button>
           </div>
           <ImageComparison key={base.base} before={originalComparison ? source.url : base.rough} after={base.image}
-            beforeLabel={t(originalComparison ? 'portrait.originalAngle' : 'portrait.rough')} afterLabel={t('portrait.repaired')} />
+            beforeLabel={t(originalComparison ? 'portrait.originalAngle' : 'portrait.rough')} afterLabel={t('portrait.repaired')}
+            resultActions={<PhotoResultActions image={base.image} tool="reframe" canUseResult={canGenerate}
+              onContinue={(tool, image) => onContinue(tool, image, sourceName)} />} />
         </section>
         <section className={styles.refineWorkspace} hidden={page !== 'refine'} aria-label={t('portrait.details')}>
           <div className={styles.refineCanvas}>
@@ -642,19 +685,22 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
               <MaskEditor key={base.base} image={base.image} label={t('portrait.targetMask')}
                 onCanvas={(canvas) => { targetMask.current = canvas; }} disabled={locked} onPaint={setTargetPainted} />
             </div>
-            <div hidden={maskTab !== 'reference'}>
+            <div className={styles.referenceDrop} hidden={maskTab !== 'reference'} {...referenceDrop}>
               <MaskEditor key={reference?.url ?? base.reference} image={reference?.url ?? base.reference} label={t('portrait.reference')}
-                onCanvas={(canvas) => { referenceMask.current = canvas; }} reference disabled={locked} crop={crop} onCrop={setCrop} onPaint={setReferencePainted}
+                onCanvas={(canvas) => { referenceMask.current = canvas; }} reference showResolution
+                disabled={locked} crop={crop} onCrop={setCrop} onPaint={setReferencePainted}
                 actions={<div className={styles.controlRow}>
                   <Button variant="secondary" size="sm" type="button" icon={<CloudUpload size={16} />} disabled={locked} onClick={() => referenceInput.current?.click()}>{t('portrait.uploadReference')}</Button>
                   {reference && <Button variant="ghost" size="sm" type="button" disabled={locked} onClick={clearReference}>{t('portrait.useOriginal')}</Button>}
-                  <input type="file" accept={photoAccept} hidden ref={referenceInput} onChange={(event) => {
+                  <input type="file" accept={workbenchPhotoAccept} hidden ref={referenceInput} onChange={(event) => {
                     const file = event.currentTarget.files?.[0]; if (file) pickReference(file); event.currentTarget.value = '';
                   }} />
                 </div>} />
             </div>
             {refined && <div hidden={maskTab !== 'result'}>
-              <ImageComparison key={refined} before={base.image} after={refined} beforeLabel={t('portrait.repaired')} afterLabel={t('portrait.refined')} />
+              <ImageComparison key={refined} before={base.image} after={refined} beforeLabel={t('portrait.repaired')} afterLabel={t('portrait.refined')}
+                resultActions={<PhotoResultActions image={refined} tool="reframe" canUseResult={canGenerate}
+                  onContinue={(tool, image) => onContinue(tool, image, sourceName)} />} />
             </div>}
           </div>
           <aside className={styles.refineControls}>
@@ -673,7 +719,11 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
               <RangeField label={t('portrait.color')} disabled={locked} min={0} max={1} step={0.1} value={color} display={`${Math.round(color * 100)}%`} onChange={setColor} />
               <ToggleField label={t('portrait.optimize')} disabled={locked} checked={optimize} onChange={setOptimize} />
             </div>}
-            <Button variant="primary" type="button" disabled={locked || !targetPainted} onClick={refine} icon={<Sparkles size={17} />}>{t('portrait.refine')}</Button>
+            <div className={styles.batchActions}>
+              <BatchCount value={batchCount} onChange={setBatchCount} />
+              <Button type="button" disabled={locked || !targetPainted} onClick={refine} icon={<Sparkles size={17} />}>{t('portrait.refine')}</Button>
+              <BatchNotice preparing={preparing} queued={queued} />
+            </div>
           </aside>
         </section>
       </>}
@@ -682,21 +732,11 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
       {stage && <>
         <div className={styles.statusTitle}><strong>{t(`portrait.progress.${stage}`)}</strong>
           {stage === 'frame' && frameIndex && <span>{frameIndex.index} / {frameIndex.total}</span>}</div>
-        {stage !== 'release' && stage !== 'upload' && <>
-          <div className={styles.progressTrack} data-indeterminate={percent === undefined} role="progressbar"
-            aria-label={t('portrait.nodeProgress')} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
-            <span style={percent === undefined ? undefined : { width: `${percent}%` }} />
-          </div>
-          <div className={styles.statusDetails}><span>{nodeName ? t(`portrait.nodes.${nodeName}`) : t(`portrait.${progress.state}`)}</span>
-            {percent !== undefined && <span>{t('portrait.progressSteps', { value: Number(progress.value!.toFixed(1)), max: progress.max, percent })}</span>}
-          </div>
-        </>}
+        {stage !== 'release' && stage !== 'upload' && <WorkflowProgress progress={progress} nodeName={nodeName} />}
       </>}
       {error && <div className={styles.statusTitle}><div><strong>{errorKey || t('portrait.errors.portraitRunError')}</strong>
         {error.message && <small>{error.message}</small>}</div><Button variant="ghost" size="sm" type="button" onClick={() => setError(undefined)}>{t('close')}</Button></div>}
-      {cacheRelease && <div className={styles.statusTitle}><div><strong>{t('portrait.memoryRequested', { count: cacheRelease.removed })}</strong>
-        {cacheRelease.failed > 0 && <small>{t('portrait.cacheFilesBusy', { count: cacheRelease.failed })}</small>}</div>
-        <Button variant="ghost" size="sm" type="button" onClick={() => setCacheRelease(undefined)}>{t('close')}</Button></div>}
+      {cacheRelease && <CacheReleaseStatus result={cacheRelease} onClose={() => setCacheRelease(undefined)} />}
     </aside>}
   </div>;
 }

@@ -1,9 +1,12 @@
+export type PhotoTool = 'edit' | 'reframe';
+
 export interface PortraitAvailability {
   ready: boolean;
   code: string | null;
   missing: string[];
   can_start?: boolean;
   repair_prompt?: string;
+  optimizer_missing?: string[];
 }
 
 export interface PortraitLaunch {
@@ -19,6 +22,7 @@ export interface PortraitCacheRelease {
 export interface PortraitUpload {
   token: string;
   url: string;
+  download_url?: string;
 }
 
 export interface PortraitCamera {
@@ -79,6 +83,7 @@ export interface PortraitStageResults {
   repair: PortraitRepair;
   refine: { image: string };
   frame: PortraitFrame;
+  edit: { image: string; prompt: string };
 }
 
 export interface PortraitProgress {
@@ -86,6 +91,15 @@ export interface PortraitProgress {
   node?: string;
   value?: number;
   max?: number;
+}
+
+export type VisualWorkflowName = 'photo-edit' | 'spatial-reframing';
+
+export interface VisualWorkflowDependencies {
+  extensions: string[];
+  models: string[];
+  optimizer_models: string[];
+  nodes: string[];
 }
 
 export type PortraitTaskStage = keyof PortraitStageResults | 'upload';
@@ -97,6 +111,8 @@ export interface PortraitTask {
   status: PortraitProgress['state'] | 'completed' | 'failed';
   startedAt: number;
   percent?: number;
+  tool?: PhotoTool;
+  batch?: { index: number; count: number };
 }
 
 export interface PortraitSourceUpload {

@@ -118,9 +118,9 @@ export function TaskQueue({ angleTasks, activeAngleId, onOpenAngle, onCloseAngle
         return null;
     }
 
-    const sortedAngles = [...angleTasks].sort((first, second) => (
-        Number(isActiveAngle(second.status)) - Number(isActiveAngle(first.status)) || second.startedAt - first.startedAt
-    ));
+    const order = { running: 0, queued: 1, completed: 2, failed: 2 };
+    const sortedAngles = [...angleTasks].sort((first, second) => order[first.status] - order[second.status]
+        || (first.status === 'queued' ? first.startedAt - second.startedAt : second.startedAt - first.startedAt));
 
     const getTaskStageText = (task: Task) => {
         if (task.status === 'processing' && task.stage) {
@@ -154,19 +154,20 @@ export function TaskQueue({ angleTasks, activeAngleId, onOpenAngle, onCloseAngle
             {sortedAngles.map(task => {
                 const { icon, color } = getStatusInfo(task.status === 'queued' ? 'pending' : task.status);
                 const selected = task.workspaceId === activeAngleId;
-                const stage = t(`portrait.taskQueue.stage.${task.stage}`);
+                const stage = t(`portrait.taskQueue.stage.${task.stage}`) + (task.batch ? ` · ${task.batch.index}/${task.batch.count}` : '');
                 const status = t(`portrait.taskQueue.status.${task.status}`);
                 const active = isActiveAngle(task.status);
-                const action = t(active ? 'portrait.taskQueue.cancel' : 'portrait.taskQueue.close', { name: task.filename });
+                const tool = t(task.tool === 'edit' ? 'photoTools.edit' : 'portrait.title');
+                const action = t(active ? 'portrait.taskQueue.cancel' : 'portrait.taskQueue.close', { name: task.filename, tool });
                 return (
                     <div key={task.workspaceId} className={`${styles.queueItem} ${styles.angleTask}`} data-selected={selected}>
                         <button type="button" className={styles.angleOpen} onClick={() => onOpenAngle(task.workspaceId)}
                             aria-current={selected ? 'true' : undefined}
-                            aria-label={t('portrait.taskQueue.open', { name: task.filename, stage, status })}>
+                            aria-label={t('portrait.taskQueue.open', { name: task.filename, tool, stage, status })}>
                             <span className={styles.statusIcon} style={{ color }} aria-hidden="true">{icon}</span>
                             <span className={styles.itemContent}>
                                 <span className={styles.filename} data-tooltip={task.filename}>{task.filename}</span>
-                                <span className={styles.angleStage}>{t('portrait.title')} · {stage}</span>
+                                <span className={styles.angleStage}>{tool} · {stage}</span>
                                 {task.percent !== undefined && <span className={styles.progressBar} aria-hidden="true">
                                     <span className={styles.progressFill} style={{ width: `${task.percent}%` }} />
                                 </span>}

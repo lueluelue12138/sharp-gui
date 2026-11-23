@@ -1,5 +1,6 @@
 import type { ReactNode, MouseEvent } from 'react';
 import { useEffect, useId } from 'react';
+import { createPortal } from 'react-dom';
 
 import { useTranslation } from 'react-i18next';
 
@@ -13,6 +14,7 @@ interface ModalProps {
   children: ReactNode;
   showCloseButton?: boolean;
   size?: 'sm' | 'md' | 'lg';
+  portal?: boolean;
 }
 
 export function Modal({
@@ -22,6 +24,7 @@ export function Modal({
   children,
   showCloseButton = true,
   size = 'md',
+  portal = false,
 }: ModalProps) {
   const { t } = useTranslation();
   const titleId = useId();
@@ -30,7 +33,8 @@ export function Modal({
     if (!isOpen) return;
     
     const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !e.defaultPrevented) {
+        e.preventDefault();
         onClose();
       }
     };
@@ -59,8 +63,8 @@ export function Modal({
     }
   };
 
-  return (
-    <div className={styles.backdrop} onClick={handleBackdropClick}>
+  const dialog = (
+    <div className={portal ? `${styles.backdrop} ${styles.portalBackdrop}` : styles.backdrop} onClick={handleBackdropClick}>
       <div
         className={`${styles.modal} ${styles[size]}`}
         role="dialog"
@@ -81,4 +85,5 @@ export function Modal({
       </div>
     </div>
   );
+  return portal ? createPortal(dialog, document.body) : dialog;
 }

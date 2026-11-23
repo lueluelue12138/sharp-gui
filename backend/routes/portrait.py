@@ -1,6 +1,7 @@
-from flask import Blueprint, Response, current_app, g, jsonify, request, stream_with_context
+from flask import Blueprint, Response, current_app, g, jsonify, request, send_file, stream_with_context
 from itsdangerous import BadData, URLSafeTimedSerializer
 from werkzeug.exceptions import RequestEntityTooLarge
+from werkzeug.datastructures import FileStorage
 
 from backend.services import photo_gallery
 from backend.services import portrait_workflow as workflow
@@ -51,12 +52,32 @@ def portrait_error(error):
 
 @bp.errorhandler(RequestEntityTooLarge)
 def portrait_upload_limit(_error):
-    return jsonify(code='portraitImageTooLarge', error='The upload exceeds 24 MB.'), 413
+    kind = (request.view_args or {}).get('kind')
+    limit = workflow.upload_limit(kind) // (1024 * 1024)
+    return jsonify(code=workflow.upload_limit_code(kind), error=f'The image exceeds {limit} MB.'), 413
 
 
 @bp.get('/status')
 def status():
     return jsonify(workflow.status())
+
+
+@bp.get('/edit/status')
+def edit_status():
+    return jsonify(workflow.status(edit=True))
+
+
+@bp.get('/workflows/<name>')
+def visual_workflow(name):
+    """查看项目随附的 ComfyUI 可视化工作流所需的节点和模型。"""
+    return jsonify(workflow.visual_workflow_dependencies(name))
+
+
+@bp.get('/workflows/<name>/download')
+def download_visual_workflow(name):
+    """下载可独立导入 ComfyUI 的画布文件。"""
+    path = workflow.visual_workflow_file(name)
+    return send_file(path, mimetype='application/json', as_attachment=True, download_name=f'SharpGUI-{path.name}')
 
 
 @bp.get('/recent')
@@ -84,9 +105,33 @@ def start():
 
 @bp.post('/uploads/<kind>')
 def upload(kind):
-    request.max_content_length = workflow.MAX_UPLOAD + 65536
-    media = workflow.upload_image(kind, request.files.get('image'))
-    return jsonify(token=sign(kind, media), url=file_url(media))
+    request.max_content_length = workflow.upload_limit(kind) + 65536
+    photo = request.files.get('image')
+    if kind in {'source', 'edit-source'}:
+        media, original = workflow.upload_source_photo(current_app.config['PATH_CONTEXT'], photo, edit_source=kind == 'edit-source')
+        return uploaded_image('source', media, download_url=f'/api/portrait/source-original/{sign("source-original", original)}')
+    media = workflow.upload_image(kind, photo)
+    return uploaded_image(kind, media)
+
+
+def uploaded_image(kind, media, *, download_url=None):
+    response = {'token': sign(kind, media), 'url': file_url(media)}
+    if download_url:
+        response['download_url'] = download_url
+    return jsonify(response)
+
+
+@bp.get('/source-original/<token>')
+def download_source_original(token):
+    """以原文件名下载工作台上传的照片。"""
+    original = read_token('source-original', token)
+    path = workflow.uploaded_original_path(current_app.config['PATH_CONTEXT'], original['file'])
+    if not path.is_file():
+        raise workflow.PortraitError('portraitExpired', 'The uploaded original is unavailable.', 404)
+    response = send_file(path, mimetype=workflow.PHOTO_MIME_TYPES[path.suffix], as_attachment=True, download_name=original['name'])
+    response.cache_control.no_store = True
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 
 @bp.post('/gallery-source/<photo_id>')
@@ -95,12 +140,46 @@ def gallery_source(photo_id):
     resolved = photo_gallery.resolve_photo_path(paths, photo_id)
     if not resolved:
         raise workflow.PortraitError('portraitGalleryMissing', 'The gallery photo is unavailable.', 404)
+    kind = 'reference' if request.args.get('kind') == 'reference' else 'source'
     try:
         with open(resolved[1], 'rb') as photo:
-            media = workflow.upload_image_stream('source', photo)
+            if request.args.get('kind') == 'edit-source':
+                media = workflow.upload_image_stream(kind, photo, edit_source=True)
+            else:
+                media = workflow.upload_image_stream(kind, photo)
     except OSError as error:
         raise workflow.PortraitError('portraitGalleryMissing', 'The gallery photo is unavailable.', 404) from error
-    return jsonify(token=sign('source', media), url=file_url(media))
+    return uploaded_image(kind, media)
+
+
+@bp.post('/edit/mask')
+def edit_mask():
+    request.max_content_length = workflow.MAX_UPLOAD + 65536
+    source = read_token('source', request.form.get('source'))
+    media = workflow.prepare_edit_mask(source, request.files.get('image'))
+    return jsonify(token=sign('edit-mask', {'source': source['filename'], 'media': media}))
+
+
+@bp.post('/result/<action>')
+def use_result(action):
+    request.max_content_length = 16384
+    options = request.get_json(silent=True)
+    if not isinstance(options, dict) or action not in {'source', 'save'}:
+        raise workflow.PortraitError('portraitInvalid', 'Choose an output image.')
+    kind, media = read_token('media', options.get('result'))
+    if kind != 'image' or media['type'] != 'output' or not media['filename'].lower().endswith('.png'):
+        raise workflow.PortraitError('portraitInvalid', 'Choose a completed output image.')
+    if action == 'source':
+        with workflow.open_media(media) as image:
+            return uploaded_image('source', workflow.upload_image_stream('source', image, from_result=True),
+                                  download_url=f'{file_url(media)}?download=1')
+    album_id = options.get('album_id')
+    if not isinstance(album_id, str) or not album_id:
+        raise workflow.PortraitError('portraitInvalid', 'Choose a gallery album.')
+    with workflow.open_media(media) as image:
+        file = FileStorage(stream=image, filename=media['filename'], content_type='image/png')
+        payload, status_code = photo_gallery.upload_photos_to_album(current_app.config['PATH_CONTEXT'], album_id, [file])
+    return jsonify(payload), status_code
 
 
 @bp.post('/memory/release')
@@ -125,7 +204,7 @@ def cancel_job():
 
 @bp.post('/jobs/<stage>')
 def submit(stage):
-    if stage not in {'build', 'repair', 'refine', 'frame'}:
+    if stage not in {'build', 'repair', 'refine', 'frame', 'edit'}:
         raise workflow.PortraitError('portraitInvalid', 'Unknown portrait stage.', 404)
     request.max_content_length = 65536
     options = request.get_json(silent=True)
@@ -134,6 +213,18 @@ def submit(stage):
     source = read_token('source', options.get('source'))
     kwargs = {}
     context = {'stage': stage, 'source': source['filename']}
+    if stage == 'edit':
+        reference = read_token('reference', options['reference']) if options.get('reference') else None
+        masked = None
+        if options.get('mask'):
+            mask = read_token('edit-mask', options['mask'])
+            if mask['source'] != source['filename']:
+                raise workflow.PortraitError('portraitInvalid', 'Draw a mask for the current original photo.')
+            masked = mask['media']
+        if options.get('area') not in ('full', 'local') or (options['area'] == 'local') != bool(masked):
+            raise workflow.PortraitError('editMaskRequired', 'Draw a local mask or select full image.')
+        context['id'] = workflow.submit_edit(source, options, reference=reference, masked=masked)
+        return jsonify(job=sign('job', context)), 202
     if stage in {'repair', 'frame'}:
         model = read_token('model', options.get('model'))
         if model['source'] != source['filename'] or model['lens'] != options.get('lens', 30):
@@ -150,9 +241,7 @@ def submit(stage):
         reference_token = options.get('reference')
         reference = read_token('reference', reference_token) if reference_token else base['reference']
         mask = read_token('mask', options.get('mask'))
-        edge = options.get('reference_edge', 1536)
-        if edge not in (768, 1024, 1344, 1536, 2048) or type(edge) is not int:
-            raise workflow.PortraitError('portraitInvalid', 'Invalid reference size.')
+        edge = workflow.number(options.get('reference_edge', 1536), 768, workflow.MAX_PIXEL_EDGE, integer=True)
         detail = {'target': base['target']['filename'], 'source': reference['filename'], 'mask': mask['filename'],
                   'uploaded': bool(reference_token), 'edit_mode': 'refine', 'reference_edge': edge}
         if options.get('reference_mask'):
@@ -190,6 +279,10 @@ def job_status(job):
         result = require_output(outputs, '10000', 'images')
         manifest = {**result, 'filename': 'transforms.json'}
         data = {'image': file_url(result), 'manifest': file_url(manifest, 'manifest')}
+    elif stage == 'edit':
+        prompts = outputs.get('386', {}).get('text', [])
+        data = {'image': file_url(require_output(outputs, '370', 'images')),
+                'prompt': prompts[0] if prompts and isinstance(prompts[0], str) else ''}
     else:
         data = {'image': file_url(require_output(outputs, '31', 'images'))}
     return jsonify(state='done', result=data)

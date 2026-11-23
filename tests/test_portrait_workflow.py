@@ -20,6 +20,107 @@ def signed(app, *entries):
         return [portrait.sign(kind, value) for kind, value in entries]
 
 
+@pytest.mark.parametrize('with_reference', [False, True])
+def test_edit_uses_the_original_local_redraw_graph(app, client, monkeypatch, with_reference):
+    reference = {'filename': 'ref.png', 'subfolder': 'portrait_sharp_references', 'type': 'input'}
+    masked = {'filename': 'clipspace-painted-output-sharp-test-edit.png', 'subfolder': 'sharp_gui_edit', 'type': 'input'}
+    source_token, reference_token, mask_token = signed(
+        app, ('source', SOURCE), ('reference', reference), ('edit-mask', {'source': SOURCE['filename'], 'media': masked}),
+    )
+    submitted = {}
+    monkeypatch.setattr(workflow, 'comfy_json', lambda _path, body, **_: (
+        submitted.update(body) or {'prompt_id': '00000000-0000-4000-8000-000000000012'}
+    ))
+    monkeypatch.setattr(portrait_progress, 'connect', lambda _: None)
+    description = 'Change <image1> to match <image2>.' if with_reference else 'Change the color.'
+    response = client.post('/api/portrait/jobs/edit', json={
+        'source': source_token, 'area': 'local', 'mask': mask_token,
+        'reference': reference_token if with_reference else None, 'prompt': description, 'seed': 3269,
+    })
+
+    assert response.status_code == 202
+    assert submitted['partial_execution_targets'] == ['370', '386']
+    graph = submitted['prompt']
+    original = workflow.edit_workflow_template()
+    for node in ('247', '249', '250', '252', '256', '258', '274', '275', '361', '362', '363', '365', '367', '368', '385', '386'):
+        assert graph[node] == original[node]
+    assert graph['369']['inputs']['image'] == f'sharp_gui_edit/{masked["filename"]} [input]'
+    assert graph['359']['inputs']['value'] == description
+    assert graph['388']['inputs']['seed'] == 3269
+    assert ('526' in graph) is with_reference
+    assert ('图像_02' in graph['179']['inputs']) is with_reference
+    assert ('image_02' in graph['255']['inputs']) is with_reference
+
+
+def test_single_image_full_edit_accepts_the_original_prompt_directly():
+    graph = workflow.build_edit_prompt(SOURCE, {'area': 'full', 'prompt': 'Apply a warmer tone.', 'optimize': False})
+    assert graph['369']['inputs']['image'] == 'sharp_gui_portrait/source.png'
+    assert graph['385']['inputs'] == {'switch': False, 'on_false': ['359', 0]}
+    assert graph['359']['inputs']['value'] == 'Apply a warmer tone.'
+    assert not {'179', '526', '527'}.intersection(graph)
+    assert graph['249'] == workflow.edit_workflow_template()['249']
+
+
+@pytest.mark.parametrize('edge', [2765, 3840])
+def test_edit_accepts_manual_and_larger_sample_sizes(edge):
+    graph = workflow.build_edit_prompt(SOURCE, {'prompt': 'Warm the colors.', 'sample_edge': edge})
+    assert graph['368']['inputs']['值'] == edge
+    assert graph['368']['inputs']['ghs_dom'] == str(edge)
+
+
+def test_native_mask_upload_keeps_rgb_and_rejects_small_disjoint_selections(monkeypatch):
+    source = Image.new('RGB', (100, 100), (125, 56, 212))
+    coverage = Image.new('RGBA', source.size, (0, 0, 0, 0))
+
+    def encode(image):
+        data = BytesIO()
+        image.save(data, 'PNG')
+        data.seek(0)
+        return data
+
+    uploaded = {}
+
+    def save(data, storage, folder, filename):
+        uploaded.update(image=Image.open(BytesIO(data)), storage=storage, folder=folder, filename=filename)
+        return {'filename': filename}
+
+    monkeypatch.setattr(workflow, 'open_media', lambda _: encode(source))
+    monkeypatch.setattr(workflow, 'upload_png', save)
+    # Largest component is under the workflow's 20-pixel threshold.
+    coverage.paste((255, 0, 0, 255), (5, 5, 9, 9))
+    coverage.paste((255, 0, 0, 255), (15, 15, 19, 19))
+    with pytest.raises(workflow.PortraitError) as error:
+        workflow.prepare_edit_mask(SOURCE, portrait.FileStorage(stream=encode(coverage)))
+    assert error.value.code == 'editMaskTooSmall'
+    assert not uploaded
+    coverage.paste((255, 0, 0, 255), (9, 9, 13, 13))  # 8-connected at the corner
+    workflow.prepare_edit_mask(SOURCE, portrait.FileStorage(stream=encode(coverage)))
+    assert uploaded['storage'] == 'input' and uploaded['folder'] == 'sharp_gui_edit'
+    assert uploaded['image'].getpixel((5, 5)) == (125, 56, 212, 0)
+    assert uploaded['image'].getpixel((2, 2)) == (125, 56, 212, 255)
+
+
+def test_edit_result_can_be_handed_off_without_reencoding(app, client, monkeypatch):
+    buffer = BytesIO()
+    Image.new('RGB', (30, 20), 'orange').save(buffer, 'PNG')
+    png = buffer.getvalue()
+    output = {'filename': 'Edit_00001_.png', 'subfolder': 'Sharp GUI/Edit', 'type': 'output'}
+    metadata = {'id': '00000000-0000-4000-8000-000000000012', 'stage': 'edit', 'source': SOURCE['filename']}
+    [job] = signed(app, ('job', metadata))
+    monkeypatch.setattr(workflow, 'get_job', lambda _: {'state': 'done', 'outputs': {
+        '370': {'images': [output]}, '386': {'text': ['Paint the wall blue.']},
+    }})
+    monkeypatch.setattr(workflow, 'open_media', lambda _: BytesIO(png))
+    uploaded = []
+    monkeypatch.setattr(workflow, 'upload_png', lambda data, *_: (uploaded.append(data) or SOURCE))
+    result = client.get(f'/api/portrait/jobs/{job}').json['result']
+    assert result['prompt'] == 'Paint the wall blue.'
+    response = client.post('/api/portrait/result/source', json={'result': result['image'].rsplit('/', 1)[-1]})
+    assert response.status_code == 200 and uploaded == [png]
+    [input_token] = signed(app, ('media', ['image', SOURCE]))
+    assert client.post('/api/portrait/result/source', json={'result': input_token}).status_code == 400
+
+
 def test_build_uses_only_trusted_graph(app, client, monkeypatch):
     [source] = signed(app, ('source', SOURCE))
     capture = {}
@@ -159,6 +260,7 @@ def test_closeup_only_changes_the_original_reference_input():
     ('repair', '', None),
     ('repair', 'Keep the original colors.', 1280),
     ('frame', 'Keep the original colors.', None),
+    ('repair', '', 3840),
 ])
 def test_repair_preserves_native_comfy_sampling(monkeypatch, stage, custom, edge):
     default = workflow.workflow_template()['12']['inputs']['prompt']
@@ -178,6 +280,8 @@ def test_repair_preserves_native_comfy_sampling(monkeypatch, stage, custom, edge
     }
     if edge is not None:
         options['edge'] = edge
+    if edge == 3840:
+        options['repair_reference_edge'] = 3200
     workflow.submit(stage, SOURCE, options, model_token='a' * 64, capture='capture.png')
     graph = submitted['prompt']
     assert graph['12']['inputs']['prompt'] == (custom or default)
@@ -186,8 +290,14 @@ def test_repair_preserves_native_comfy_sampling(monkeypatch, stage, custom, edge
     assert graph['12']['inputs']['image_2'] == ['3', 3]
     assert graph['6']['inputs']['image'] == ['3', 4]
     assert json.loads(graph['3']['inputs']['camera'])['capture'] == 'capture.png'
-    assert graph['3']['inputs']['long_edge'] == (edge or 1920)
-    assert graph['3']['inputs']['reference_edge'] == 1920
+    if edge == 3840:
+        for key, size in [('long_edge', 3840), ('reference_edge', 3200)]:
+            node, slot = graph['3']['inputs'][key]
+            assert slot == 0
+            assert graph[node] == {'class_type': 'PrimitiveInt', 'inputs': {'value': size}}
+    else:
+        assert graph['3']['inputs']['long_edge'] == (edge or 1920)
+        assert graph['3']['inputs']['reference_edge'] == 1920
     assert graph['12']['inputs']['start_from_image'] is False
     assert 'noise_mask' not in graph['12']['inputs']
     assert graph['13']['inputs'] == {'model': ['11', 0], 'conditioning': ['12', 0]}
@@ -208,9 +318,92 @@ def test_repair_rejects_other_photos_model(app, client):
     assert response.json['code'] == 'portraitInvalid'
 
 
+@pytest.mark.parametrize('edge', [1536, 2765, 3840])
+def test_refinement_uses_the_requested_reference_size(app, client, monkeypatch, edge):
+    detail = {'source': SOURCE['filename'], 'target': {'filename': 'result.png'}, 'reference': SOURCE}
+    source, base, mask = signed(app, ('source', SOURCE), ('detail', detail), ('mask', {'filename': 'mask.png'}))
+    submitted = {}
+    monkeypatch.setattr(workflow, 'comfy_json', lambda _path, body, **_: (
+        submitted.update(body) or {'prompt_id': '00000000-0000-4000-8000-000000000015'}
+    ))
+    monkeypatch.setattr(portrait_progress, 'connect', lambda _url: None)
+
+    response = client.post('/api/portrait/jobs/refine', json={
+        'source': source, 'base': base, 'mask': mask, 'reference_edge': edge, 'sample_edge': 3840,
+    })
+
+    assert response.status_code == 202
+    graph = submitted['prompt']
+    assert graph['222']['inputs']['值'] == 3840
+    selection = json.loads(graph['22']['inputs']['selection'])
+    reference = graph['207']['inputs']['image_02']
+    assert graph['206']['inputs']['图像_02'] == reference
+    if edge == 1536:
+        assert selection['reference_edge'] == edge
+        assert reference == ['22', 2]
+    else:
+        assert 'reference_edge' not in selection
+        resize = graph[reference[0]]
+        assert resize['inputs']['图像'] == ['22', 2]
+        assert resize['inputs']['最大尺寸'] == edge
+
+
+@pytest.mark.parametrize(('name', 'source_nodes'), [('photo-edit', [369, 526]), ('spatial-reframing', [1])])
+def test_visual_workflow_download_keeps_canvas_and_blank_images(client, name, source_nodes):
+    info = client.get(f'/api/portrait/workflows/{name}')
+    response = client.get(f'/api/portrait/workflows/{name}/download')
+
+    assert response.status_code == info.status_code == 200
+    assert f'SharpGUI-{name}.json' in response.headers['Content-Disposition']
+    assert 'qwen_image_2.1_turbo_int8_convrot.safetensors' in info.json['models']
+    assert 'goohai/Goohaitools-comfyui' in info.json['extensions']
+    canvas = response.json
+    assert canvas['groups'] and canvas['links']
+    assert set(info.json['nodes']) == {node['type'] for node in canvas['nodes']}
+    nodes = {node['id']: node for node in canvas['nodes']}
+    for node_id in source_nodes:
+        assert nodes[node_id]['widgets_values'][0] == ''
+        assert not nodes[node_id].get('widgets_values_named', {}).get('image')
+
+
 def test_media_rejects_arbitrary_path(client):
     assert client.get('/api/portrait/media/untrusted-filename').status_code == 404
     assert client.get('/api/portrait/renderer/portrait_save.js').status_code == 404
+    assert client.get('/api/portrait/workflows/portrait_workflow/download').status_code == 404
+    assert client.get('/api/portrait/source-original/untrusted-filename').status_code == 404
+
+
+@pytest.mark.parametrize('kind', ['source', 'edit-source'])
+@pytest.mark.parametrize('image_format', ['JPEG', 'MPO'])
+def test_download_uses_the_exact_uploaded_original(app, client, monkeypatch, kind, image_format):
+    payload = BytesIO()
+    photo = Image.new('RGB', (70, 85), 'blue')
+    exif = photo.getexif()
+    exif[274] = 6
+    frames = {'save_all': True, 'append_images': [Image.new('RGB', (25, 17), 'red')]} if image_format == 'MPO' else {}
+    photo.save(payload, image_format, exif=exif, **frames)
+    original = payload.getvalue()
+    with Image.open(BytesIO(original)) as decoded:
+        assert decoded.format == image_format
+
+    def upload_png(data, storage, folder, filename):
+        with Image.open(BytesIO(data)) as working:
+            assert working.format == 'PNG'
+            assert working.size == (85, 70)
+        return {'filename': filename, 'type': storage, 'subfolder': folder}
+
+    monkeypatch.setattr(workflow, 'upload_png', upload_png)
+    uploaded = client.post(f'/api/portrait/uploads/{kind}', data={'image': (BytesIO(original), '手机照片.JPG')})
+    assert uploaded.status_code == 200
+    assert uploaded.json['url'].startswith('/api/portrait/media/')
+
+    # Another browser using localhost can download the same authorized source link.
+    with app.test_client() as desktop:
+        download = desktop.get(uploaded.json['download_url'])
+    assert download.status_code == 200
+    assert download.data == original
+    assert download.mimetype == 'image/jpeg'
+    assert 'filename*=UTF-8\'\'%E6%89%8B%E6%9C%BA%E7%85%A7%E7%89%87.JPG' in download.headers['Content-Disposition']
 
 
 @pytest.mark.parametrize('kind', ['capture', 'mask'])

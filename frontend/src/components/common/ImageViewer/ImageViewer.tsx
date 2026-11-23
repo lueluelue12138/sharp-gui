@@ -1,7 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { convertPhotosToModels } from '@/api';
-import { Button } from '@/components/common/Button';
 import { useAppStore } from '@/store/useAppStore';
 import {
   ChevronLeftIcon,
@@ -12,7 +11,6 @@ import {
   FullscreenIcon,
   PauseIcon,
   PlayIcon,
-  SpatialReframingIcon,
   SparklesIcon,
   VolumeIcon,
   VolumeMutedIcon,
@@ -26,6 +24,8 @@ import { getGallerySourceVideoUrl } from '@/utils/gallery';
 import styles from './ImageViewer.module.css';
 import type { PhotoItem } from '@/types';
 import { SourceModelBadge } from '@/components/photoGallery/SourceModelBadge';
+import { PhotoToolMenu } from '@/components/photoGallery/PhotoToolMenu';
+import type { PhotoTool } from '@/types/portrait';
 
 const VIDEO_LONG_PRESS_MS = 260;
 const VIDEO_SCRUB_THRESHOLD_PX = 12;
@@ -83,7 +83,7 @@ function unlockScreenOrientation(): void {
   }
 }
 
-export function ImageViewer({ onAdjustAngle }: { onAdjustAngle?: (photo: PhotoItem) => void } = {}) {
+export function ImageViewer({ onPhotoTool }: { onPhotoTool?: (tool: PhotoTool, photo: PhotoItem) => void } = {}) {
   const {
     previewImage,
     previewPhoto,
@@ -191,7 +191,7 @@ export function ImageViewer({ onAdjustAngle }: { onAdjustAngle?: (photo: PhotoIt
   // Handle Escape key to close
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && activePreview && !sourceModelTarget) {
+      if (e.key === 'Escape' && !e.defaultPrevented && activePreview && !sourceModelTarget) {
         handleClose();
       }
     };
@@ -1101,12 +1101,8 @@ export function ImageViewer({ onAdjustAngle }: { onAdjustAngle?: (photo: PhotoIt
     >
       <div className={styles.controls} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); setIsDragging(false); }}>
         {previewPhoto ? <SourceModelBadge item={previewPhoto} preview /> : null}
-        {onAdjustAngle && previewPhoto?.media_type === 'image' && (
-          <Button className={styles.angleBtn} variant="secondary" type="button" icon={<SpatialReframingIcon />}
-            aria-label={t('portrait.title')} onClick={() => onAdjustAngle(previewPhoto)} data-tooltip={t('portrait.title')}>
-            {t('portrait.title')}
-          </Button>
-        )}
+        {onPhotoTool && previewPhoto?.media_type === 'image' &&
+          <PhotoToolMenu className={styles.photoTools} onSelect={(tool) => onPhotoTool(tool, previewPhoto)} />}
         {previewPhoto && !(modelSourceLinks[previewPhoto.id]?.total_count ?? previewPhoto.model_link?.total_count) && previewPhoto.media_type === 'image' ? (
           <button
             className={`${styles.controlBtn} ${isConverting ? styles.downloading : ''}`}

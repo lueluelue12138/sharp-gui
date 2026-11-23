@@ -1,15 +1,32 @@
 import type { CameraView } from '@/components/portrait/PortraitWorkbench/portraitRenderer';
+import type { MaskStroke } from '@/components/portrait/PortraitWorkbench/MaskEditor';
 import type {
-  PortraitCapture, PortraitFrame, PortraitModel, PortraitRepair, PortraitSourceUpload, PortraitStageResults, PortraitTask, PortraitUpload,
+  PhotoTool, PortraitCapture, PortraitFrame, PortraitModel, PortraitRepair, PortraitSourceUpload, PortraitStageResults, PortraitTask, PortraitUpload,
 } from '@/types/portrait';
 import type { PhotoItem } from '@/types';
 
 export interface AngleWorkspace {
   id: string;
+  tool?: PhotoTool;
   photo?: PhotoItem;
   upload?: PortraitSourceUpload;
   uploadName?: string;
+  queueState?: 'waiting' | 'submitted';
+  initialDraft?: PortraitDraft;
 }
+
+export type QueuedPortraitStage = 'edit' | 'repair' | 'refine';
+
+export interface PortraitBatchRequest {
+  stage: QueuedPortraitStage;
+  filename: string;
+  count: number;
+  originId: string;
+  photo?: PhotoItem;
+  prepare: (signal: AbortSignal) => Promise<{ draft: PortraitDraft; options: Record<string, unknown> }>;
+}
+
+export type EnqueuePortraitBatch = (request: PortraitBatchRequest) => Promise<void>;
 
 export interface PortraitTrajectory {
   samples: Array<{ view: CameraView; keyframe: boolean }>;
@@ -58,7 +75,23 @@ export interface PortraitDraft {
   previewReleased?: boolean;
   lastCapture?: { view: CameraView; ratio: string; edge: number; options: PortraitCapture };
   pending?: PendingPortrait;
+  batchCount?: number;
+  randomSeed?: boolean;
   error?: { code: string; message: string };
+  edit?: ImageEditDraft;
+}
+
+export interface ImageEditDraft {
+  prompt?: string;
+  reference?: PortraitUpload;
+  referenceName?: string;
+  strokes?: MaskStroke[];
+  area?: 'local' | 'full';
+  optimize?: boolean;
+  edge?: number;
+  seed?: string;
+  result?: PortraitStageResults['edit'];
+  page?: 'edit' | 'result';
 }
 
 interface PortraitSession {
@@ -98,6 +131,11 @@ export function readPortraitSession(): PortraitSession {
   if (!Array.isArray(saved?.workspaces) || !Array.isArray(saved.tasks)) return { workspaces: [], tasks: [], active: null };
   return {
     ...saved,
+    workspaces: saved.workspaces.map((workspace) => {
+      if (workspace.queueState !== 'waiting') return workspace;
+      const pending = readPortraitDraft(workspace.id).pending;
+      return !pending || pending.job ? { ...workspace, queueState: 'submitted' } : workspace;
+    }),
     tasks: saved.tasks.map((task) => {
       if (task.status !== 'queued' && task.status !== 'running') return task;
       if (readPortraitDraft(task.workspaceId).pending) return task;
@@ -107,8 +145,8 @@ export function readPortraitSession(): PortraitSession {
 }
 
 export function savePortraitSession(session: PortraitSession) {
-  const workspaces = session.workspaces.map(({ id, photo, upload, uploadName }) => ({
-    id, photo, uploadName: upload?.filename ?? uploadName,
+  const workspaces = session.workspaces.map(({ id, tool, photo, upload, uploadName, queueState }) => ({
+    id, tool, photo, uploadName: upload?.filename ?? uploadName, queueState,
   }));
   write(sessionKey, { ...session, workspaces });
 }

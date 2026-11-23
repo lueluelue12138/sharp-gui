@@ -26,6 +26,19 @@
     rgba(0, 0, 0, 0.04);
 }
 
+.preview[data-image-drop-active='true'] { outline: 2px dashed var(--accent-blue); outline-offset: -2px; }
+
+.coverDropHint {
+  position: absolute;
+  inset: auto 0 0;
+  padding: var(--space-sm);
+  background: var(--accent-blue);
+  color: white;
+  text-align: center;
+  font-size: .85rem;
+  pointer-events: none;
+}
+
 .previewMediaButton,
 .previewMediaSurface {
   position: relative;

@@ -19,10 +19,12 @@ import { PhotoMasonryGrid } from '@/components/photoGallery/PhotoMasonryGrid';
 import { PhotoSelectionBar } from '@/components/photoGallery/PhotoSelectionBar';
 import { PhotoToolbar } from '@/components/photoGallery/PhotoToolbar';
 import type { PhotoToolbarMode } from '@/components/photoGallery/PhotoToolbar';
+import { standardPhotoAccept, useImageDrop } from '@/hooks/useImageDrop';
 import { usePhotoAlbumFolderPicker } from '@/hooks/usePhotoAlbumFolderPicker';
 import { useAppStore } from '@/store';
 import { getPhotoAlbumErrorKey, isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import type { PhotoItem, PhotoMediaType } from '@/types';
+import type { PhotoTool } from '@/types/portrait';
 
 import styles from './PhotoGalleryView.module.css';
 
@@ -62,11 +64,12 @@ function getTouchDistance(touches: TouchList) {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-export function PhotoGalleryView({ hidden, onAdjustAngle }: { hidden?: boolean; onAdjustAngle: () => void }) {
+export function PhotoGalleryView({ hidden, onPhotoTool }: { hidden?: boolean; onPhotoTool: (tool: PhotoTool, photo?: PhotoItem) => void }) {
   const { t } = useTranslation();
   const sourceRevision = useAppStore((state) => state.modelSourceRevision);
   const sourceServerRevision = useAppStore((state) => state.modelSourceServerRevision);
   const sourceRepairing = useAppStore((state) => state.modelSourceRepairing);
+  const photoQueryKey = useAppStore((state) => state.photoQueryKey);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const photoRequestRef = useRef(0);
   const hasCustomGridColumns = useRef(false);
@@ -354,12 +357,12 @@ export function PhotoGalleryView({ hidden, onAdjustAngle }: { hidden?: boolean; 
 
   useEffect(() => {
     const state = useAppStore.getState();
-    if (state.photoQueryKey === `${currentPhotoAlbumId}|${sort}|${photoMediaType}` && !currentAlbumIsIndexing) {
+    if (photoQueryKey === `${currentPhotoAlbumId}|${sort}|${photoMediaType}` && !currentAlbumIsIndexing) {
       const frame = requestAnimationFrame(() => { if (scrollRef.current) scrollRef.current.scrollTop = state.photoScrollTop; });
       return () => cancelAnimationFrame(frame);
     }
     void loadPhotos(null, false);
-  }, [currentAlbumIsIndexing, currentPhotoAlbumId, loadPhotos, photoMediaType, sort]);
+  }, [currentAlbumIsIndexing, currentPhotoAlbumId, loadPhotos, photoMediaType, photoQueryKey, sort]);
 
   useEffect(() => {
     if (!currentAlbum?.system || sourceRepairing) return;
@@ -546,6 +549,10 @@ export function PhotoGalleryView({ hidden, onAdjustAngle }: { hidden?: boolean; 
     }
   }, [currentAlbum, isUploadingPhotos, loadPhotos, refreshAlbums, t]);
 
+  const albumDrop = useImageDrop((files) => void handleUploadPhotos(files), {
+    accept: standardPhotoAccept, enabled: canUploadPhotos && !isUploadingPhotos, passthrough: true,
+  });
+
   const handleSortChange = useCallback((nextSort: string) => {
     useAppStore.setState({ photoGallerySort: nextSort, photoScrollTop: 0 });
     setSort(nextSort);
@@ -709,6 +716,7 @@ export function PhotoGalleryView({ hidden, onAdjustAngle }: { hidden?: boolean; 
       <div className={styles.backdrop} />
       <div
         ref={scrollRef}
+        {...(canUploadPhotos ? albumDrop : {})}
         className={[
           styles.scrollArea,
           !sidebarCollapsed ? styles.scrollAreaWithSidebar : '',
@@ -732,7 +740,8 @@ export function PhotoGalleryView({ hidden, onAdjustAngle }: { hidden?: boolean; 
           mode={toolbarMode}
           isPickingFolder={isPickingFolder}
           onAddAlbum={pickAlbumFolder}
-          onAdjustAngle={onAdjustAngle}
+          onPhotoTool={(tool) => onPhotoTool(tool, selectedPhotoIds.length === 1
+            ? photoItems.find((photo) => photo.id === selectedPhotoIds[0] && photo.media_type === 'image') : undefined)}
           onUploadPhotos={handleUploadPhotos}
           onRefresh={handleRefresh}
           onMediaTypeChange={handleMediaTypeChange}
@@ -775,6 +784,10 @@ export function PhotoGalleryView({ hidden, onAdjustAngle }: { hidden?: boolean; 
           onReconstructVideo={handleReconstructVideo}
         />}
       </div>
+
+      {albumDrop['data-image-drop-active'] && <div className={styles.dropIndicator} aria-hidden="true">
+        {t('photoDropIntoAlbum')}
+      </div>}
 
       <button
         className={[

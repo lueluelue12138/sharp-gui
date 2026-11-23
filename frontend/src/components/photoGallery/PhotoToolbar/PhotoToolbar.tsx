@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import type { CSSProperties, DragEvent } from 'react';
+import type { CSSProperties } from 'react';
 
 import { LoaderCircle } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -14,12 +14,14 @@ import {
   PlusIcon,
   ResetIcon,
   SortIcon,
-  SpatialReframingIcon,
   SparklesIcon,
 } from '@/components/common/Icons';
 import { SelectMenu } from '@/components/common/SelectMenu';
+import { PhotoToolMenu } from '@/components/photoGallery/PhotoToolMenu';
+import { standardPhotoAccept, useImageDrop } from '@/hooks/useImageDrop';
 import { getPhotoAlbumErrorKey, isPhotoAlbumAvailable } from '@/utils/photoAlbums';
 import type { PhotoAlbum, PhotoMediaCounts, PhotoMediaType } from '@/types';
+import type { PhotoTool } from '@/types/portrait';
 
 import styles from './PhotoToolbar.module.css';
 
@@ -43,7 +45,7 @@ interface PhotoToolbarProps {
   uploadingPhotoCount: number;
   mode: PhotoToolbarMode;
   onAddAlbum: () => void;
-  onAdjustAngle: () => void;
+  onPhotoTool: (tool: PhotoTool) => void;
   onUploadPhotos: (files: FileList | File[]) => Promise<void> | void;
   onRefresh: () => void;
   onMediaTypeChange: (mediaType: PhotoMediaType) => void;
@@ -72,7 +74,7 @@ export function PhotoToolbar({
   uploadingPhotoCount,
   mode,
   onAddAlbum,
-  onAdjustAngle,
+  onPhotoTool,
   onUploadPhotos,
   onRefresh,
   onMediaTypeChange,
@@ -89,7 +91,6 @@ export function PhotoToolbar({
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const [densityOpen, setDensityOpen] = useState(false);
   const [uploadOpen, setUploadOpen] = useState(false);
-  const [isUploadDragActive, setIsUploadDragActive] = useState(false);
   const [reservedHeight, setReservedHeight] = useState<number | null>(null);
   const sortDescIcon = <ArrowDownIcon width={14} height={14} />;
   const sortAscIcon = <ArrowUpIcon width={14} height={14} />;
@@ -242,25 +243,22 @@ export function PhotoToolbar({
     };
   }, [uploadOpen]);
 
-  const handleUploadFiles = (files: FileList | File[] | null) => {
+  function handleUploadFiles(files: FileList | File[] | null) {
     if (!files || files.length === 0 || uploadDisabled) {
       return;
     }
 
     void Promise.resolve(onUploadPhotos(files)).finally(() => {
       setUploadOpen(false);
-      setIsUploadDragActive(false);
       if (uploadInputRef.current) {
         uploadInputRef.current.value = '';
       }
     });
-  };
+  }
 
-  const handleUploadDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    setIsUploadDragActive(false);
-    handleUploadFiles(event.dataTransfer.files);
-  };
+  const uploadDrop = useImageDrop(handleUploadFiles, {
+    accept: standardPhotoAccept, enabled: !uploadDisabled, passthrough: true,
+  });
 
   const handleToolbarPointerDown = (event: React.PointerEvent<HTMLElement>) => {
     if (mode !== 'compact' || !onExpandRequest) {
@@ -380,7 +378,7 @@ export function PhotoToolbar({
           </button>
 
           {canUploadPhotos ? (
-            <div ref={uploadControlRef} className={styles.uploadControl}>
+            <div ref={uploadControlRef} className={styles.uploadControl} {...uploadDrop}>
               <button
                 className={[
                   styles.textBtn,
@@ -404,7 +402,7 @@ export function PhotoToolbar({
               <input
                 ref={uploadInputRef}
                 type="file"
-                accept="image/*"
+                accept={standardPhotoAccept}
                 multiple
                 hidden
                 onChange={(event) => handleUploadFiles(event.target.files)}
@@ -412,22 +410,7 @@ export function PhotoToolbar({
 
               {uploadOpen ? (
                 <div className={styles.uploadPopover} role="dialog" aria-label={t('photoUpload')}>
-                  <div
-                    className={[
-                      styles.uploadDrop,
-                      isUploadDragActive ? styles.uploadDropActive : '',
-                    ].filter(Boolean).join(' ')}
-                    onDragEnter={(event) => {
-                      event.preventDefault();
-                      setIsUploadDragActive(true);
-                    }}
-                    onDragOver={(event) => {
-                      event.preventDefault();
-                      setIsUploadDragActive(true);
-                    }}
-                    onDragLeave={() => setIsUploadDragActive(false)}
-                    onDrop={handleUploadDrop}
-                  >
+                  <div className={styles.uploadDrop}>
                     <CloudUploadIcon width={22} height={22} />
                     <span>{t('photoUploadDropTitle')}</span>
                     <button
@@ -466,24 +449,22 @@ export function PhotoToolbar({
             <span>{selectionMode ? t('photoDoneSelecting') : t('photoSelect')}</span>
           </button>
 
-          <button type="button" className={`${styles.textBtn} ${styles.angleAction}`} onClick={onAdjustAngle}
-            aria-label={t('portrait.title')} data-tooltip={t('portrait.title')}>
-            <SpatialReframingIcon width={16} height={16} /><span>{t('portrait.title')}</span>
-          </button>
-
-          <button
-            className={styles.primaryBtn}
-            onClick={selectedCount > 0 ? onConvertSelected : onToggleSelection}
-            disabled={primaryActionDisabled}
-            aria-label={primaryActionLabel}
-            type="button"
-          >
-            <SparklesIcon width={16} height={16} />
-            <span className={styles.primaryLabel} aria-hidden={!isExpandedMode}>
-              {primaryActionLabel}
-            </span>
-            <span className={styles.primaryShortLabel} aria-hidden={isExpandedMode}>3D</span>
-          </button>
+          <div className={styles.primaryActions}>
+            <PhotoToolMenu triggerClassName={styles.primaryBtn} onSelect={onPhotoTool} />
+            <button
+              className={`${styles.primaryBtn} ${styles.convertBtn}`}
+              onClick={selectedCount > 0 ? onConvertSelected : onToggleSelection}
+              disabled={primaryActionDisabled}
+              aria-label={primaryActionLabel}
+              type="button"
+            >
+              <SparklesIcon width={16} height={16} />
+              <span className={styles.primaryLabel} aria-hidden={!isExpandedMode}>
+                {primaryActionLabel}
+              </span>
+              <span className={styles.primaryShortLabel} aria-hidden={isExpandedMode}>3D</span>
+            </button>
+          </div>
 
           {isLocalAccess ? (
             <button

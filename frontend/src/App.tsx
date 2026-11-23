@@ -13,7 +13,7 @@ import {
   generateFromImages,
   importModelAssets,
 } from '@/api';
-import { recentPortraitJobs, uploadPortrait } from '@/api/portrait';
+import { openPortraitResult, recentPortraitJobs, uploadPortrait } from '@/api/portrait';
 import { AccessGate, AccessSetupPrompt } from '@/components/auth';
 import { ConfirmDialog, ImageViewer, Loading } from '@/components/common';
 import { CloseIcon, CloudUploadIcon } from '@/components/common/Icons';
@@ -38,13 +38,14 @@ import { restoreCaptureView } from '@/components/portrait/PortraitWorkbench/port
 import { useTaskQueue } from '@/hooks/useTaskQueue';
 import { useModelSourceLinks } from '@/hooks/useModelSources';
 import { SourceModelPanel } from '@/components/photoGallery/SourceModelPanel';
+import { ImageEditWorkbench } from '@/components/photoGallery/ImageEditWorkbench';
 import { useAppStore } from '@/store';
 import { clearPortraitSession, newPortraitId, readPortraitSession, removePortraitDraft, savePortraitDraft, savePortraitSession } from '@/store/portraitSession';
-import type { AngleWorkspace, PortraitWorkspaceActions } from '@/store/portraitSession';
+import type { AngleWorkspace, EnqueuePortraitBatch, PortraitWorkspaceActions } from '@/store/portraitSession';
 import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import { detectImportedModelOrientation } from '@/utils/importedModelPreview';
 import type { PhotoItem } from '@/types';
-import type { PortraitTask } from '@/types/portrait';
+import type { PhotoTool, PortraitTask, PortraitUpload } from '@/types/portrait';
 import type {
   ModelAssetImportFileEntry,
   ModelAssetImportPhase,
@@ -54,6 +55,7 @@ import './App.css';
 
 const ACCESS_SETUP_PROMPT_SUPPRESSED_KEY = 'sharp-access-setup-prompt-suppressed';
 const AngleWorkbench = memo(PortraitWorkbench);
+const EditWorkbench = memo(ImageEditWorkbench);
 const PHOTO_PICKER_WORKSPACE = 'photo-picker';
 
 type DroppedModelFormat = 'ply' | 'splat' | 'spz' | 'rad';
@@ -181,11 +183,15 @@ function App() {
   const [angleTasks, setAngleTasks] = useState<PortraitTask[]>(restoredAngles.tasks);
   const [legacyRecoveryDone, setLegacyRecoveryDone] = useState(Boolean(restoredAngles.legacyRecoveryDone || restoredAngles.workspaces.length));
   const angleActions = useRef(new Map<string, PortraitWorkspaceActions>());
+  const batchPreparations = useRef(new Map<AbortController, string>());
+  const preparationOrder = useRef(Promise.resolve());
+  const [preparingBatches, setPreparingBatches] = useState(0);
   const [angleCancellation, setAngleCancellation] = useState<{ task: PortraitTask; fromWorkbench: boolean }>();
   const [cancellingAngle, setCancellingAngle] = useState(false);
   const [angleCancellationError, setAngleCancellationError] = useState<string>();
   const [angleCacheRevision, setAngleCacheRevision] = useState(0);
-  const angleTasksActive = angleTasks.some(({ status }) => status === 'queued' || status === 'running');
+  const angleTasksActive = preparingBatches > 0 || angleTasks.some(({ status }) => status === 'queued' || status === 'running');
+  const nextPortraitSubmission = angleWorkspaces.find((workspace) => workspace.queueState === 'waiting')?.id;
   const clearAnglePreviews = useCallback(() => setAngleCacheRevision((revision) => revision + 1), []);
   const restoredAngleView = useRef(false);
   const hadAngleAccess = useRef(false);
@@ -287,6 +293,7 @@ function App() {
       }
     } else if (hadAngleAccess.current) {
       hadAngleAccess.current = false;
+      for (const controller of batchPreparations.current.keys()) controller.abort();
       closeAngle();
       setAngleWorkspaces([]);
       setAngleTasks([]);
@@ -330,14 +337,57 @@ function App() {
     setActiveAngleId(id);
   }, [setSidebarOpen]);
 
+  const markPortraitSubmitted = useCallback((id: string) => {
+    setAngleWorkspaces((previous) => previous.some((workspace) => workspace.id === id && workspace.queueState === 'waiting')
+      ? previous.map((workspace) => workspace.id === id ? { ...workspace, queueState: 'submitted' } : workspace)
+      : previous);
+  }, []);
+
   const updateAngleTask = useCallback((task: PortraitTask) => {
+    if (task.status === 'completed' || task.status === 'failed') markPortraitSubmitted(task.workspaceId);
     setAngleTasks((previous) => {
       const last = previous.find((item) => item.workspaceId === task.workspaceId);
       if (!last) return [task, ...previous];
       if (last.stage === task.stage && last.status === task.status && last.percent === task.percent
           && last.startedAt === task.startedAt && last.filename === task.filename) return previous;
-      return previous.map((item) => item.workspaceId === task.workspaceId ? task : item);
+      return previous.map((item) => item.workspaceId === task.workspaceId ? { ...item, ...task } : item);
     });
+  }, [markPortraitSubmitted]);
+
+  const enqueuePortraitBatch = useCallback<EnqueuePortraitBatch>(({ stage, filename, count, originId, photo, prepare }) => {
+    const controller = new AbortController();
+    batchPreparations.current.set(controller, originId);
+    setPreparingBatches((previous) => previous + 1);
+    const startedAt = Date.now();
+    // Start capturing immediately, but append batches in click order even if uploads finish out of order.
+    const prepared = prepare(controller.signal);
+    void prepared.catch(() => {});
+    const queued = preparationOrder.current.then(async () => {
+      const { draft, options } = await prepared;
+      controller.signal.throwIfAborted();
+      const tool = stage === 'edit' ? 'edit' : 'reframe';
+      const workspaces: AngleWorkspace[] = [];
+      const tasks: PortraitTask[] = [];
+      for (let index = 0; index < count; index += 1) {
+        const id = newPortraitId();
+        const seed = typeof options.seed === 'number' ? Number((BigInt(options.seed) + BigInt(index)) % (1n << 53n)) : undefined;
+        const jobOptions = seed === undefined ? options : { ...options, seed };
+        const variant = seed === undefined ? draft
+          : stage === 'edit' ? { ...draft, edit: { ...draft.edit, seed: String(seed) } } : { ...draft, seed };
+        const initialDraft = { ...variant, pending: { stage, options: jobOptions, startedAt, requestId: id } };
+        savePortraitDraft(id, initialDraft);
+        workspaces.push({ id, tool, photo, uploadName: filename, queueState: 'waiting', initialDraft });
+        tasks.push({ workspaceId: id, filename, stage, tool, status: 'queued', startedAt,
+          batch: count > 1 ? { index: index + 1, count } : undefined });
+      }
+      setAngleWorkspaces((previous) => [...previous, ...workspaces]);
+      setAngleTasks((previous) => [...tasks, ...previous]);
+    }).finally(() => {
+      batchPreparations.current.delete(controller);
+      setPreparingBatches((previous) => previous - 1);
+    });
+    preparationOrder.current = queued.catch(() => {});
+    return queued;
   }, []);
 
   const registerAngleActions = useCallback((id: string, actions: PortraitWorkspaceActions) => {
@@ -347,6 +397,9 @@ function App() {
   }, []);
 
   const removeAngle = useCallback((id: string) => {
+    for (const [controller, originId] of batchPreparations.current) {
+      if (originId === id) controller.abort();
+    }
     angleActions.current.get(id)?.dispose();
     removePortraitDraft(id);
     setAngleWorkspaces((previous) => previous.filter((workspace) => workspace.id !== id));
@@ -393,24 +446,37 @@ function App() {
     setSidebarOpen(false);
   }
 
-  function openAngle(photo?: PhotoItem) {
-    const id = photo ? `gallery:${photo.id}` : PHOTO_PICKER_WORKSPACE;
-    setAngleWorkspaces((previous) => previous.some((workspace) => workspace.id === id) ? previous : [...previous, { id, photo }]);
+  const openPhotoTool = useCallback((tool: PhotoTool, photo?: PhotoItem) => {
+    const photoKey = photo ? `gallery:${photo.id}` : PHOTO_PICKER_WORKSPACE;
+    const id = tool === 'edit' ? `edit:${photoKey}` : photoKey;
+    setAngleWorkspaces((previous) => previous.some((workspace) => workspace.id === id) ? previous : [...previous, { id, tool, photo }]);
     selectAngle(id);
-  }
+  }, [selectAngle]);
 
-  const openAngleUpload = useCallback((file: File) => {
+  const openToolSource = useCallback((tool: PhotoTool, filename: string, load: (signal: AbortSignal) => Promise<PortraitUpload>) => {
     const id = `upload:${newPortraitId()}`;
     const startedAt = Date.now();
     const controller = new AbortController();
-    const result = uploadPortrait('source', file, controller.signal);
+    const result = load(controller.signal);
     // The receiving workbench handles the error once it mounts.
     void result.catch(() => {});
     setAngleWorkspaces((previous) => [...previous, {
-      id, upload: { filename: file.name, startedAt, result, abort: () => controller.abort() },
+      id, tool, upload: { filename, startedAt, result, abort: () => controller.abort() },
     }]);
     selectAngle(id);
   }, [selectAngle]);
+  const openAngleUpload = useCallback((file: File) => {
+    openToolSource('reframe', file.name, (signal) => uploadPortrait('source', file, signal));
+  }, [openToolSource]);
+  const openEditUpload = useCallback((file: File) => {
+    openToolSource('edit', file.name, (signal) => uploadPortrait('edit-source', file, signal));
+  }, [openToolSource]);
+  const openEditGallery = useCallback((photo: PhotoItem) => {
+    openPhotoTool('edit', photo);
+  }, [openPhotoTool]);
+  const openToolResult = useCallback((tool: PhotoTool, image: string, name?: string) => {
+    openToolSource(tool, name ?? t('photoTools.result'), (signal) => openPortraitResult(image, signal));
+  }, [openToolSource, t]);
 
   const replaceTemporaryModelPreview = useCallback((next: TemporaryModelPreview | null) => {
     const previous = temporaryModelPreviewRef.current;
@@ -783,15 +849,18 @@ function App() {
   ]);
 
   const handleFileDrop = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     e.stopPropagation();
+    if (angleActive) return;
     
     const files = e.dataTransfer?.files;
     if (!files || files.length === 0) return;
     void handleUpload(files);
-  }, [handleUpload]);
+  }, [angleActive, handleUpload]);
 
   const handleMainDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes('Files')) return;
     e.preventDefault();
     e.stopPropagation();
   }, []);
@@ -860,20 +929,32 @@ function App() {
       {/* Main content */}
       <main 
         className={`main-content ${!sidebarCollapsed ? 'sidebar-expanded' : ''}`}
-        onDragOver={angleActive ? undefined : handleMainDragOver}
-        onDrop={angleActive ? undefined : handleFileDrop}
+        onDragOver={handleMainDragOver}
+        onDrop={handleFileDrop}
       >
         {activeView === 'models' ? <ParticleBackground /> : null}
         
-        {angleWorkspaces.map((workspace) => (
+        {angleWorkspaces.map((workspace) => workspace.tool === 'edit' ?
+          <EditWorkbench key={workspace.id} workspaceId={workspace.id} active={angleActive && activeAngleId === workspace.id}
+            canGenerate={canGenerateModels} galleryPhoto={workspace.photo} initialUpload={workspace.upload}
+            canClearCache={!angleTasksActive} onCacheCleared={clearAnglePreviews}
+            uploadName={workspace.uploadName} savedTask={restoredAngles.tasks.find((task) => task.workspaceId === workspace.id)}
+            onBack={closeAngle} onClose={requestCloseAngle} onChoosePhoto={openEditUpload} onChooseGalleryPhoto={openEditGallery}
+            onTaskUpdate={updateAngleTask} onContinue={openToolResult} registerActions={registerAngleActions}
+            enqueueBatch={enqueuePortraitBatch} onJobSubmitted={markPortraitSubmitted} initialDraft={workspace.initialDraft}
+            waitForSubmission={workspace.queueState === 'waiting' && workspace.id !== nextPortraitSubmission} />
+          : (
           <AngleWorkbench key={workspace.id} workspaceId={workspace.id} active={angleActive && activeAngleId === workspace.id}
             canGenerate={canGenerateModels} galleryPhoto={workspace.photo} initialUpload={workspace.upload}
             uploadName={workspace.uploadName} savedTask={restoredAngles.tasks.find((task) => task.workspaceId === workspace.id)}
             previewCacheRevision={angleCacheRevision} canClearCache={!angleTasksActive} onCacheCleared={clearAnglePreviews}
             onBack={closeAngle} onClose={requestCloseAngle} onChoosePhoto={openAngleUpload}
-            onTaskUpdate={updateAngleTask} registerActions={registerAngleActions} />
+            onTaskUpdate={updateAngleTask} onContinue={openToolResult} registerActions={registerAngleActions}
+            enqueueBatch={enqueuePortraitBatch} onJobSubmitted={markPortraitSubmitted} backgroundJob={Boolean(workspace.queueState)}
+            initialDraft={workspace.initialDraft}
+            waitForSubmission={workspace.queueState === 'waiting' && workspace.id !== nextPortraitSubmission} />
         ))}
-        {activeView === 'photos' ? <PhotoGalleryView hidden={angleActive} onAdjustAngle={() => openAngle()} /> : (
+        {activeView === 'photos' ? <PhotoGalleryView hidden={angleActive} onPhotoTool={openPhotoTool} /> : (
           modelAssetLibraryOpen && !currentModelUrl ? (
             <ModelAssetLibraryView
               canWriteAssets={canWriteModelAssets}
@@ -978,7 +1059,7 @@ function App() {
       <Help showCloseModel />
       
       {/* Lightbox / Image Viewer */}
-      <ImageViewer onAdjustAngle={openAngle} />
+      <ImageViewer onPhotoTool={openPhotoTool} />
       <SourceModelPanel />
 
       <VideoReconstructionDialog />
@@ -989,7 +1070,9 @@ function App() {
         isOpen
         title={t('portrait.taskQueue.cancelTitle')}
         message={angleCancellationError ?? (cancellingAngle ? t('portrait.taskQueue.cancelling')
-          : t('portrait.taskQueue.cancelMessage', { name: angleCancellation.task.filename }))}
+          : t('portrait.taskQueue.cancelMessage', {
+            name: angleCancellation.task.filename, tool: t(angleCancellation.task.tool === 'edit' ? 'photoTools.edit' : 'portrait.title'),
+          }))}
         confirmLabel={t('portrait.taskQueue.cancelTitle')}
         cancelLabel={t(angleCancellation.fromWorkbench ? 'portrait.taskQueue.backInBackground' : 'portrait.taskQueue.keep')}
         danger

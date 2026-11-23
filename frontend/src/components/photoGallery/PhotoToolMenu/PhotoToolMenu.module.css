@@ -1,0 +1,4 @@
+.root { flex: 0 0 auto; min-width: 0; }
+.menu { z-index: 1250; }
+.menu button { min-height: 44px; }
+.menu button:disabled { opacity: .45; cursor: default; }

@@ -5,7 +5,7 @@ import { Brush, Crop as CropIcon, Eraser, Hand, Maximize, Minimize, Minus, Plus,
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/common/Button';
-import { findNewMaskHoles } from '@/components/portrait/PortraitWorkbench/maskFill';
+import { findNativeMaskHoles, findNewMaskHoles } from '@/components/portrait/PortraitWorkbench/maskFill';
 import type { MaskSpan } from '@/components/portrait/PortraitWorkbench/maskFill';
 import { RangeField, Segments, ToggleField } from '@/components/portrait/WorkbenchControls';
 import styles from '@/components/portrait/PortraitWorkbench/PortraitWorkbench.module.css';
@@ -13,7 +13,8 @@ import styles from '@/components/portrait/PortraitWorkbench/PortraitWorkbench.mo
 export type Crop = [number, number, number, number];
 type Tool = 'draw' | 'erase' | 'pan' | 'crop';
 type Point = { x: number; y: number };
-type Stroke = { points: Point[]; erase: boolean; width: number; filled?: MaskSpan[] };
+export type MaskStroke = { points: Point[]; erase: boolean; width: number; filled?: MaskSpan[] };
+type Stroke = MaskStroke;
 type Gesture = { id: number; tool: Tool; start: Point; origin: Point; width: number; fill: boolean; before?: ImageData; stroke?: Stroke };
 type Transform = Point & { scale: number };
 const fitted: Transform = { x: 0, y: 0, scale: 1 };
@@ -29,23 +30,29 @@ interface MaskEditorProps {
   onCrop?: (crop?: Crop) => void;
   onPaint: (painted: boolean) => void;
   actions?: ReactNode;
+  nativeFill?: boolean;
+  showResolution?: boolean;
+  initialStrokes?: MaskStroke[];
+  onStrokesChange?: (strokes: MaskStroke[]) => void;
 }
 
 function distance(a: Point, b: Point) { return Math.hypot(b.x - a.x, b.y - a.y); }
 function midpoint(a: Point, b: Point) { return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; }
 function bounds(a: Point, b: Point): Crop { return [Math.min(a.x, b.x), Math.min(a.y, b.y), Math.max(a.x, b.x), Math.max(a.y, b.y)]; }
 
-export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, onCrop, onPaint, actions }: MaskEditorProps) {
+export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, onCrop, onPaint, actions,
+  nativeFill, showResolution, initialStrokes, onStrokesChange }: MaskEditorProps) {
   const { t } = useTranslation();
   const stage = useRef<HTMLDivElement>(null);
   const layer = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
+  const nativePreview = useRef<HTMLCanvasElement>(null);
   const brushCursor = useRef<HTMLSpanElement>(null);
   const brushPoint = useRef<Point | null>(null);
   const transform = useRef(fitted);
   const pointers = useRef(new Map<number, Point>());
   const gesture = useRef<Gesture>(null);
-  const strokes = useRef<Stroke[]>([]);
+  const strokes = useRef<Stroke[]>(initialStrokes?.slice() ?? []);
   const space = useRef(false);
   const [viewport, setViewport] = useState(fitted);
   const [tool, setTool] = useState<Tool>(reference ? 'pan' : 'draw');
@@ -195,13 +202,34 @@ export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, 
     const surface = canvas.current;
     surface?.getContext('2d', { willReadFrequently: true })?.clearRect(0, 0, surface.width, surface.height);
     strokes.current.forEach((stroke) => paint(stroke));
+    if (nativeFill) previewFill();
   }
 
-  function reportPaint() {
-    const surface = canvas.current;
-    const pixels = surface?.getContext('2d')?.getImageData(0, 0, surface.width, surface.height).data;
+  function previewFill(mask = readMask()) {
+    const preview = nativePreview.current;
+    const original = canvas.current;
+    const ctx = preview?.getContext('2d');
+    if (!preview || !original || !ctx || !mask) return;
+    if (preview.width !== mask.width || preview.height !== mask.height) {
+      preview.width = mask.width;
+      preview.height = mask.height;
+    }
+    ctx.clearRect(0, 0, mask.width, mask.height);
+    // Preview the native binary fill; the unfilled canvas is the input to Goohai.
+    for (let i = 3; i < mask.data.length; i += 4) mask.data[i] = mask.data[i] > 25 ? 255 : 0;
+    ctx.putImageData(mask, 0, 0);
+    if (strokes.current.length) paintFill(ctx, findNativeMaskHoles(mask));
+    original.style.visibility = 'hidden';
+    preview.hidden = false;
+  }
+
+  function reportPaint(save = true) {
+    const mask = readMask();
+    const pixels = mask?.data;
     setHasStrokes(strokes.current.length > 0);
+    if (save) onStrokesChange?.(strokes.current.slice());
     if (!pixels) return;
+    if (nativeFill) previewFill(mask);
     for (let index = 3; index < pixels.length; index += 4) {
       if (pixels[index] > 5) { onPaint(true); return; }
     }
@@ -219,7 +247,7 @@ export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, 
     event.currentTarget.focus({ preventScroll: true });
     pointers.current.set(event.pointerId, point);
     if (pointers.current.size > 1) {
-      if (gesture.current?.stroke) replay();
+      if (gesture.current?.stroke || nativeFill) replay();
       gesture.current = null;
       setDraft(undefined);
       trackBrush(event);
@@ -227,8 +255,12 @@ export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, 
     }
     const origin = inside || intended === 'pan' ? imagePoint(point) : null;
     if (origin) gesture.current = {
-      id: event.pointerId, tool: intended, start: point, origin, width: brush / 100, fill: autoFill && intended === 'draw',
+      id: event.pointerId, tool: intended, start: point, origin, width: brush / 100, fill: !nativeFill && autoFill && intended === 'draw',
     };
+    if (origin && nativePreview.current && canvas.current && (intended === 'draw' || intended === 'erase')) {
+      nativePreview.current.hidden = true;
+      canvas.current.style.visibility = '';
+    }
     trackBrush(event);
   }
 
@@ -274,7 +306,7 @@ export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, 
     }
     if (active?.id !== event.pointerId) return;
     if (event.type !== 'pointerup') {
-      if (active.stroke) replay();
+      if (active.stroke || nativeFill) replay();
       setDraft(undefined);
       return;
     }
@@ -321,7 +353,12 @@ export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, 
   ] as const;
   return <section className={`${styles.maskEditor} ${expanded ? styles.maskExpanded : ''}`} data-angle-expanded={expanded}>
     <div className={styles.maskHeader}>
-      <strong>{label}</strong>
+      <div className={styles.maskTitle}>
+        <strong>{label}</strong>
+        {showResolution && photo.width > 0 && photo.height > 0 && <span>
+          {t('photoTools.sourceResolution', { width: photo.width, height: photo.height })}
+        </span>}
+      </div>
       <div className={styles.viewportActions}>
         <Button variant="ghost" iconOnly size="sm" type="button" icon={<Minus size={17} />} aria-label={t('portrait.zoomOut')} disabled={viewport.scale <= 1} onClick={() => zoom(1 / 1.35)} />
         <Button variant="ghost" size="sm" type="button" aria-label={t('portrait.fitImage')} onClick={() => position(fitted)}>{Math.round(viewport.scale * 100)}%</Button>
@@ -351,8 +388,10 @@ export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, 
           surface.width = Math.max(1, Math.round(naturalWidth * downscale));
           surface.height = Math.max(1, Math.round(naturalHeight * downscale));
           replay();
+          if (initialStrokes?.length) reportPaint(false);
         }} />
         <canvas aria-hidden="true" ref={(element) => { canvas.current = element; onCanvas(element); }} />
+        {nativeFill && <canvas aria-hidden="true" ref={nativePreview} />}
         {box && <span className={styles.cropBox} style={{ left: `${box[0] * 100}%`, top: `${box[1] * 100}%`, width: `${(box[2] - box[0]) * 100}%`, height: `${(box[3] - box[1]) * 100}%` }} />}
       </div>
       <span className={styles.brushCursor} ref={brushCursor} aria-hidden="true" />
@@ -372,7 +411,7 @@ export function MaskEditor({ image, label, onCanvas, reference, disabled, crop, 
         <RangeField label={t('portrait.brush')} min={1} max={30} step={1} display={`${brush}%`}
           value={brush} disabled={disabled} onChange={setBrush} />
       </div>
-      <ToggleField label={t('portrait.autoFillMask')} checked={autoFill} disabled={disabled} onChange={setAutoFill} />
+      <ToggleField label={t('portrait.autoFillMask')} checked={nativeFill || autoFill} disabled={disabled || nativeFill} onChange={setAutoFill} />
     </div>}
     <p className={styles.maskGesture}>{t('portrait.maskGesture')}</p>
     {actions}

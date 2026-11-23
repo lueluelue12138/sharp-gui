@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CSSProperties, KeyboardEvent, PointerEvent } from 'react';
+import type { CSSProperties, KeyboardEvent, PointerEvent, ReactNode } from 'react';
 
 import { ArrowLeftRight, Download, LoaderCircle, Maximize, Minimize, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
@@ -13,6 +13,8 @@ interface ImageComparisonProps {
   after: string;
   beforeLabel: string;
   afterLabel: string;
+  resultActions?: ReactNode;
+  fallbackFilename?: string;
 }
 
 type Point = { x: number; y: number };
@@ -36,7 +38,7 @@ function imagePoint(x: number, y: number, rect: DOMRect) {
   return { x: (x - rect.left) / rect.width - 0.5, y: (y - rect.top) / rect.height - 0.5 };
 }
 
-export function ImageComparison({ before, after, beforeLabel, afterLabel }: ImageComparisonProps) {
+export function ImageComparison({ before, after, beforeLabel, afterLabel, resultActions, fallbackFilename = 'spatial-reframing.png' }: ImageComparisonProps) {
   const { t } = useTranslation();
   const { download, downloading, downloadFailed } = usePortraitDownload();
   const [position, setPosition] = useState(50);
@@ -168,9 +170,10 @@ export function ImageComparison({ before, after, beforeLabel, afterLabel }: Imag
       <Button variant="secondary" size="sm" type="button" disabled={downloading !== null}
         className={styles.downloadButton} aria-busy={downloading !== null}
         icon={downloading ? <LoaderCircle className="spin" /> : <Download />}
-        onClick={() => void download(after, 'spatial-reframing.png')}>
+        onClick={() => void download(after, fallbackFilename)}>
         {t(downloading ? 'downloading' : 'portrait.download')}
       </Button>
+      {resultActions}
     </div>
     {downloadFailed && <p className={styles.downloadError} role="alert">{t('portrait.downloadFailed')}</p>}
     <div ref={stage} className={sideBySide ? styles.compareGrid : styles.compareStage}

@@ -1,10 +1,22 @@
 import { ApiError, apiGet, apiPost, apiPostFormData } from '@/api/client';
 import type { PortraitAvailability, PortraitCacheRelease, PortraitCancellation, PortraitJob, PortraitLaunch, PortraitProgress, PortraitStageResults, PortraitUpload, RecoveredPortrait } from '@/types/portrait';
+import type { VisualWorkflowDependencies, VisualWorkflowName } from '@/types/portrait';
+import { downloadFile } from '@/utils/fileDownload';
 
 const base = '/api/portrait';
 
-export function portraitAvailability(signal?: AbortSignal) {
-  return apiGet<PortraitAvailability>(`${base}/status`, { signal });
+export function getVisualWorkflow(name: VisualWorkflowName, signal: AbortSignal) {
+  return apiGet<VisualWorkflowDependencies>(`${base}/workflows/${name}`, { signal });
+}
+
+export function downloadVisualWorkflow(name: VisualWorkflowName) {
+  return downloadFile(`${base}/workflows/${name}/download`, {
+    fallbackFilename: `SharpGUI-${name}.json`, mimeType: 'application/json',
+  });
+}
+
+export function portraitAvailability(signal?: AbortSignal, edit = false) {
+  return apiGet<PortraitAvailability>(`${base}${edit ? '/edit' : ''}/status`, { signal });
 }
 
 export function startPortraitEngine() {
@@ -15,14 +27,38 @@ export function recentPortraitJobs(signal: AbortSignal) {
   return apiGet<RecoveredPortrait[]>(`${base}/recent`, { signal });
 }
 
-export function uploadPortrait(kind: 'source' | 'reference' | 'mask' | 'capture', image: Blob, signal?: AbortSignal) {
+export function uploadPortrait(kind: 'source' | 'reference' | 'mask' | 'capture' | 'edit-source', image: Blob, signal?: AbortSignal) {
   const form = new FormData();
   form.append('image', image);
   return apiPostFormData<PortraitUpload>(`${base}/uploads/${kind}`, form, { signal, timeout: 120000 });
 }
 
-export function openGalleryPhoto(photoId: string, signal: AbortSignal) {
-  return apiPost<PortraitUpload>(`${base}/gallery-source/${encodeURIComponent(photoId)}`, {}, { signal, timeout: 120000 });
+export function openGalleryPhoto(photoId: string, signal: AbortSignal, kind: 'source' | 'reference' | 'edit-source' = 'source') {
+  return apiPost<PortraitUpload>(`${base}/gallery-source/${encodeURIComponent(photoId)}?kind=${kind}`, {}, { signal, timeout: 120000 });
+}
+
+export function prepareEditMask(source: string, image: Blob, signal: AbortSignal) {
+  const form = new FormData();
+  form.append('source', source);
+  form.append('image', image);
+  return apiPostFormData<{ token: string }>(`${base}/edit/mask`, form, { signal, timeout: 120000 });
+}
+
+function resultToken(image: string) {
+  const url = new URL(image, window.location.origin);
+  const prefix = `${base}/media/`;
+  if (url.origin !== window.location.origin || !url.pathname.startsWith(prefix)) {
+    throw new Error('Invalid workbench output.');
+  }
+  return url.pathname.slice(prefix.length);
+}
+
+export async function openPortraitResult(image: string, signal: AbortSignal) {
+  return apiPost<PortraitUpload>(`${base}/result/source`, { result: resultToken(image) }, { signal, timeout: 120000 });
+}
+
+export async function savePortraitResult(image: string, albumId: string) {
+  return apiPost<{ uploaded: number }>(`${base}/result/save`, { result: resultToken(image), album_id: albumId }, { timeout: 120000 });
 }
 
 export function releasePortraitMemory(signal: AbortSignal) {

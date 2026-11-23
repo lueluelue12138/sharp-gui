@@ -13,6 +13,7 @@ import {
   ResetIcon,
   ShareIcon,
 } from '@/components/common/Icons';
+import { standardPhotoAccept, useImageDrop } from '@/hooks/useImageDrop';
 import { canEditModelAsset, formatDate, formatFileSize, resolveModelAssetSource } from '@/utils';
 import type { ModelAsset, ModelAssetProfileInput, ModelFormat } from '@/types';
 
@@ -88,6 +89,9 @@ export function ModelAssetDetailsPanel({
   const [nameDraft, setNameDraft] = useState(asset?.name ?? '');
   const [tagsDraft, setTagsDraft] = useState(asset?.tags.join(', ') ?? '');
   const [noteDraft, setNoteDraft] = useState(asset?.note ?? '');
+  const coverDrop = useImageDrop(([file]) => {
+    if (asset) onUploadCover(asset, file);
+  }, { accept: standardPhotoAccept, enabled: Boolean(asset && canWrite && !saving), passthrough: true });
 
   const coverSrc = asset ? getCoverSrc(asset) : null;
   const modelSource = asset ? resolveModelAssetSource(asset, preferredFormat) : null;
@@ -207,7 +211,7 @@ export function ModelAssetDetailsPanel({
         </button>
       ) : null}
 
-      <div className={styles.preview}>
+      <div className={styles.preview} {...(canWrite ? coverDrop : {})}>
         {hasSourcePreview ? (
           <button
             className={styles.previewMediaButton}
@@ -264,10 +268,11 @@ export function ModelAssetDetailsPanel({
         <input
           ref={coverInputRef}
           type="file"
-          accept="image/png,image/jpeg,image/webp"
+          accept={standardPhotoAccept}
           hidden
           onChange={handleCoverChange}
         />
+        {coverDrop['data-image-drop-active'] && <span className={styles.coverDropHint} aria-hidden="true">{t('modelAssetUploadCover')}</span>}
       </div>
 
       <div className={styles.header}>

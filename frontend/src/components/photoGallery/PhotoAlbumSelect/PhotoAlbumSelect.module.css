@@ -1,0 +1,5 @@
+.field { display: grid; grid-template-columns: minmax(0, 1fr); min-width: 0; gap: 8px; }
+.select { width: 100%; min-width: 0; }
+.select > button { min-width: 0; min-height: 44px; }
+.menu { z-index: 1301; }
+.menu [role='option'] { min-height: 44px; padding-block: 7px; white-space: normal; overflow-wrap: anywhere; }

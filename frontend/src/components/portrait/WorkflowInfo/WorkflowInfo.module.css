@@ -1,0 +1,32 @@
+.content {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-md);
+  font-size: .9rem;
+  overflow-wrap: anywhere;
+}
+
+.content p, .dependencies h4 {
+  margin: 0;
+}
+
+.content p, .content ul {
+  color: var(--text-secondary);
+}
+
+.content ul {
+  margin: var(--space-xs) 0 0;
+  padding-inline-start: var(--space-lg);
+  line-height: 1.65;
+}
+
+.dependencies, .nodes {
+  width: 100%;
+  padding-top: var(--space-sm);
+  border-top: 1px solid var(--glass-border);
+}
+
+.nodes summary {
+  cursor: pointer;
+  font-weight: 600;
+}

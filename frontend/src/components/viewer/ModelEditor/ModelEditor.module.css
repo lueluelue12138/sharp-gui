@@ -255,7 +255,6 @@
   .scrubHandle { min-width: 40px; min-height: 40px; }
 }
 .numberField input,
-.selectionMode select,
 .nameField input {
   width: 100%;
   min-width: 0;
@@ -277,9 +276,8 @@
   color: var(--editor-text-secondary);
   font-size: 12px;
 }
-.selectionMode select option {
-  color: var(--text-primary);
-  background: var(--bg-color);
+.selectionMode > div {
+  min-width: 0;
 }
 .numberField input::-webkit-inner-spin-button {
   -webkit-appearance: none;

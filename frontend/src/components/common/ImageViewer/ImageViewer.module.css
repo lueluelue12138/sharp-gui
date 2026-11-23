@@ -803,7 +803,7 @@
   }
 }
 
-.controls .angleBtn {
+.controls .photoTools > button {
   height: 44px;
   padding-inline: 14px;
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -813,8 +813,13 @@
   color: white;
   font-weight: 600;
 }
-.controls .angleBtn:hover { background: rgba(255, 255, 255, 0.25); }
-@media (max-width: 340px) {
-  .controls .angleBtn { width: 44px; padding-inline: 0; }
-  .angleBtn > span:last-child { display: none; }
+.controls .photoTools > button:hover { background: rgba(255, 255, 255, 0.25); }
+@media (max-width: 600px) {
+  .controls:has(.photoTools) {
+    max-width: calc(100% - 32px);
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .controls .photoTools > button { padding-inline: 8px; }
 }

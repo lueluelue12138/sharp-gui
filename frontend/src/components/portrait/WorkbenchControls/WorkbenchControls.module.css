@@ -23,4 +23,8 @@
 .toggleField i::before { display: block; content: ''; width: 15px; height: 15px; border-radius: 100%; background: #fff; }
 .toggleField[aria-checked='true'] i { background: var(--accent-blue); }
 .toggleField[aria-checked='true'] i::before { transform: translateX(16px); }
+.batchCount { min-width: 0; }
+.batchCount input { width: 2.6em; }
+.batchNotice { font-size: .78rem; color: var(--text-secondary); }
+.batchNotice:empty { display: none; }
 @media (pointer: coarse) { .segments button { min-height: 38px; } .range { height: 38px; } .number button { min-height: 40px; } }

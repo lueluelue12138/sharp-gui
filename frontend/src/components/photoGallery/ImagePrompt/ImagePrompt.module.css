@@ -1,0 +1,17 @@
+.root { display: grid; gap: 8px; min-width: 0; }
+.label { font-weight: 600; font-size: .88rem; }
+.field { border: 1px solid var(--angle-line); background: var(--angle-well); border-radius: var(--radius-md); }
+.field:focus-within { border-color: color-mix(in srgb, var(--accent-blue) 65%, var(--angle-line)); }
+.editor { position: relative; min-height: 112px; max-height: 36dvh; overflow-y: auto; padding: 12px; outline: none; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 1rem; line-height: 1.85; }
+.editor[data-empty='true']::before { content: attr(data-placeholder); color: var(--text-secondary); position: absolute; pointer-events: none; font-size: .9em; }
+.chip { display: inline-flex; vertical-align: middle; align-items: center; gap: 6px; padding: 2px 7px 2px 3px; margin: 1px 2px; background: color-mix(in srgb, var(--accent-blue) 16%, var(--glass-bg)); color: var(--accent-blue); border-radius: 7px; font-size: .8em; white-space: nowrap; user-select: all; line-height: 1.4; }
+.chip[data-missing='true'] { color: var(--editor-danger, #ff675e); background: var(--glass-bg); padding-inline: 7px; }
+.chip img, .mentions img { width: 26px; height: 26px; border-radius: 5px; object-fit: cover; }
+.mentionDock { position: relative; display: flex; gap: 5px; align-items: center; padding: 0 7px 7px; }
+.mentionDock > button { min-height: 36px; min-width: 36px; }
+.mentions { position: absolute; z-index: 2; bottom: 100%; left: 7px; display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 5px; border: 1px solid var(--angle-line); border-radius: var(--radius-md); background: var(--angle-panel); box-shadow: var(--glass-shadow); }
+.mentions button { min-height: 40px; display: flex; gap: 6px; padding: 4px 8px; align-items: center; border: 1px solid var(--angle-line); border-radius: var(--radius-sm); background: var(--glass-bg); color: var(--text-primary); cursor: pointer; }
+.mentions button:disabled { opacity: .45; cursor: default; }
+@media (pointer: coarse) {
+  .mentionDock button { min-width: 44px; min-height: 44px; }
+}

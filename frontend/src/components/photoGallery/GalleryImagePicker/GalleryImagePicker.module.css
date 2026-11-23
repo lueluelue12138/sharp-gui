@@ -1,0 +1,8 @@
+.album { padding-block: 6px 16px; }
+.dropArea { border-radius: var(--radius-md); }
+.dropArea[data-image-drop-active='true'] { outline: 2px dashed var(--accent-blue); outline-offset: 4px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(112px, 1fr)); gap: 10px; max-height: 47dvh; overflow-y: auto; padding: 3px; margin-bottom: 12px; }
+.grid button { display: grid; overflow: hidden; background: var(--glass-bg); border: 1px solid var(--glass-border); border-radius: var(--radius-md); color: var(--text-primary); cursor: pointer; padding: 0; min-width: 0; }
+.grid button:is(:hover, :focus-visible) { border-color: var(--accent-blue); }
+.grid img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; }
+.grid span { padding: 6px; font-size: .75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }

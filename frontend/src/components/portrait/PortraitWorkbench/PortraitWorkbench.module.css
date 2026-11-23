@@ -25,18 +25,21 @@
 .connection[data-ready='true'] .connectionDot { background: var(--success-color); }
 .connection > span:last-child { display: inline-flex; align-items: center; gap: 7px; }
 .workspaceBar { border-top: 1px solid var(--angle-line); padding-top: 13px; }
-.sourceTools { min-width: 0; flex-wrap: nowrap; }
-.sourceTools img { width: 34px; height: 34px; object-fit: cover; border-radius: 7px; flex: none; }
-.sourceTools > span { display: block; max-width: 19ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); font-size: .8rem; }
+.sourceTools { min-width: 0; max-width: min(100%, 34rem); }
+.sourceTools > div { flex-basis: 11rem; }
 .sourceTools > button { flex: none; }
-.framePage { display: grid; gap: 10px; }
+.framePage { display: grid; gap: 10px; border-radius: var(--radius-xl); }
+.sourceTools, .referenceDrop { border-radius: var(--radius-md); }
+.sourceTools[data-image-drop-active='true'], .framePage[data-image-drop-active='true'], .referenceDrop[data-image-drop-active='true'] {
+  outline: 2px dashed var(--accent-blue);
+  outline-offset: -2px;
+}
 .startStudio, .cameraStage, .maskStage {
   position: relative; isolation: isolate; background-color: #141820; color: #e9f1fd;
   background-image: radial-gradient(#ffffff28 1px, transparent 1px), radial-gradient(ellipse at 50% 35%, #263143, #141820 72%);
   background-size: 19px 19px, 100% 100%;
 }
 .startStudio { display: grid; place-items: center; overflow: hidden; min-height: min(59vh, 610px); border-radius: var(--radius-xl); border: 1px solid var(--angle-line); }
-.startStudio.dragging { outline: 2px solid var(--editor-accent); outline-offset: -3px; }
 .startStudio > img { display: block; width: 100%; height: min(62vh, 660px); object-fit: contain; }
 .startPlaceholder { display: grid; padding: 22px; justify-items: center; gap: 12px; text-align: center; }
 .startPlaceholder > svg { color: #a4caff; }
@@ -92,6 +95,8 @@
 .editorFooter { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--angle-line); display: grid; gap: 9px; }
 .editorFooter > span { color: var(--text-secondary); font-size: .81rem; font-variant-numeric: tabular-nums; text-align: center; }
 .editorFooter > button { width: 100%; }
+.batchActions { display: grid; gap: 9px; min-width: 0; }
+.batchActions > button { width: 100%; }
 .expanded, .maskExpanded, .comparisonExpanded { position: fixed; inset: 10px; z-index: 1300; background: var(--bg-color); overflow: auto; box-shadow: 0 0 0 15px #080b10b5; }
 .expanded .cameraStage { height: auto; flex: 1; min-height: 300px; }
 .frameDownloads { display: flex; flex-wrap: wrap; gap: 6px; }
@@ -134,6 +139,8 @@
 .maskEditor { display: flex; flex-direction: column; gap: 9px; min-width: 0; }
 .maskHeader, .maskDock { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px; }
 .maskHeader strong { font-size: .84rem; }
+.maskTitle { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 9px; }
+.maskTitle span { color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; }
 .maskHeader button, .maskDock button { box-shadow: none; }
 .maskStage { height: clamp(390px, 63vh, 750px); overflow: hidden; border-radius: var(--radius-lg); touch-action: none; outline-offset: -2px; }
 .maskStage[data-tool='crop'] { cursor: crosshair; }
@@ -181,7 +188,6 @@
 .progressTrack[data-indeterminate='true'] span { width: 36%; animation: working 1.3s ease-in-out infinite; }
 @keyframes working { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
 
-@media (max-width: 1080px) { .sourceTools > span { display: none; } }
 @media (max-width: 860px) {
   .cameraPanel, .refineWorkspace { grid-template-columns: 1fr; }
   .cameraStage { height: clamp(310px, 55vh, 620px); }
@@ -203,8 +209,7 @@
   .workspaceBar > div:first-child { flex: 1; }
   .workspaceBar > div:first-child button { flex: 1; min-height: 36px; }
   .sourceTools { flex-basis: 100%; justify-content: flex-end; }
-  .sourceTools > span { display: block; flex: 1; max-width: none; }
-  .sourceTools img { width: 30px; height: 30px; }
+  .sourceTools > div { flex-basis: 8rem; }
   .cameraDock, .maskDock { align-items: flex-start; }
   .cameraDock > div:first-child { flex: 1; }
   .cameraDock > div:first-child > button { flex: 1; }

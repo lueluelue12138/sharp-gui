@@ -72,9 +72,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
   flex-shrink: 0;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.primaryActions {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: inherit;
 }
 
 .mediaFilter {
@@ -147,7 +155,7 @@
 }
 
 .textBtn,
-.primaryBtn,
+.primaryActions .primaryBtn,
 .iconBtn {
   height: 36px;
   border-radius: var(--radius-lg);
@@ -165,7 +173,7 @@
 }
 
 .textBtn,
-.primaryBtn {
+.primaryActions .primaryBtn {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
@@ -187,10 +195,16 @@
   background: rgba(0, 113, 227, 0.1);
 }
 
-.primaryBtn {
+.primaryActions .primaryBtn {
+  width: auto;
   color: #fff;
   background: var(--accent-blue);
   box-shadow: 0 10px 24px rgba(0, 113, 227, 0.2);
+}
+
+.primaryActions .primaryBtn svg {
+  flex: none;
+  color: currentColor;
 }
 
 .primaryShortLabel {
@@ -264,10 +278,12 @@
     color var(--transition-normal);
 }
 
-.uploadDropActive {
+.uploadControl[data-image-drop-active='true'] .uploadDrop {
   color: var(--accent-blue);
   border-color: rgba(0, 113, 227, 0.72);
 }
+
+.uploadControl[data-image-drop-active='true'] .uploadBtn { outline: 2px dashed var(--accent-blue); }
 
 .uploadDrop span {
   font-size: 12px;
@@ -490,7 +506,7 @@
 }
 
 .textBtn:disabled,
-.primaryBtn:disabled,
+.primaryActions .primaryBtn:disabled,
 .iconBtn:disabled {
   cursor: not-allowed;
   opacity: 0.45;
@@ -503,13 +519,13 @@
 }
 
 .textBtn:focus-visible,
-.primaryBtn:focus-visible,
+.primaryActions .primaryBtn:focus-visible,
 .iconBtn:focus-visible {
   outline: 2px solid var(--accent-blue);
   outline-offset: 2px;
 }
 
-.primaryBtn:hover:not(:disabled) {
+.primaryActions .primaryBtn:hover:not(:disabled) {
   background: var(--accent-blue-hover);
   transform: translateY(-1px);
 }
@@ -568,7 +584,7 @@
     padding: 0 11px;
   }
 
-  .primaryBtn {
+  .primaryActions .primaryBtn {
     padding: 0 12px;
   }
 }
@@ -728,7 +744,7 @@
   }
 
   .textBtn,
-  .primaryBtn,
+  .primaryActions .primaryBtn,
   .iconBtn,
   .densityTrigger {
     height: 34px;
@@ -789,11 +805,14 @@
     pointer-events: none;
   }
 
-  .primaryBtn {
+  .primaryActions .primaryBtn {
+    padding: 0 12px;
+  }
+
+  .convertBtn {
     position: relative;
     overflow: hidden;
     max-width: 128px;
-    padding: 0 13px;
   }
 
   .addBtn {
@@ -805,7 +824,7 @@
   }
 
   .compact .toolbarContent {
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(min(20vw, 118px), 1fr) minmax(0, auto);
     align-items: center;
     gap: 8px;
     min-height: var(--toolbar-compact-height);
@@ -845,8 +864,7 @@
 
   .compact .actions {
     width: auto;
-    max-width: calc(100vw - 94px);
-    flex-wrap: nowrap;
+    flex-wrap: wrap;
     justify-self: end;
     justify-content: flex-end;
     gap: 4px;
@@ -917,11 +935,14 @@
     display: none;
   }
 
-  .compact .primaryBtn {
+  .compact .primaryActions .primaryBtn {
+    padding: 0 10px;
+    gap: 5px;
+  }
+
+  .compact .primaryActions .convertBtn {
     width: 58px;
     max-width: 58px;
-    padding: 0 10px;
-    gap: 4px;
   }
 
   .compact .primaryLabel {
@@ -1059,11 +1080,4 @@
     animation: none;
     width: 100%;
   }
-}
-
-.angleAction { flex: 0 0 auto; }
-.compact .angleAction { display: inline-flex; }
-@media (max-width: 1100px) {
-  .compact .angleAction > span { display: none; }
-  .compact .angleAction { min-width: 36px; padding-inline: 0; }
 }

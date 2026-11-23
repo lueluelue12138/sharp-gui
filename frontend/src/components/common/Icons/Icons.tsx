@@ -7,6 +7,16 @@ import type { SVGProps } from 'react';
 
 type IconProps = SVGProps<SVGSVGElement>;
 
+export function PhotoToolsIcon(props: IconProps) {
+  return (
+    <svg fill="currentColor" viewBox="0 0 24 24" aria-hidden="true" {...props}>
+      <path fillRule="evenodd" transform="rotate(40 12 12)"
+        d="M11 5.25h2.65a.8.8 0 0 1 .8.8v15.2a2.125 2.125 0 0 1-4.25 0V6.05a.8.8 0 0 1 .8-.8Zm.35 1.25v3.3h1.95V6.5Z" />
+      <path d="M17.4 1c.5 1.6 1.05 2.15 2.65 2.65-1.6.5-2.15 1.05-2.65 2.65-.5-1.6-1.05-2.15-2.65-2.65 1.6-.5 2.15-1.05 2.65-2.65ZM10.1 4.7q.35 1.45 1.65 1.65-1.3.35-1.65 1.65-.35-1.3-1.65-1.65 1.3-.2 1.65-1.65ZM20.6 8.2q.35 1.35 1.65 1.65-1.3.35-1.65 1.65-.35-1.3-1.65-1.65 1.3-.3 1.65-1.65ZM17.6 13q.25 1 1.2 1.2-.95.25-1.2 1.2-.25-.95-1.2-1.2.95-.2 1.2-1.2Z" />
+    </svg>
+  );
+}
+
 export function SpatialReframingIcon(props: IconProps) {
   return (
     <svg fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" viewBox="0 0 24 24" aria-hidden="true" {...props}>

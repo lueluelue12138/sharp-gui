@@ -1,0 +1,7 @@
+.preview { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
+.preview img { width: 36px; height: 36px; object-fit: cover; border-radius: var(--radius-sm); flex: none; }
+.preview[data-large='true'] img { width: 60px; height: 52px; }
+.metadata { display: grid; gap: 2px; min-width: 0; }
+.name { color: var(--text-secondary); font-size: .81rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dimensions { color: var(--text-secondary); font-size: .75rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.downloadError { color: var(--editor-danger); flex-basis: 100%; font-size: .8rem; text-align: end; }

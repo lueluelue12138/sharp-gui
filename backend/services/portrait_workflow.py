@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import copy
+from collections import deque
+from contextlib import suppress
 import hashlib
 import io
 import json
@@ -17,9 +19,11 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
 from uuid import uuid4
 
+import numpy as np
 from PIL import Image, ImageOps
 
 from backend.services import portrait_progress
+from backend.services.static_files import is_real_path_inside
 
 try:
     from pillow_heif import register_heif_opener
@@ -27,6 +31,8 @@ except ImportError:
     register_heif_opener = None
 
 WORKFLOW_FILE = Path(__file__).with_name('portrait_workflow.json')
+EDIT_WORKFLOW_FILE = Path(__file__).with_name('image_edit_workflow.json')
+VISUAL_WORKFLOWS = {'photo-edit', 'spatial-reframing'}
 DEFAULT_URL = 'http://127.0.0.1:8000'
 COMFY_START_TIMEOUT = 150
 _comfy_launch_lock = Lock()
@@ -36,6 +42,11 @@ _cancelled_requests = {}
 _cancelled_request_ttl = 300
 _request_id_pattern = r'[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}'
 MAX_UPLOAD = 24 * 1024 * 1024
+MAX_CAPTURE_UPLOAD = 64 * 1024 * 1024
+MAX_RESULT = 128 * 1024 * 1024
+MAX_PIXEL_EDGE = 3840
+NATIVE_CAMERA_EDGE = 2560
+NATIVE_DETAIL_REFERENCE_EDGES = {768, 1024, 1344, 1536, 2048}
 ASSET_ROOT = '/extensions/portrait_sharp_repair/'
 RENDER_ASSETS = {'splat_renderer.js', 'splat_worker.js'}
 UPLOADS = {
@@ -43,6 +54,14 @@ UPLOADS = {
     'reference': ('input', 'portrait_sharp_references'),
     'capture': ('temp', 'portrait_sharp_views'),
     'mask': ('temp', 'portrait_sharp_masks'),
+}
+PHOTO_EXTENSIONS = {
+    'PNG': ('.png',), 'JPEG': ('.jpg', '.jpeg', '.jpe', '.jfif'), 'WEBP': ('.webp',), 'BMP': ('.bmp',),
+    'HEIF': ('.heif', '.heic'), 'HEIC': ('.heic', '.heif'),
+}
+PHOTO_MIME_TYPES = {
+    '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.jpe': 'image/jpeg', '.jfif': 'image/jpeg',
+    '.webp': 'image/webp', '.bmp': 'image/bmp', '.heif': 'image/heif', '.heic': 'image/heic',
 }
 REFINE_PROMPT = (
     '精修遮罩区域内的自然纹理与清晰度。图 2 只提供纹理和细节，'
@@ -109,29 +128,96 @@ def workflow_template():
     return json.loads(WORKFLOW_FILE.read_text(encoding='utf-8'))
 
 
+@lru_cache(maxsize=1)
+def edit_workflow_template():
+    return json.loads(EDIT_WORKFLOW_FILE.read_text(encoding='utf-8'))
+
+
+def visual_workflow_file(name):
+    if name not in VISUAL_WORKFLOWS:
+        raise PortraitError('portraitInvalid', 'Unknown visual workflow.', 404)
+    return Path(__file__).with_name('workflows') / f'{name}.json'
+
+
+def visual_workflow_dependencies(name):
+    nodes = json.loads(visual_workflow_file(name).read_text(encoding='utf-8'))['nodes']
+    model_loaders = {'UNETLoader', 'CLIPLoader', 'VAELoader', 'LoraLoaderModelOnly'}
+    extensions, models, optimizer_models = set(), set(), set()
+    for node in nodes:
+        node_type = node['type']
+        properties = node.get('properties', {})
+        pack = properties.get('aux_id') or properties.get('cnr_id')
+        if node_type.startswith('PortraitSharp') or node_type == 'PortraitSplatFill':
+            pack = 'portrait_sharp_repair'
+        if ' (rgthree)' in node_type:
+            pack = 'rgthree/rgthree-comfy'
+        if pack and pack != 'comfy-core':
+            extensions.add(pack)
+        if node_type in model_loaders:
+            models.add(node['widgets_values'][0])
+        if node_type == 'QwenImagePromptOptimizer':
+            optimizer_models.update(node['widgets_values'][1:4])
+        if node_type == 'PortraitSharpPredict':
+            models.add('sharp_2572gikvuh.pt')
+    return {'extensions': sorted(extensions), 'models': sorted(models), 'optimizer_models': sorted(optimizer_models),
+            'nodes': sorted({node['type'] for node in nodes})}
+
+
+@lru_cache(maxsize=4)
+def comfy_node_info(_url, _interval):
+    return comfy_json('/object_info', timeout=12)
+
+
+def missing_inputs(info, template, fields):
+    missing = []
+    for node_id, key in fields:
+        node = template[node_id]
+        schema = info.get(node['class_type'], {}).get('input', {}).get('required', {}).get(key, [])
+        choices = schema[0] if schema and isinstance(schema[0], list) else None
+        if choices is not None and node['inputs'][key] not in choices:
+            missing.append(node['inputs'][key])
+    return missing
+
+
 @lru_cache(maxsize=4)
 def capability(_url, _interval):
-    info = comfy_json('/object_info', timeout=12)
+    info = comfy_node_info(_url, _interval)
     required = {node['class_type'] for node in workflow_template().values()} | {'PortraitSharpTrajectoryFrame'}
     missing = sorted(required.difference(info))
-    for node_id, key in [('7', 'unet_name'), ('8', 'clip_name'), ('9', 'vae_name'), ('10', 'lora_name'), ('219', 'lora_name')]:
-        node = workflow_template()[node_id]
-        schema = info.get(node['class_type'], {}).get('input', {}).get('required', {}).get(key, [])
-        choices = schema[0] if schema and isinstance(schema[0], list) else []
-        if choices and node['inputs'][key] not in choices:
-            missing.append(node['inputs'][key])
+    missing.extend(missing_inputs(info, workflow_template(), [
+        ('7', 'unet_name'), ('8', 'clip_name'), ('9', 'vae_name'), ('10', 'lora_name'), ('219', 'lora_name'),
+    ]))
     if not missing:
         extensions = comfy_json('/extensions')
         missing.extend(sorted(asset for asset in RENDER_ASSETS if ASSET_ROOT + asset not in extensions))
     return missing
 
 
-def status():
+def edit_capability(url, interval):
+    info = comfy_node_info(url, interval)
+    template = edit_workflow_template()
+    optimizer = template['179']['class_type']
+    required = {node['class_type'] for node in template.values()} - {optimizer}
+    missing = sorted(required.difference(info))
+    missing.extend(missing_inputs(info, template, [
+        ('363', 'unet_name'), ('362', 'clip_name'), ('361', 'vae_name'), ('258', 'lora_name'),
+    ]))
+    optimizer_missing = [optimizer] if optimizer not in info else missing_inputs(info, template, [
+        ('179', '文生图模型'), ('179', '图生图模型'), ('179', '视觉模型'),
+    ])
+    return missing, optimizer_missing
+
+
+def status(*, edit=False):
     global _comfy_launch_deadline
     result = {'repair_prompt': workflow_template()['12']['inputs']['prompt'],
               'can_start': hasattr(os, 'startfile')}
     try:
-        missing = capability(comfy_url(), int(time.monotonic() // 20))
+        url, interval = comfy_url(), int(time.monotonic() // 20)
+        if edit:
+            missing, result['optimizer_missing'] = edit_capability(url, interval)
+        else:
+            missing = capability(url, interval)
     except PortraitError as error:
         code = error.code
         with _comfy_launch_lock:
@@ -210,32 +296,96 @@ def upload_image(kind, upload):
     return upload_image_stream(kind, upload.stream)
 
 
-def upload_image_stream(kind, stream):
+def upload_image_stream(kind, stream, *, from_result=False, edit_source=False):
+    prepared, _, _ = prepare_image_upload(kind, stream, from_result=from_result, edit_source=edit_source)
+    storage, folder = UPLOADS[kind]
+    return upload_png(prepared, storage, folder, f'{uuid4()}.png')
+
+
+def prepare_image_upload(kind, stream, *, from_result=False, edit_source=False):
     if kind not in UPLOADS:
         raise PortraitError('portraitInvalidImage', 'Select a supported image.')
-    data = stream.read(MAX_UPLOAD + 1)
-    if len(data) > MAX_UPLOAD:
-        raise PortraitError('portraitImageTooLarge', 'The upload exceeds 24 MB.', 413)
+    limit = MAX_RESULT if from_result else upload_limit(kind)
+    original = stream.read(limit + 1)
+    if len(original) > limit:
+        raise PortraitError(upload_limit_code(kind), f'The image exceeds {limit // (1024 * 1024)} MB.', 413)
     generated = kind in {'mask', 'capture'}
     if not generated and register_heif_opener is not None:
         register_heif_opener()
     try:
-        with Image.open(io.BytesIO(data)) as image:
-            if image.format not in {'PNG', 'JPEG', 'WEBP', 'BMP', 'HEIF', 'HEIC'} or image.width * image.height > 40_000_000:
+        with Image.open(io.BytesIO(original)) as image:
+            # Camera JPEGs can include an auxiliary image in an MPF segment.
+            # Pillow opens them as MPO and starts on the primary JPEG frame.
+            image_format = 'JPEG' if image.format == 'MPO' else image.format
+            if image_format not in PHOTO_EXTENSIONS or image.width * image.height > 40_000_000:
                 raise ValueError
-            if generated and (image.format != 'PNG' or image.mode != 'RGBA' or max(image.size) > 4096):
+            if from_result and image_format != 'PNG':
                 raise ValueError
-            if not generated:
-                image = ImageOps.exif_transpose(image).convert('RGB')
+            if generated and (image_format != 'PNG' or image.mode != 'RGBA' or max(image.size) > 4096):
+                raise ValueError
+            if not generated and not from_result:
+                image = ImageOps.exif_transpose(image)
+                if edit_source:
+                    rgba = image.convert('RGBA')
+                    background = Image.new('RGB', rgba.size, 'white')
+                    background.paste(rgba, mask=rgba.getchannel('A'))
+                    image = background
+                else:
+                    image = image.convert('RGB')
                 encoded = io.BytesIO()
                 image.save(encoded, 'PNG', compress_level=2)
-                data = encoded.getvalue()
             else:
                 image.verify()
+                return original, original, image_format
+        return encoded.getvalue(), original, image_format
     except (ValueError, OSError, Image.DecompressionBombError) as error:
         raise PortraitError('portraitInvalidImage', 'Upload a supported photo with up to 40 megapixels.') from error
-    filename = f'{uuid4()}.png'
-    storage, folder = UPLOADS[kind]
+
+
+def uploaded_original_path(paths, filename):
+    folder = Path(paths.input_folder) / '.workbench-originals'
+    path = folder / filename
+    if (not re.fullmatch(r'[a-f0-9-]{36}\.[a-z]+', filename) or path.suffix not in PHOTO_MIME_TYPES
+            or not is_real_path_inside(path, folder) or not is_real_path_inside(path, paths.workspace_folder)):
+        raise PortraitError('portraitExpired', 'The uploaded original is unavailable.', 404)
+    return path
+
+
+def upload_source_photo(paths, upload, *, edit_source=False):
+    """保存上传文件的原始字节，并把工作用的 PNG 交给 ComfyUI。"""
+    if upload is None:
+        raise PortraitError('portraitInvalidImage', 'Select a supported image.')
+    prepared, original, image_format = prepare_image_upload('source', upload.stream, edit_source=edit_source)
+    name = (upload.filename or '').replace('\\', '/').rsplit('/', 1)[-1]
+    stem, extension = os.path.splitext(re.sub(r'[\x00-\x1f<>:"|?*]', '_', name))
+    extensions = PHOTO_EXTENSIONS[image_format]
+    if extension.lower() not in extensions:
+        extension = extensions[0]
+    download_name = f'{stem[:128].strip(" .") or "original"}{extension}'
+    photo_id = uuid4()
+    path = uploaded_original_path(paths, f'{photo_id}{extension.lower()}')
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        file = path.open('xb')
+        try:
+            with file:
+                file.write(original)
+        except OSError:
+            with suppress(OSError):
+                path.unlink(missing_ok=True)
+            raise
+    except OSError as error:
+        raise PortraitError('portraitOriginalSaveFailed', 'Could not save the uploaded original.', 500) from error
+    try:
+        media = upload_png(prepared, *UPLOADS['source'], f'{photo_id}.png')
+    except Exception:
+        with suppress(OSError):
+            path.unlink(missing_ok=True)
+        raise
+    return media, {'file': path.name, 'name': download_name}
+
+
+def upload_png(data, storage, folder, filename):
     boundary = uuid4().hex
     parts = [f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode()
              for key, value in [('type', storage), ('subfolder', folder)]]
@@ -246,6 +396,77 @@ def upload_image_stream(kind, stream):
     if saved.get('name') != filename or saved.get('subfolder') != folder or saved.get('type') != storage:
         raise PortraitError('portraitComfyError', 'ComfyUI did not save the expected image.', 502)
     return {'filename': filename, 'subfolder': folder, 'type': storage}
+
+
+def has_local_edit_area(alpha):
+    """Match the crop node's 8-connected threshold on source-size mask pixels."""
+    selected = np.asarray(alpha) > 25
+    minimum = math.ceil(selected.size * 0.002)
+    if np.count_nonzero(selected) < minimum:
+        return False
+    # Consume contiguous horizontal runs, checking diagonal neighbours as well.
+    pixels = ((row, column) for row in range(selected.shape[0]) for column in np.flatnonzero(selected[row]))
+    for row, column in pixels:
+        if not selected[row, column]:
+            continue
+        frontier = deque([(row, column)])
+        area = 0
+        while frontier:
+            y, x = frontier.popleft()
+            if not selected[y, x]:
+                continue
+            left = x
+            right = x + 1
+            while left > 0 and selected[y, left - 1]:
+                left -= 1
+            while right < selected.shape[1] and selected[y, right]:
+                right += 1
+            selected[y, left:right] = False
+            area += right - left
+            if area >= minimum:
+                return True
+            start = max(0, left - 1)
+            stop = min(selected.shape[1], right + 1)
+            for neighbour in (y - 1, y + 1):
+                if 0 <= neighbour < selected.shape[0]:
+                    line = np.flatnonzero(selected[neighbour, start:stop])
+                    if line.size:
+                        starts = line[np.r_[True, np.diff(line) > 1]]
+                        frontier.extend((neighbour, start + int(index)) for index in starts)
+    return False
+
+
+def prepare_edit_mask(source, upload):
+    if upload is None:
+        raise PortraitError('portraitInvalidImage', 'Select a supported mask.')
+    try:
+        with Image.open(upload.stream) as mask, open_media(source) as original:
+            if mask.format != 'PNG' or mask.mode != 'RGBA' or max(mask.size) > 4096:
+                raise ValueError
+            with Image.open(io.BytesIO(original.read(MAX_RESULT + 1))) as image:
+                if image.width * image.height > 40_000_000:
+                    raise ValueError
+                alpha = mask.getchannel('A').resize(image.size, Image.Resampling.NEAREST)
+                if not has_local_edit_area(alpha):
+                    raise PortraitError('editMaskTooSmall', 'Expand the local mask to keep the edit confined to the selected region.')
+                # This is the native Goohai clipspace format. RGB stays intact and
+                # selected pixels are represented by inverted alpha.
+                rgba = image.convert('RGBA')
+                rgba.putalpha(ImageOps.invert(alpha))
+                encoded = io.BytesIO()
+                rgba.save(encoded, 'PNG', compress_level=2)
+    except (ValueError, OSError, Image.DecompressionBombError) as error:
+        raise PortraitError('portraitInvalidImage', 'The editing mask could not be read.') from error
+    return upload_png(encoded.getvalue(), 'input', 'sharp_gui_edit',
+                      f'clipspace-painted-output-sharp-{uuid4()}-edit.png')
+
+
+def upload_limit(kind):
+    return MAX_CAPTURE_UPLOAD if kind == 'capture' else MAX_UPLOAD
+
+
+def upload_limit_code(kind):
+    return 'portraitCaptureTooLarge' if kind == 'capture' else 'portraitImageTooLarge'
 
 
 def camera_inputs(camera, token, capture, edge):
@@ -259,7 +480,7 @@ def camera_inputs(camera, token, capture, edge):
         matrices[key] = [[number(value, -1e7, 1e7) for value in row] for row in rows]
     width = number(camera.get('width'), 1, 32000, integer=True)
     height = number(camera.get('height'), 1, 32000, integer=True)
-    edge = number(edge, 512, 2560, integer=True)
+    edge = number(edge, 512, MAX_PIXEL_EDGE, integer=True)
     if edge % 32:
         raise PortraitError('portraitInvalid', 'Choose a supported output size.')
     return {**matrices, 'token': token, 'capture': capture, 'width': width, 'height': height}, edge
@@ -267,6 +488,26 @@ def camera_inputs(camera, token, capture, edge):
 
 def frame_size(width, height, edge):
     return [max(64, math.floor(value * edge / max(width, height) / 32 + 0.5) * 32) for value in (width, height)]
+
+
+def camera_edge_input(prompt, node_id, edge):
+    # Older camera node schemas cap literal widgets at 2560, but accept a linked integer.
+    if edge <= NATIVE_CAMERA_EDGE:
+        return edge
+    prompt[node_id] = {'class_type': 'PrimitiveInt', 'inputs': {'value': edge}}
+    return [node_id, 0]
+
+
+def set_detail_reference_size(prompt, detail):
+    edge = detail['reference_edge']
+    if edge not in NATIVE_DETAIL_REFERENCE_EDGES:
+        detail = {key: value for key, value in detail.items() if key != 'reference_edge'}
+        prompt['10004'] = {'class_type': '图像缩放范围孤海', 'inputs': {
+            '图像': ['22', 2], '限制模式': '长边', '最小尺寸': 32, '最大尺寸': edge, '整除数': 32,
+        }}
+        prompt['206']['inputs']['图像_02'] = ['10004', 0]
+        prompt['207']['inputs']['image_02'] = ['10004', 0]
+    prompt['22']['inputs'] = {'selection': json.dumps(detail)}
 
 
 def match_reference_crop(prompt, crop, reference_edge):
@@ -288,6 +529,42 @@ def match_reference_crop(prompt, crop, reference_edge):
     prompt['12']['inputs']['image_2'] = ['10001', 0]
 
 
+def build_edit_prompt(source, options, *, reference=None, masked=None):
+    text = options.get('prompt')
+    if not isinstance(text, str) or not text.strip() or len(text) > 4000:
+        raise PortraitError('editDescriptionRequired', 'Enter an editing description of up to 4,000 characters.')
+    if not reference and '<image2>' in text.lower():
+        raise PortraitError('editReferenceRequired', 'Add the referenced image or remove its mention.')
+    optimize = options.get('optimize', True)
+    if type(optimize) is not bool:
+        raise PortraitError('portraitInvalid', 'Invalid prompt optimization setting.')
+    prompt = copy.deepcopy(edit_workflow_template())
+    image = masked or source
+    prompt['369']['inputs']['image'] = f'{image["subfolder"]}/{image["filename"]}' + (' [input]' if masked else '')
+    prompt['359']['inputs']['value'] = text.strip()
+    seed = options.get('seed')
+    prompt['388']['inputs']['seed'] = (secrets.randbelow(2**50) if seed is None
+                                       else number(seed, 0, 2**53 - 1, integer=True))
+    maximum = number(options.get('sample_edge', 2048), 768, MAX_PIXEL_EDGE, integer=True)
+    prompt['368']['inputs'].update({'值': maximum, 'ghs_dom': str(maximum)})
+    prompt['385']['inputs']['switch'] = optimize
+    if reference:
+        prompt['526']['inputs']['image'] = f'{reference["subfolder"]}/{reference["filename"]}'
+    else:
+        prompt['255']['inputs'].pop('image_02')
+        prompt['179']['inputs'].pop('图像_02')
+        del prompt['526'], prompt['527']
+    if not optimize:
+        prompt['385']['inputs'].pop('on_true')
+        del prompt['179']
+    return prompt
+
+
+def submit_edit(source, options, *, reference=None, masked=None):
+    prompt = build_edit_prompt(source, options, reference=reference, masked=masked)
+    return submit_prompt('edit', source, options, prompt, ['370', '386'])
+
+
 def submit(stage, source, options, *, model_token=None, capture=None, detail=None):
     prompt = copy.deepcopy(workflow_template())
     prompt['1']['inputs']['image'] = f'{source["subfolder"]}/{source["filename"]}'
@@ -302,10 +579,11 @@ def submit(stage, source, options, *, model_token=None, capture=None, detail=Non
             prompt['12']['inputs']['prompt'] = repair_prompt.strip()
         camera_settings = prompt['3']['inputs']
         camera, edge = camera_inputs(options.get('camera'), model_token, capture, options.get('edge', camera_settings['long_edge']))
-        reference_edge = number(options.get('repair_reference_edge', camera_settings['reference_edge']), 512, 2560, integer=True)
+        reference_edge = number(options.get('repair_reference_edge', camera_settings['reference_edge']), 512, MAX_PIXEL_EDGE, integer=True)
         if reference_edge % 32:
             raise PortraitError('portraitInvalid', 'Choose a supported source reference size.')
-        camera_settings.update(camera=json.dumps(camera), long_edge=edge, reference_edge=reference_edge)
+        camera_settings.update(camera=json.dumps(camera), long_edge=camera_edge_input(prompt, '10002', edge),
+                               reference_edge=camera_edge_input(prompt, '10003', reference_edge))
         reference_crop = options.get('reference_crop')
         if reference_crop is not None and (stage != 'frame' or options.get('mode') == 'repair'):
             match_reference_crop(prompt, reference_crop, reference_edge)
@@ -332,9 +610,9 @@ def submit(stage, source, options, *, model_token=None, capture=None, detail=Non
         prompt['204']['inputs']['value'] = text.strip() or REFINE_PROMPT
         prompt['206']['inputs']['用户提示词'] = text.strip() or REFINE_PROMPT
         prompt['215']['inputs']['switch'] = options.get('optimize') is True
-        prompt['22']['inputs'] = {'selection': json.dumps(detail)}
+        set_detail_reference_size(prompt, detail)
         prompt['352']['inputs']['denoise'] = number(options.get('strength', 0.44), 0.1, 1)
-        maximum = number(options.get('sample_edge', 2048), 768, 3072, integer=True)
+        maximum = number(options.get('sample_edge', 2048), 768, MAX_PIXEL_EDGE, integer=True)
         prompt['222']['inputs'].update({'值': maximum, 'ghs_dom': str(maximum)})
         prompt['205']['inputs'].update({
             '遮罩扩展百分比': number(options.get('expand', 4), 0, 30, integer=True),
@@ -343,6 +621,10 @@ def submit(stage, source, options, *, model_token=None, capture=None, detail=Non
         })
         prompt['224']['inputs']['seed'] = secrets.randbelow(2**50)
         targets = ['31']
+    return submit_prompt(stage, source, options, prompt, targets)
+
+
+def submit_prompt(stage, source, options, prompt, targets):
     submission = {'prompt': prompt, 'partial_execution_targets': targets}
     request_id = options.get('request_id')
     if request_id is not None:
@@ -350,6 +632,8 @@ def submit(stage, source, options, *, model_token=None, capture=None, detail=Non
             raise PortraitError('portraitInvalid', 'Invalid portrait request ID.')
         fingerprint = hashlib.sha256(json.dumps([stage, source, options], sort_keys=True).encode()).hexdigest()
         submission.update(prompt_id=request_id, extra_data={'sharp_gui_portrait_request': fingerprint})
+        if stage == 'edit':
+            submission['extra_data']['sharp_gui_edit_source'] = source['filename']
     connection = None
     try:
         with _comfy_submit_lock:
@@ -396,7 +680,10 @@ def cancel_job(prompt_id, source_filename, *, unconfirmed=False):
         entry = find_comfy_prompt(prompt_id) if unconfirmed else None
         if entry is not None:
             image = entry[2].get('1', {}).get('inputs', {}).get('image')
-            if image != f'sharp_gui_portrait/{source_filename}' or not entry[3].get('sharp_gui_portrait_request'):
+            metadata = entry[3]
+            matches_source = (image == f'sharp_gui_portrait/{source_filename}'
+                              or metadata.get('sharp_gui_edit_source') == source_filename)
+            if not matches_source or not metadata.get('sharp_gui_portrait_request'):
                 raise PortraitError('portraitInvalid', 'This request ID belongs to another task.', 409)
         if not unconfirmed or entry is not None:
             result = comfy_json(f'/api/jobs/{prompt_id}/cancel', {})

@@ -557,19 +557,17 @@ export function ModelEditor({ viewerRef, assetId, onClose }: ModelEditorProps) {
             )}
             {state.tool !== 'origin' && state.tool !== 'rotate' && (
               <section>
-                <label className={styles.selectionMode}>
+                <div className={styles.selectionMode}>
                   <span>{t('modelEditorSelectionRange')}</span>
-                  <select
-                    aria-label={t('modelEditorSelectionRange')}
+                  <SelectMenu portal
+                    ariaLabel={t('modelEditorSelectionRange')}
                     value={state.selectionMode}
                     disabled={state.busy}
-                    onChange={(event) => editor.changeSelectionMode(event.target.value as EditorSelectionMode)}
-                  >
-                    {(['intersect', 'center', 'contain'] as const).map((mode) => (
-                      <option key={mode} value={mode}>{t(`modelEditorSelection${mode[0].toUpperCase()}${mode.slice(1)}`)}</option>
-                    ))}
-                  </select>
-                </label>
+                    onChange={(value) => editor.changeSelectionMode(value as EditorSelectionMode)}
+                    options={(['intersect', 'center', 'contain'] as const).map((mode) => ({
+                      value: mode, label: t(`modelEditorSelection${mode[0].toUpperCase()}${mode.slice(1)}`),
+                    }))} />
+                </div>
                 <p className={styles.hint}>{t('modelEditorSelectionRangeHint')}</p>
               </section>
             )}

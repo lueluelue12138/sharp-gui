@@ -1,12 +1,17 @@
 import { useId, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 
-import { Minus, Plus } from 'lucide-react';
+import { MemoryStick, Minus, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Button } from '@/components/common/Button';
 import { SelectMenu } from '@/components/common/SelectMenu';
+import workbenchStyles from '@/components/portrait/PortraitWorkbench/PortraitWorkbench.module.css';
 import styles from '@/components/portrait/WorkbenchControls/WorkbenchControls.module.css';
+import type { PortraitCacheRelease, PortraitProgress } from '@/types/portrait';
+import { progressPercent } from '@/utils/portraitProgress';
+
+const largeEdges = [2560, 2880, 3072, 3200, 3584, 3840];
 
 export function Segments<T extends string>({ value, options, onChange, label }: {
   value: T; options: ReadonlyArray<{ value: T; label: string; icon?: ReactNode; disabled?: boolean }>;
@@ -27,21 +32,59 @@ export function Choice({ label, value, options, disabled, onChange }: {
     ariaLabel={label} disabled={disabled} onChange={onChange} menuClassName={styles.raisedMenu} /></div>;
 }
 
-export function PixelChoice({ label, value, values, disabled, allowCustom, onChange }: {
-  label: string; value: number; values: number[]; disabled?: boolean; allowCustom?: boolean; onChange: (value: number) => void;
+export function PixelChoice({ label, value, values, disabled, alignment = 1, onChange }: {
+  label: string; value: number; values: number[]; disabled?: boolean; alignment?: number; onChange: (value: number) => void;
 }) {
   const { t } = useTranslation();
   const [custom, setCustom] = useState(false);
-  const editingSize = allowCustom && (custom || !values.includes(value));
-  const options = values.map((edge) => ({ value: String(edge), label: `${edge} px` }));
-  if (allowCustom) options.push({ value: 'custom', label: t('portrait.customSize') });
+  const edges = [...new Set([...values, ...largeEdges])].sort((a, b) => a - b);
+  const editingSize = custom || !edges.includes(value);
+  const options = edges.map((edge) => ({ value: String(edge), label: `${edge} px` }));
+  options.push({ value: 'custom', label: t('portrait.customSize') });
   return <div className={styles.pixelChoice}>
     <Choice label={label} value={editingSize ? 'custom' : value} disabled={disabled} onChange={(next) => {
       setCustom(next === 'custom');
       if (next !== 'custom') onChange(Number(next));
     }} options={options} />
-    {editingSize && <NumberField label={t('portrait.pixels')} value={value} min={Math.min(...values)} max={Math.max(...values)}
-      step={32} disabled={disabled} onChange={(next) => onChange(Math.round(next / 32) * 32)} />}
+    {editingSize && <NumberField label={t('portrait.pixels')} value={value} min={edges[0]} max={edges[edges.length - 1]}
+      step={alignment} disabled={disabled} onChange={(next) => onChange(Math.round(next / alignment) * alignment)} />}
+  </div>;
+}
+
+export function WorkflowProgress({ progress, nodeName }: { progress: PortraitProgress; nodeName?: string }) {
+  const { t } = useTranslation();
+  const percent = progressPercent(progress);
+  return <>
+    <div className={workbenchStyles.progressTrack} data-indeterminate={percent === undefined} role="progressbar"
+      aria-label={t('portrait.nodeProgress')} aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
+      <span style={percent === undefined ? undefined : { width: `${percent}%` }} />
+    </div>
+    <div className={workbenchStyles.statusDetails}>
+      <span>{nodeName ? t(`portrait.nodes.${nodeName}`) : t(`portrait.${progress.state}`)}</span>
+      {percent !== undefined && <span>{t('portrait.progressSteps', {
+        value: Number(progress.value?.toFixed(1)), max: progress.max, percent,
+      })}</span>}
+    </div>
+  </>;
+}
+
+export function ReleaseCacheButton({ disabled, canClearCache, onClick }: {
+  disabled?: boolean; canClearCache: boolean; onClick: () => void;
+}) {
+  const { t } = useTranslation();
+  return <Button variant="secondary" size="sm" type="button" icon={<MemoryStick size={16} />}
+    disabled={disabled || !canClearCache}
+    data-tooltip={t(canClearCache ? 'portrait.releasePreviewHint' : 'portrait.errors.portraitEngineBusy')} onClick={onClick}>
+    {t('portrait.releaseEngine')}
+  </Button>;
+}
+
+export function CacheReleaseStatus({ result, onClose }: { result: PortraitCacheRelease; onClose: () => void }) {
+  const { t } = useTranslation();
+  return <div className={workbenchStyles.statusTitle}>
+    <div><strong>{t('portrait.memoryRequested', { count: result.removed })}</strong>
+      {result.failed > 0 && <small>{t('portrait.cacheFilesBusy', { count: result.failed })}</small>}</div>
+    <Button variant="ghost" size="sm" type="button" onClick={onClose}>{t('close')}</Button>
   </div>;
 }
 
@@ -90,4 +133,18 @@ export function ToggleField({ label, checked, disabled, onChange }: {
 }) {
   return <button type="button" className={styles.toggleField} role="switch" aria-checked={checked}
     disabled={disabled} onClick={() => onChange(!checked)}><span>{label}</span><i aria-hidden="true" /></button>;
+}
+
+export function BatchCount({ value, onChange }: { value: number; onChange: (value: number) => void }) {
+  const { t } = useTranslation();
+  return <div className={styles.batchCount}>
+    <NumberField label={t('portrait.batchCount')} value={value} min={1} max={32} onChange={(next) => onChange(Math.floor(next))} />
+  </div>;
+}
+
+export function BatchNotice({ preparing, queued }: { preparing: number; queued: number }) {
+  const { t } = useTranslation();
+  return <p className={styles.batchNotice} role="status">
+    {preparing ? t('portrait.batchPreparing', { count: preparing }) : queued ? t('portrait.batchQueued', { count: queued }) : ''}
+  </p>;
 }

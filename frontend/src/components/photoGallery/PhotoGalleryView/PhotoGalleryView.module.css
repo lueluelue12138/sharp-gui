@@ -53,6 +53,21 @@
   padding-left: calc(var(--sidebar-width) + 18px);
 }
 
+.scrollArea[data-image-drop-active='true'] { outline: 2px dashed var(--accent-blue); outline-offset: -4px; }
+.dropIndicator {
+  position: absolute;
+  z-index: 10;
+  bottom: var(--space-xl);
+  left: 50%;
+  translate: -50%;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-lg);
+  color: white;
+  background: var(--accent-blue);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .error {
   margin: 0 18px 14px;
   padding: 12px 14px;
