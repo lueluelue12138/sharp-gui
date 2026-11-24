@@ -6,6 +6,7 @@ export interface PortraitAvailability {
   missing: string[];
   can_start?: boolean;
   repair_prompt?: string;
+  repair_optimizer_missing?: string[];
   optimizer_missing?: string[];
 }
 
@@ -59,6 +60,7 @@ export interface PortraitRepair {
   rough: string;
   reference: string;
   base: string;
+  prompt?: string;
 }
 
 export interface PortraitFrame {

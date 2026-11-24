@@ -286,8 +286,12 @@ def job_status(job):
     elif stage == 'repair':
         result = require_output(outputs, '20', 'images')
         detail = require_output(outputs, '22', 'portrait_detail')
+        prompts = outputs.get('10006', {}).get('text', [])
         data = {'image': file_url(result), 'rough': file_url(context['capture']), 'reference': file_url(detail['source']),
                 'base': sign('detail', {'target': detail['target'], 'reference': detail['source'], 'source': context['source']})}
+        text = prompts[0] if prompts else job.get('repair_prompt')
+        if isinstance(text, str):
+            data['prompt'] = text
     elif stage == 'frame':
         result = require_output(outputs, '10000', 'images')
         manifest = {**result, 'filename': 'transforms.json'}

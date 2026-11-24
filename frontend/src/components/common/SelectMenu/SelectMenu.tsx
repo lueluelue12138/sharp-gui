@@ -93,11 +93,11 @@ export function SelectMenu({
       menu.style.width = `${width}px`;
       const above = Math.max(0, rect.top - 16);
       const below = Math.max(0, window.innerHeight - rect.bottom - 16);
-      // scrollHeight omits the border, while max-height constrains the whole box.
       const height = Math.min(menu.scrollHeight + menu.offsetHeight - menu.clientHeight, 300);
       const opensAbove = below < height && above > below;
-      const visibleHeight = Math.min(height, opensAbove ? above : below);
-      menu.style.maxHeight = `${visibleHeight}px`;
+      // 按屏幕空间设上限，避免 scrollHeight 取整后裁掉缩放产生的亚像素边框。
+      menu.style.maxHeight = `${Math.min(300, opensAbove ? above : below)}px`;
+      const visibleHeight = menu.getBoundingClientRect().height;
       menu.style.left = `${Math.max(8, Math.min(rect.right - width, window.innerWidth - width - 8))}px`;
       menu.style.top = `${opensAbove ? rect.top - visibleHeight - 8 : rect.bottom + 8}px`;
     };

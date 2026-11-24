@@ -10,10 +10,11 @@ import math
 import os
 import re
 import secrets
+import subprocess
 import time
 from functools import lru_cache
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Thread
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener, HTTPRedirectHandler, ProxyHandler
@@ -68,6 +69,17 @@ PHOTO_MIME_TYPES = {
 REFINE_PROMPT = (
     '精修遮罩区域内的自然纹理与清晰度。图 2 只提供纹理和细节，'
     '保持图 1 里人物的身份、脸部轮廓与长宽比、五官位置、姿态、打光和色彩。'
+)
+REPAIR_DETAIL_INSTRUCTION = (
+    'Write one or two short English sentences describing which gaps or smeared edges in <image1> need repair '
+    'and what nearby surfaces or textures should continue into them. <image1> is the target camera view. '
+    'Use <image2> only to identify matching details visible from the viewpoint in <image1>. '
+    'Keep the head orientation and occlusion in <image1>. Omit details you cannot verify.'
+)
+REPAIR_VIEW_CONSTRAINTS = (
+    'Preserve the camera viewpoint, framing, perspective, body and head orientation, and occlusion shown in image 1. '
+    'Use image 2 to restore the same person’s visible hair, hands, clothing and accessories. '
+    'Use its facial details only if the face is visible in image 1.'
 )
 
 
@@ -215,6 +227,14 @@ def edit_capability(url, interval):
     return missing, optimizer_missing
 
 
+def repair_optimizer_missing(info):
+    template = workflow_template()
+    required = {template['206']['class_type'], 'StringConcatenate'}
+    return sorted(required.difference(info)) + missing_inputs(info, template, [
+        ('206', '文生图模型'), ('206', '图生图模型'), ('206', '视觉模型'),
+    ])
+
+
 def status(*, edit=False, extend=False):
     global _comfy_launch_deadline
     result = {'repair_prompt': workflow_template()['12']['inputs']['prompt'],
@@ -232,6 +252,7 @@ def status(*, edit=False, extend=False):
             ]))
         else:
             missing = capability(url, interval)
+            result['repair_optimizer_missing'] = repair_optimizer_missing(comfy_node_info(url, interval))
     except PortraitError as error:
         code = error.code
         with _comfy_launch_lock:
@@ -271,6 +292,44 @@ def find_comfy_desktop():
     raise PortraitError('portraitStartNotFound', 'Comfy Desktop was not found on the host.', 404)
 
 
+def comfy_desktop_instance():
+    """从 Desktop 的本机登记中选择当前端口对应的实例。旧版 Desktop 无需额外操作。"""
+    root = os.environ.get('APPDATA')
+    if not root:
+        return None
+    path = Path(root) / 'Comfy Desktop' / 'installations.json'
+    if not path.is_file():
+        return None
+    try:
+        records = json.loads(path.read_text(encoding='utf-8-sig'))
+        local = [item for item in records if isinstance(item, dict) and item.get('status') == 'installed'
+                 and item.get('sourceId') in {'standalone', 'portable', 'desktop', 'comfybuilder'}
+                 and isinstance(item.get('name'), str) and item['name'].strip()]
+    except (OSError, ValueError, TypeError) as error:
+        raise PortraitError('portraitStartFailed', 'Could not read the registered Desktop instances.', 503) from error
+    port = urlsplit(comfy_url()).port or 80
+    matches = [item for item in local if re.search(rf'(?:^|\s)--port(?:\s+|=)["\']?{port}(?:["\']?\s|["\']?$)',
+                                                 str(item.get('launchArgs', '')))]
+    targets = matches or local
+    if len(targets) != 1 or sum(isinstance(item, dict) and item.get('name') == targets[0]['name'] for item in records) != 1:
+        raise PortraitError('portraitStartInstance', 'Could not identify a unique local Desktop instance.', 409)
+    return targets[0]['name']
+
+
+def launch_comfy_instance(name):
+    """通过 Desktop 实例卡片的原生启动动作打开实例，兼容已打开的仪表盘。"""
+    helper = Path(__file__).resolve().parents[2] / 'tools' / 'start_comfy_desktop.ps1'
+    try:
+        subprocess.run([
+            'powershell.exe', '-NoProfile', '-NonInteractive', '-STA', '-ExecutionPolicy', 'Bypass',
+            '-File', str(helper), '-InstanceName', name, '-ServerUrl', comfy_url(),
+        ], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW, timeout=70, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        # 状态轮询仍会检查真实服务，未就绪时沿用启动超时提示。
+        pass
+
+
 def start_comfy():
     """请求 Windows 启动已有的 Comfy Desktop，并合并重复启动请求。"""
     global _comfy_launch_deadline
@@ -289,12 +348,15 @@ def start_comfy():
             _comfy_launch_deadline = None
             return 'online'
 
+        instance = comfy_desktop_instance()
         try:
             os.startfile(str(find_comfy_desktop()))
         except OSError as error:
             raise PortraitError('portraitStartFailed', 'Windows could not open Comfy Desktop.', 503) from error
         capability.cache_clear()
         _comfy_launch_deadline = time.monotonic() + COMFY_START_TIMEOUT
+        if instance:
+            Thread(target=launch_comfy_instance, args=(instance,), daemon=True).start()
         return 'starting'
 
 
@@ -579,6 +641,17 @@ def build_edit_prompt(source, options, *, reference=None, masked=None):
     if not optimize:
         prompt['385']['inputs'].pop('on_true')
         del prompt['179']
+    output_edge = options.get('output_edge')
+    if output_edge is not None:
+        save = prompt['370']['inputs']
+        prompt['10000'] = {'class_type': '图像缩放V2_孤海', 'inputs': {
+            '图像': save['images'],
+            '缩放方法': '按长边等比例',
+            '将边缩放到': number(output_edge, 256, MAX_PIXEL_EDGE, integer=True),
+            '宽度': 0, '高度': 0, '缩放插值': 'Lanczos', '缩放模式': '拉伸',
+            '固定方向': '居中', '执行条件': '总是', '填充颜色': '#364254', '整除数': 0,
+        }}
+        save['images'] = ['10000', 0]
     return prompt
 
 
@@ -666,6 +739,29 @@ def submit_extend(source, options, *, masked=None):
     return submit_prompt('extend', source, options, prompt, targets)
 
 
+def optimize_repair_prompt(prompt):
+    condition = prompt['12']['inputs']
+    base_prompt = condition['prompt']
+    if base_prompt == workflow_template()['12']['inputs']['prompt']:
+        # 把脸部参考收紧到目标机位可见的范围，同时保留原有的背景修补要求。
+        base_prompt = base_prompt.replace(
+            "Use image 2 as the detail reference for the same person's face, hair, hands, clothing and accessories. ", '',
+        )
+    optimizer = copy.deepcopy(prompt['206'])
+    optimizer['inputs'].update({
+        '用户提示词': REPAIR_DETAIL_INSTRUCTION,
+        '输出语言': 'English',
+        '卸载模型': '运行后自动卸载',
+        '图像_01': condition['image_1'],
+        '图像_02': condition['image_2'],
+    })
+    prompt['10004'] = optimizer
+    prompt['10005'] = {'class_type': 'StringConcatenate', 'inputs': {
+        'string_a': ['10004', 0], 'string_b': f'{base_prompt} {REPAIR_VIEW_CONSTRAINTS}', 'delimiter': '\n',
+    }}
+    condition['prompt'] = ['10005', 0]
+
+
 def submit(stage, source, options, *, model_token=None, capture=None, detail=None):
     prompt = copy.deepcopy(workflow_template())
     prompt['1']['inputs']['image'] = f'{source["subfolder"]}/{source["filename"]}'
@@ -690,6 +786,10 @@ def submit(stage, source, options, *, model_token=None, capture=None, detail=Non
             match_reference_crop(prompt, reference_crop, reference_edge)
         prompt['14']['inputs']['noise_seed'] = number(options.get('seed', 1), 0, 2**53 - 1, integer=True)
         targets = ['20', '22']
+        if stage == 'repair' and options.get('repair_optimize') is True:
+            optimize_repair_prompt(prompt)
+            prompt['10006'] = {'class_type': 'easy showAnything', 'inputs': {'anything': prompt['12']['inputs']['prompt']}}
+            targets.append('10006')
         if stage == 'frame':
             sequence = options.get('sequence')
             mode = options.get('mode')
@@ -859,7 +959,15 @@ def get_job(prompt_id):
                 if kind == 'execution_error':
                     return {'state': 'error', 'message': str(details.get('exception_message', ''))[:450]}
             return {'state': 'error', 'message': ''}
-        return {'state': 'done', 'outputs': history.get('outputs', {})}
+        result = {'state': 'done', 'outputs': history.get('outputs', {})}
+        entry = history.get('prompt', [])
+        if len(entry) > 2:
+            condition = entry[2].get('12', {})
+            if condition.get('class_type') == 'PortraitSharpQwenCondition':
+                text = condition['inputs'].get('prompt')
+                if isinstance(text, str):
+                    result['repair_prompt'] = text
+        return result
     queue = comfy_json('/queue')
     for state, key in [('running', 'queue_running'), ('queued', 'queue_pending')]:
         if any(entry[1] == prompt_id for entry in queue.get(key, [])):

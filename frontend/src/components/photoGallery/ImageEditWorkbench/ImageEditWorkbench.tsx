@@ -28,10 +28,11 @@ import boardStyles from '@/components/photoGallery/OutpaintBoard/OutpaintBoard.m
 import workbenchStyles from '@/components/portrait/PortraitWorkbench/PortraitWorkbench.module.css';
 
 const sampleEdges = [768, 1024, 1280, 1536, 1920, 2048];
+const editOutputEdges = [256, 384, 512, ...sampleEdges];
 const editNodes: Record<string, string> = {
   '179': 'optimizePrompt', '249': 'prepareEdit', '250': 'prepareEdit', '255': 'prepareEdit', '256': 'decode',
   '247': 'prepareEdit', '252': 'mergeEdit', '274': 'sampling', '361': 'loadModel', '362': 'loadModel',
-  '363': 'loadModel', '370': 'save',
+  '363': 'loadModel', '370': 'save', '10000': 'resizeOutput',
 };
 const extendNodes: Record<string, string> = {
   '48': 'prepareExtend', '40': 'prepareExtend', '24': 'prepareExtend', '5': 'prepareExtend', '7': 'prepareExtend',
@@ -111,7 +112,8 @@ export function ImageEditWorkbench({
   const [progress, setProgress] = useState<PortraitProgress>(savedTask?.progress
     ?? { state: savedTask?.status === 'queued' || (saved.pending && !saved.pending.job) ? 'queued' : 'running' });
   const edit = draft.edit ?? {};
-  const { prompt = '', area = 'full', edge = 2048, optimize = true, seed = '', page = 'edit', reference, result, layout = initialLayout } = edit;
+  const { prompt = '', area = 'full', edge = 2048, outputEdge = 0, optimize = true, seed = '', page = 'edit',
+    reference, result, layout = initialLayout } = edit;
   const extending = tool === 'extend';
   const ToolIcon = extending ? Maximize2 : Pencil;
   const toolTitle = t(`photoTools.${tool}`);
@@ -290,7 +292,7 @@ export function ImageEditWorkbench({
           size: [imageSize.width, imageSize.height], pads: layout.pads, unit: layout.unit, translated: layout.translated,
           ratio: layout.ratio === 'free' ? '自由比例' : layout.ratio === 'original' ? '原始比例' : layout.ratio,
           color: layout.color, multiple: layout.multiple, output_edge: layout.outputEdge,
-        } : { area, reference: reference?.token, optimize };
+        } : { area, reference: reference?.token, optimize, output_edge: outputEdge || undefined };
         return { draft: { ...inputDraft, source }, options: { ...common, ...settings } };
       } });
       if (!disposed.current) setQueued(count);
@@ -476,6 +478,9 @@ export function ImageEditWorkbench({
                   onChange={(value) => commit({ error: undefined }, { optimize: value })} />}
               <PixelChoice label={t('photoTools.sampleEdge')} disabled={locked} values={sampleEdges} value={edge}
                 onChange={(value) => commit({}, { edge: value })} />
+              {!extending && <PixelChoice label={t('photoTools.outputEdge')} originalLabel={t('photoTools.originalSize')}
+                disabled={locked} values={editOutputEdges} value={outputEdge}
+                onChange={(value) => commit({}, { outputEdge: value })} />}
               <label className={styles.seed}>{t('portrait.seed')} <input type="text" inputMode="numeric" maxLength={16}
                 placeholder={t('photoTools.randomSeed')} aria-invalid={!validSeed} value={seed} disabled={locked}
                 onChange={(event) => commit({}, { seed: event.currentTarget.value })} /></label>

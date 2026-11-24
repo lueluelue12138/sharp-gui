@@ -23,13 +23,15 @@ interface SidebarProps {
   onUpload: (files: FileList) => void;
   onOpenGallery: () => void;
   angleTasks: PortraitTask[];
+  portraitSourceKeys: ReadonlyMap<string, string>;
   activeAngleId: string | null;
   onOpenAngle: (id: string) => void;
   onCloseAngle: (id: string) => void;
+  onCloseAngleGroup: (ids: string[]) => Promise<void>;
   children?: React.ReactNode;
 }
 
-export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, onOpenGallery, angleTasks, activeAngleId, onOpenAngle, onCloseAngle, children }: SidebarProps) {
+export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, onOpenGallery, angleTasks, portraitSourceKeys, activeAngleId, onOpenAngle, onCloseAngle, onCloseAngleGroup, children }: SidebarProps) {
   const { t, i18n } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -205,7 +207,8 @@ export function Sidebar({ canGenerateModels, onGenerationBlocked, onUpload, onOp
 
         {/* Content (Queue + Gallery) */}
         <div className={styles.content}>
-          <TaskQueue angleTasks={angleTasks} activeAngleId={activeAngleId} onOpenAngle={onOpenAngle} onCloseAngle={onCloseAngle} />
+          <TaskQueue angleTasks={angleTasks} portraitSourceKeys={portraitSourceKeys}
+            activeAngleId={activeAngleId} onOpenAngle={onOpenAngle} onCloseAngle={onCloseAngle} onCloseAngleGroup={onCloseAngleGroup} />
           <div className={styles.galleryPane}>
             {children}
           </div>

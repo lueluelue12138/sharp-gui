@@ -43,7 +43,9 @@ export function ImageComparison({ before, after, beforeLabel, afterLabel, result
   const { download, downloading, downloadFailed } = usePortraitDownload();
   const [position, setPosition] = useState(50);
   const [sideBySide, setSideBySide] = useState(false);
-  const [imageRatio, setImageRatio] = useState(4 / 3);
+  const [loadedOutput, setLoadedOutput] = useState<{ src: string; width: number; height: number }>();
+  const outputSize = loadedOutput?.src === after ? loadedOutput : undefined;
+  const imageRatio = outputSize ? outputSize.width / outputSize.height : 4 / 3;
   const [expanded, setExpanded] = useState(false);
   const [viewport, setViewport] = useState(fitted);
   const stage = useRef<HTMLDivElement>(null);
@@ -148,11 +150,16 @@ export function ImageComparison({ before, after, beforeLabel, afterLabel, result
     onPointerCancel: pointerEnd, onLostPointerCapture: pointerEnd,
   };
   const pictureStyle = { transform: `translate3d(${viewport.x * 100}%, ${viewport.y * 100}%, 0) scale(${viewport.scale})` };
-  const readAspect = (image: HTMLImageElement) => {
-    if (image.naturalHeight) setImageRatio(image.naturalWidth / image.naturalHeight);
+  const readOutputSize = (image: HTMLImageElement) => {
+    if (image.naturalWidth && image.naturalHeight) {
+      setLoadedOutput({ src: after, width: image.naturalWidth, height: image.naturalHeight });
+    }
   };
   return <div className={`${styles.comparison} ${expanded ? styles.comparisonExpanded : ''}`} data-angle-expanded={expanded}>
     <div className={styles.compareControls}>
+      {outputSize && <span className={styles.compareResolution}>{t('photoTools.outputResolution', {
+        width: outputSize.width, height: outputSize.height,
+      })}</span>}
       <Button variant="secondary" size="sm" type="button" icon={<ArrowLeftRight size={16} />} onClick={() => setSideBySide(!sideBySide)}>
         {t(sideBySide ? 'portrait.sliderMode' : 'portrait.sideBySide')}
       </Button>
@@ -184,11 +191,11 @@ export function ImageComparison({ before, after, beforeLabel, afterLabel, result
           <span className={styles.beforeLabel}>{beforeLabel}</span>
         </div>
         <div className={styles.comparePane} data-comparison-pane data-zoomed={viewport.scale > 1} {...paneEvents}>
-          <img src={after} alt={afterLabel} draggable={false} style={pictureStyle} onLoad={(event) => readAspect(event.currentTarget)} />
+          <img src={after} alt={afterLabel} draggable={false} style={pictureStyle} onLoad={(event) => readOutputSize(event.currentTarget)} />
           <span className={styles.beforeLabel}>{afterLabel}</span>
         </div>
       </> : <div className={`${styles.comparePane} ${styles.splitPane}`} data-comparison-pane data-zoomed={viewport.scale > 1} {...paneEvents}>
-        <img src={after} alt={afterLabel} draggable={false} style={pictureStyle} onLoad={(event) => readAspect(event.currentTarget)} />
+        <img src={after} alt={afterLabel} draggable={false} style={pictureStyle} onLoad={(event) => readOutputSize(event.currentTarget)} />
         <div className={styles.beforeLayer}><img src={before} alt={beforeLabel} draggable={false} style={pictureStyle} /></div>
         <span className={styles.beforeLabel}>{beforeLabel}</span>
         <span className={styles.afterLabel}>{afterLabel}</span>

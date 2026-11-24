@@ -68,6 +68,33 @@ def test_edit_accepts_manual_and_larger_sample_sizes(edge):
     assert graph['368']['inputs']['ghs_dom'] == str(edge)
 
 
+@pytest.mark.parametrize('local', [False, True])
+def test_edit_can_resize_after_restoring_the_original_canvas(local):
+    masked = {**SOURCE, 'filename': 'clipspace-painted-output-test.png'} if local else None
+    reference = {**SOURCE, 'filename': 'reference.png'} if local else None
+    options = {'prompt': 'Warm the colors.', 'sample_edge': 1536, 'seed': 27}
+    original = workflow.build_edit_prompt(SOURCE, options, reference=reference, masked=masked)
+    resized = workflow.build_edit_prompt(SOURCE, {**options, 'output_edge': 900}, reference=reference, masked=masked)
+
+    assert '10000' not in original
+    assert original['370']['inputs']['images'] == ['252', 0]
+    assert resized['370']['inputs']['images'] == ['10000', 0]
+    resize = resized.pop('10000')
+    assert resize['class_type'] == original['250']['class_type']
+    assert resize['inputs']['图像'] == ['252', 0]
+    assert resize['inputs']['缩放方法'] == '按长边等比例'
+    assert resize['inputs']['将边缩放到'] == 900
+    assert resize['inputs']['整除数'] == 0
+    resized['370']['inputs']['images'] = ['252', 0]
+    assert resized == original
+
+
+@pytest.mark.parametrize('invalid', [255, 3841, 900.5])
+def test_edit_rejects_invalid_output_edges(invalid):
+    with pytest.raises(workflow.PortraitError):
+        workflow.build_edit_prompt(SOURCE, {'prompt': 'Warm the colors.', 'output_edge': invalid})
+
+
 @pytest.mark.parametrize(('pads', 'ratio', 'fill'), [
     ([-26, -25, 0, 640], '9:16', True),
     ([-25, -25, 0, 0], '自由比例', False),
@@ -328,6 +355,9 @@ def test_repair_preserves_native_comfy_sampling(monkeypatch, stage, custom, edge
     workflow.submit(stage, SOURCE, options, model_token='a' * 64, capture='capture.png')
     graph = submitted['prompt']
     assert graph['12']['inputs']['prompt'] == (custom or default)
+    assert '10004' not in graph
+    if stage == 'repair':
+        assert submitted['partial_execution_targets'] == ['20', '22']
     assert workflow.workflow_template()['12']['inputs']['prompt'] == default
     assert graph['12']['inputs']['image_1'] == ['6', 0]
     assert graph['12']['inputs']['image_2'] == ['3', 3]
@@ -352,6 +382,45 @@ def test_repair_preserves_native_comfy_sampling(monkeypatch, stage, custom, edge
     schedule_id, _ = graph['17']['inputs']['sigmas']
     sigmas = [float(sigma) for sigma in graph[schedule_id]['inputs']['sigmas'].split(',')]
     assert sigmas == [1.0, 0.978453, 0.954180, 0.926626, 0.895080, 0.845148, 0.704534, 0.414568, 0.15, 0.0]
+
+
+def test_repair_optimizer_uses_the_actual_reference_and_reports_the_sampled_prompt(app, client, monkeypatch):
+    submitted = {}
+    job_id = '00000000-0000-4000-8000-000000000001'
+    monkeypatch.setattr(portrait_progress, 'connect', lambda _url: None)
+    monkeypatch.setattr(workflow, 'comfy_json', lambda _path, body, **_: (
+        submitted.update(body) or {'prompt_id': job_id}
+    ))
+    source, model, capture = signed(app, ('source', SOURCE), ('model', {
+        'source': SOURCE['filename'], 'lens': 30, 'token': 'a' * 64,
+    }), ('capture', {'filename': 'capture.png', 'subfolder': 'portrait_sharp_views', 'type': 'temp'}))
+    response = client.post('/api/portrait/jobs/repair', json={
+        'source': source, 'model': model, 'capture': capture, 'repair_optimize': True,
+        'camera': {'width': 768, 'height': 512, 'w2c': [[int(a == b) for b in range(4)] for a in range(4)],
+                   'K': [[640, 0, 384], [0, 640, 256], [0, 0, 1]]},
+        'reference_crop': {'width': 768, 'height': 512, 'bounds': [0.1, 0.1, 0.9, 0.9]},
+    })
+    assert response.status_code == 202
+    graph = submitted['prompt']
+    condition = graph['12']['inputs']
+    optimizer = graph['10004']['inputs']
+    assert optimizer['输出语言'] == 'English'
+    assert optimizer['图像_01'] == condition['image_1'] == ['6', 0]
+    assert optimizer['图像_02'] == condition['image_2'] == ['10001', 0]
+    assert condition['prompt'] == graph['10006']['inputs']['anything'] == ['10005', 0]
+    assert graph['10005']['inputs']['string_a'] == ['10004', 0]
+    assert 'only if the face is visible in image 1' in graph['10005']['inputs']['string_b']
+    assert submitted['partial_execution_targets'] == ['20', '22', '10006']
+
+    final_prompt = 'Continue the wall into the gap.\n' + graph['10005']['inputs']['string_b']
+    monkeypatch.setattr(workflow, 'get_job', lambda _job_id: {'state': 'done', 'outputs': {
+        '20': {'images': [SOURCE]},
+        '22': {'portrait_detail': [{'target': SOURCE, 'source': SOURCE}]},
+        '10006': {'text': [final_prompt]},
+    }})
+    result = client.get(f"/api/portrait/jobs/{response.json['job']}")
+    assert result.status_code == 200
+    assert result.json['result']['prompt'] == final_prompt
 
 
 def test_repair_rejects_other_photos_model(app, client):
@@ -514,6 +583,49 @@ def test_lan_start_comfy_respects_generation_permission(app, client, monkeypatch
     access['allow_remote_generation'] = False
     assert client.post('/api/portrait/start', **remote).status_code == 403
     assert launches == [True]
+
+
+def test_start_comfy_launches_the_registered_instance_matching_the_configured_port(client, monkeypatch, tmp_path):
+    desktop = tmp_path / 'Comfy Desktop'
+    desktop.mkdir()
+    records = [
+        {'id': 'other', 'name': 'Other ComfyUI', 'sourceId': 'standalone', 'status': 'installed', 'launchArgs': '--port 8188'},
+        {'id': 'local', 'name': 'ComfyUI 本地', 'sourceId': 'standalone', 'status': 'installed', 'launchArgs': '--port 8000 --enable-manager'},
+        {'id': 'cloud', 'name': 'Comfy Cloud', 'sourceId': 'cloud', 'status': 'installed'},
+    ]
+    (desktop / 'installations.json').write_text(json.dumps(records), encoding='utf-8')
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+    monkeypatch.setenv('SHARP_PORTRAIT_COMFY_URL', 'http://127.0.0.1:8000')
+    monkeypatch.setattr(workflow, '_comfy_launch_deadline', None)
+    monkeypatch.setattr(workflow, 'find_comfy_desktop', lambda: tmp_path / 'Desktop.exe')
+    launches = []
+    monkeypatch.setattr(workflow.os, 'startfile', launches.append, raising=False)
+    def offline(*_args, **_kwargs):
+        raise workflow.PortraitError('portraitOffline', 'Unavailable', 503)
+
+    monkeypatch.setattr(workflow, 'comfy_json', offline)
+    workers = []
+
+    class Worker:
+        def __init__(self, *, target, args, daemon):
+            self.target, self.args, self.daemon = target, args, daemon
+
+        def start(self):
+            workers.append((self.target, self.args, self.daemon))
+
+    monkeypatch.setattr(workflow, 'Thread', Worker)
+    assert client.post('/api/portrait/start').status_code == 202
+    assert client.post('/api/portrait/start').status_code == 202
+    assert launches == [str(tmp_path / 'Desktop.exe')]
+    assert workers == [(workflow.launch_comfy_instance, ('ComfyUI 本地',), True)]
+
+    records[0]['launchArgs'] = '--port=8000'
+    (desktop / 'installations.json').write_text(json.dumps(records), encoding='utf-8')
+    monkeypatch.setattr(workflow, '_comfy_launch_deadline', None)
+    response = client.post('/api/portrait/start')
+    assert response.status_code == 409
+    assert response.json['code'] == 'portraitStartInstance'
+    assert len(launches) == 1
 
 
 def test_lan_requires_unlocked_generation_access(app, client, monkeypatch):

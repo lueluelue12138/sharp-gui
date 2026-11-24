@@ -12,6 +12,7 @@ export interface AngleWorkspace {
   photo?: PhotoItem;
   upload?: PortraitSourceUpload;
   uploadName?: string;
+  sourceKey?: string;
   queueState?: 'waiting' | 'submitted';
   initialDraft?: PortraitDraft;
 }
@@ -62,6 +63,7 @@ export interface PortraitDraft {
   edge?: number;
   repairReferenceEdge?: number;
   repairPrompt?: string;
+  repairOptimize?: boolean;
   matchCloseup?: boolean;
   seed?: number;
   strength?: number;
@@ -90,6 +92,7 @@ export interface ImageEditDraft {
   area?: 'local' | 'full';
   optimize?: boolean;
   edge?: number;
+  outputEdge?: number;
   seed?: string;
   result?: PortraitStageResults['extend'];
   layout?: OutpaintLayout;
@@ -131,12 +134,18 @@ function write(key: string, value: unknown) {
 export function readPortraitSession(): PortraitSession {
   const saved = read<PortraitSession>(sessionKey);
   if (!Array.isArray(saved?.workspaces) || !Array.isArray(saved.tasks)) return { workspaces: [], tasks: [], active: null };
+  const origins = new Map(saved.tasks.map(({ workspaceId, originId }) => [workspaceId, originId]));
   return {
     ...saved,
     workspaces: saved.workspaces.map((workspace) => {
-      if (workspace.queueState !== 'waiting') return workspace;
-      const pending = readPortraitDraft(workspace.id).pending;
-      return !pending || pending.job ? { ...workspace, queueState: 'submitted' } : workspace;
+      const needsSourceKey = !workspace.sourceKey && !workspace.photo;
+      const draft = needsSourceKey || workspace.queueState === 'waiting' ? readPortraitDraft(workspace.id) : undefined;
+      const origin = origins.get(workspace.id);
+      const sourceKey = draft?.source?.url ? `source:${draft.source.url}` : origin ? `workspace:${origin}` : undefined;
+      const restored = needsSourceKey && sourceKey ? { ...workspace, sourceKey } : workspace;
+      if (restored.queueState !== 'waiting') return restored;
+      const pending = draft?.pending;
+      return !pending || pending.job ? { ...restored, queueState: 'submitted' } : restored;
     }),
     tasks: saved.tasks.map((task) => {
       if (task.status !== 'queued' && task.status !== 'running') return task;
@@ -146,9 +155,13 @@ export function readPortraitSession(): PortraitSession {
   };
 }
 
+export function portraitSourceKey({ id, photo, sourceKey }: AngleWorkspace) {
+  return photo ? `media:${photo.id}` : sourceKey ?? `workspace:${id}`;
+}
+
 export function savePortraitSession(session: PortraitSession) {
-  const workspaces = session.workspaces.map(({ id, tool, photo, upload, uploadName, queueState }) => ({
-    id, tool, photo, uploadName: upload?.filename ?? uploadName, queueState,
+  const workspaces = session.workspaces.map(({ id, tool, photo, upload, uploadName, queueState, sourceKey }) => ({
+    id, tool, photo, uploadName: upload?.filename ?? uploadName, queueState, sourceKey,
   }));
   write(sessionKey, { ...session, workspaces });
 }

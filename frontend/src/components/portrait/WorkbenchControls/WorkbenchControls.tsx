@@ -32,19 +32,23 @@ export function Choice({ label, value, options, disabled, onChange }: {
     ariaLabel={label} disabled={disabled} onChange={onChange} menuClassName={styles.raisedMenu} /></div>;
 }
 
-export function PixelChoice({ label, value, values, disabled, alignment = 1, onChange }: {
+export function PixelChoice({ label, value, values, disabled, alignment = 1, originalLabel, onChange }: {
   label: string; value: number; values: number[]; disabled?: boolean; alignment?: number; onChange: (value: number) => void;
+  originalLabel?: string;
 }) {
   const { t } = useTranslation();
   const [custom, setCustom] = useState(false);
   const edges = [...new Set([...values, ...largeEdges])].sort((a, b) => a - b);
-  const editingSize = custom || !edges.includes(value);
+  const original = originalLabel !== undefined && value === 0;
+  const editingSize = custom || (!original && !edges.includes(value));
   const options = edges.map((edge) => ({ value: String(edge), label: `${edge} px` }));
+  if (originalLabel !== undefined) options.unshift({ value: '0', label: originalLabel });
   options.push({ value: 'custom', label: t('portrait.customSize') });
   return <div className={styles.pixelChoice}>
     <Choice label={label} value={editingSize ? 'custom' : value} disabled={disabled} onChange={(next) => {
       setCustom(next === 'custom');
       if (next !== 'custom') onChange(Number(next));
+      else if (original) onChange(edges.find((edge) => edge >= 1024) ?? edges[0]);
     }} options={options} />
     {editingSize && <NumberField label={t('portrait.pixels')} value={value} min={edges[0]} max={edges[edges.length - 1]}
       step={alignment} disabled={disabled} onChange={(next) => onChange(Math.round(next / alignment) * alignment)} />}

@@ -93,7 +93,7 @@
   },
   "12": {
     "inputs": {
-      "prompt": "修补图 1 的缺失区域和模糊边缘。保持图 1 的视角、构图、透视和主体朝向。图 2 仅作为当前机位可见部分的细节参考。沿图 1 的透视自然补全背景。",
+      "prompt": "Complete the missing areas and smeared edges in image 1. Match the camera viewpoint, framing, perspective and body orientation of image 1. Use image 2 as the detail reference for the same person's face, hair, hands, clothing and accessories. Continue the background along the perspective in image 1.",
       "start_from_image": false,
       "clip": [
         "8",

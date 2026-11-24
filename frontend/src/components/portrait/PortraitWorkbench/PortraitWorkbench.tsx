@@ -28,7 +28,7 @@ const outputEdges = [512, 768, 1024, 1280, 1536, 1920, 2048, 2304, 2560];
 const nodeNames: Record<string, string> = {
   '2': 'reconstruct', '3': 'framing', '6': 'fill', '7': 'loadModel', '8': 'loadModel', '9': 'loadModel',
   '17': 'sampling', '18': 'decode', '20': 'save', '22': 'prepareDetail', '206': 'prepareDetail', '207': 'prepareDetail',
-  '208': 'sampling', '217': 'decode', '31': 'save', '10000': 'save',
+  '208': 'sampling', '217': 'decode', '31': 'save', '10000': 'save', '10004': 'optimizeRepair',
 };
 type Stage = PortraitTaskStage | 'release';
 
@@ -88,6 +88,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   const [edge, setEdge] = useState(saved.edge ?? 1920);
   const [repairReferenceEdge, setRepairReferenceEdge] = useState(saved.repairReferenceEdge ?? 1920);
   const [repairPrompt, setRepairPrompt] = useState(saved.repairPrompt);
+  const [repairOptimize, setRepairOptimize] = useState(saved.repairOptimize ?? false);
   const [matchCloseup, setMatchCloseup] = useState(saved.matchCloseup ?? true);
   const [seed, setSeed] = useState(saved.seed ?? 1);
   const [randomSeed, setRandomSeed] = useState(saved.randomSeed ?? (saved.seed === undefined || saved.seed === 1));
@@ -127,7 +128,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   const resume = useRef<() => void>(null);
   snapshot.current = {
     source, model, base, refined, reference, crop, frames, view, page, maskTab, lens, ratio, edge, repairReferenceEdge,
-    repairPrompt, matchCloseup, seed, strength, referenceEdge, sampleEdge, expand, feather, color, optimize, prompt, releaseOnRepair, error,
+    repairPrompt, repairOptimize, matchCloseup, seed, strength, referenceEdge, sampleEdge, expand, feather, color, optimize, prompt, releaseOnRepair, error,
     previewReleased, lastCapture: lastCapture.current, batchCount, randomSeed,
   };
   function persist(patch: Partial<PortraitDraft> = {}) {
@@ -140,6 +141,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
   const clearedRevision = useRef(previewCacheRevision);
   const busy = Boolean(stage);
   const locked = busy || !canGenerate || !available?.ready;
+  const repairOptimizerMissing = repairOptimize ? available?.repair_optimizer_missing ?? [] : [];
   const sourceDrop = useImageDrop(([file]) => onChoosePhoto(file), { enabled: !locked });
   const referenceDrop = useImageDrop(([file]) => pickReference(file), { enabled: !locked });
 
@@ -422,7 +424,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
       const { referenceCrop, ...target } = options;
       return { draft: { ...inputDraft, lastCapture: capture, previewReleased: previewReleased || releaseOnRepair },
         options: { ...target, seed: repairSeed, repair_reference_edge: repairReferenceEdge, repair_prompt: repairPrompt,
-          reference_crop: matchCloseup ? referenceCrop : undefined } };
+          repair_optimize: repairOptimize, reference_crop: matchCloseup ? referenceCrop : undefined } };
     });
   }
 
@@ -613,7 +615,7 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
           released={previewReleased} onRelease={setPreviewReleased} disabled={busy || capturing} outputLabel={outputLabel}
           action={<div className={styles.batchActions}>
             <BatchCount value={batchCount} onChange={setBatchCount} />
-            <Button type="button" disabled={!canGenerate || !available?.ready || (busy && stage !== 'repair') || !view || !canCapture}
+            <Button type="button" disabled={!canGenerate || !available?.ready || (busy && stage !== 'repair') || !view || !canCapture || repairOptimizerMissing.length > 0}
               onClick={repair} icon={<Sparkles size={17} />}>{t('portrait.repair')}</Button>
             <BatchNotice preparing={preparing} queued={queued} />
           </div>}
@@ -627,6 +629,10 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
               disabled={busy} onChange={(value) => setSeed(Math.floor(value))} />}
             <ToggleField label={t('portrait.releaseOnRepair')} checked={releaseOnRepair} disabled={busy} onChange={setReleaseOnRepair} />
             <div className={styles.repairPrompt}>
+              <ToggleField label={t('portrait.optimizeRepairPrompt')} checked={repairOptimize} disabled={locked} onChange={setRepairOptimize} />
+              {repairOptimizerMissing.length > 0 && <div role="alert" className={styles.banner}>
+                {t('portrait.repairOptimizerMissing', { models: repairOptimizerMissing.join('、') })}
+              </div>}
               <label className={styles.prompt}>{t('portrait.repairPrompt')}
                 <textarea value={repairPrompt ?? available?.repair_prompt ?? ''} maxLength={4000} disabled={locked}
                   placeholder={t('portrait.repairPromptDefault')}
@@ -673,6 +679,9 @@ export function PortraitWorkbench({ workspaceId, active, canGenerate, galleryPho
             beforeLabel={t(originalComparison ? 'portrait.originalAngle' : 'portrait.rough')} afterLabel={t('portrait.repaired')}
             resultActions={<PhotoResultActions image={base.image} tool="reframe" canUseResult={canGenerate}
               onContinue={(tool, image) => onContinue(tool, image, sourceName)} />} />
+          {base.prompt && <details className={styles.finalPrompt}>
+            <summary>{t('photoTools.finalPrompt')}</summary><p>{base.prompt}</p>
+          </details>}
         </section>
         <section className={styles.refineWorkspace} hidden={page !== 'refine'} aria-label={t('portrait.details')}>
           <div className={styles.refineCanvas}>

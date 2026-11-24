@@ -40,7 +40,7 @@ import { useModelSourceLinks } from '@/hooks/useModelSources';
 import { SourceModelPanel } from '@/components/photoGallery/SourceModelPanel';
 import { ImageEditWorkbench } from '@/components/photoGallery/ImageEditWorkbench';
 import { useAppStore } from '@/store';
-import { clearPortraitSession, newPortraitId, readPortraitSession, removePortraitDraft, savePortraitDraft, savePortraitSession } from '@/store/portraitSession';
+import { clearPortraitSession, newPortraitId, portraitSourceKey, readPortraitSession, removePortraitDraft, savePortraitDraft, savePortraitSession } from '@/store/portraitSession';
 import type { AngleWorkspace, EnqueuePortraitBatch, PortraitWorkspaceActions } from '@/store/portraitSession';
 import { localizeModelAssetError, resolveModelAssetSource } from '@/utils';
 import { detectImportedModelOrientation } from '@/utils/importedModelPreview';
@@ -325,7 +325,7 @@ function App() {
           ...(job.camera && job.model ? restoreCaptureView(job.camera, job.model) : {}),
           pending: { stage: job.stage, startedAt: job.started_at, job: job.job },
         });
-        return { id, uploadName: t('portrait.recoveredPhoto', { number: index + 1 }) };
+        return { id, sourceKey: `source:${job.source.url}`, uploadName: t('portrait.recoveredPhoto', { number: index + 1 }) };
       });
       if (workspaces.length) setAngleWorkspaces((previous) => [...previous, ...workspaces]);
       setLegacyRecoveryDone(true);
@@ -396,7 +396,11 @@ function App() {
         tasks.push({ workspaceId: id, originId, filename, stage, tool, status: 'queued', startedAt,
           batch: count > 1 ? { index: index + 1, count } : undefined });
       }
-      setAngleWorkspaces((previous) => [...previous, ...workspaces]);
+      setAngleWorkspaces((previous) => {
+        const origin = previous.find(({ id }) => id === originId);
+        const sourceKey = origin ? portraitSourceKey(origin) : `workspace:${originId}`;
+        return [...previous, ...workspaces.map((workspace) => ({ ...workspace, sourceKey }))];
+      });
       setAngleQueue((previous) => ({ ...previous, tasks: [...tasks, ...previous.tasks] }));
     }).finally(() => {
       batchPreparations.current.delete(controller);
@@ -435,6 +439,34 @@ function App() {
     }
   }, [angleTasks, removeAngle]);
 
+  const closeAngleGroup = useCallback(async (ids: string[]) => {
+    const selected = new Set(ids);
+    const sources = new Set(angleWorkspaces.filter((workspace) => selected.has(workspace.id)).map(portraitSourceKey));
+    const workspaces = angleWorkspaces.filter((workspace) => sources.has(portraitSourceKey(workspace)));
+    const closing = new Set(workspaces.map((workspace) => workspace.id));
+    for (const [controller, originId] of batchPreparations.current) {
+      if (closing.has(originId)) controller.abort();
+    }
+    const running: Array<{ id: string; actions?: PortraitWorkspaceActions }> = [];
+    for (const workspace of workspaces) {
+      const task = angleTasks.find((item) => item.workspaceId === workspace.id);
+      const waiting = workspace.queueState === 'waiting' && workspace.id !== nextPortraitSubmission;
+      if (waiting || !task || (task.status !== 'running' && task.status !== 'queued')) {
+        removeAngle(workspace.id);
+      } else {
+        running.push({ id: workspace.id, actions: angleActions.current.get(workspace.id) });
+      }
+    }
+    // 先移除尚未提交的任务，避免取消当前任务时继续启动同组的下一张。
+    const results = await Promise.allSettled(running.map(async ({ id, actions }) => {
+      if (!actions) throw new Error(t('portrait.taskQueue.cancelError'));
+      await actions.cancel();
+      removeAngle(id);
+    }));
+    const failed = results.find((result) => result.status === 'rejected');
+    if (failed?.status === 'rejected') throw failed.reason;
+  }, [angleTasks, angleWorkspaces, nextPortraitSubmission, removeAngle, t]);
+
   async function cancelAngleTask() {
     if (!angleCancellation || cancellingAngle) return;
     const id = angleCancellation.task.workspaceId;
@@ -471,7 +503,7 @@ function App() {
     selectAngle(id);
   }, [selectAngle]);
 
-  const openToolSource = useCallback((tool: PhotoTool, filename: string, load: (signal: AbortSignal) => Promise<PortraitUpload>) => {
+  const openToolSource = useCallback((tool: PhotoTool, filename: string, load: (signal: AbortSignal) => Promise<PortraitUpload>, sourceKey?: string) => {
     const id = `upload:${newPortraitId()}`;
     const startedAt = Date.now();
     const controller = new AbortController();
@@ -479,7 +511,7 @@ function App() {
     // The receiving workbench handles the error once it mounts.
     void result.catch(() => {});
     setAngleWorkspaces((previous) => [...previous, {
-      id, tool, upload: { filename, startedAt, result, abort: () => controller.abort() },
+      id, tool, sourceKey: sourceKey ?? `workspace:${id}`, upload: { filename, startedAt, result, abort: () => controller.abort() },
     }]);
     selectAngle(id);
   }, [selectAngle]);
@@ -490,7 +522,7 @@ function App() {
     openToolSource(tool, file.name, (signal) => uploadPortrait(`${tool}-source`, file, signal));
   }, [openToolSource]);
   const openToolResult = useCallback((tool: PhotoTool, image: string, name?: string) => {
-    openToolSource(tool, name ?? t('photoTools.result'), (signal) => openPortraitResult(image, signal));
+    openToolSource(tool, name ?? t('photoTools.result'), (signal) => openPortraitResult(image, signal), `result:${image}`);
   }, [openToolSource, t]);
 
   const replaceTemporaryModelPreview = useCallback((next: TemporaryModelPreview | null) => {
@@ -923,9 +955,11 @@ function App() {
       <Sidebar
         onOpenGallery={openPhotoGallery}
         angleTasks={angleTasks}
+        portraitSourceKeys={new Map(angleWorkspaces.map((workspace) => [workspace.id, portraitSourceKey(workspace)]))}
         activeAngleId={angleActive ? activeAngleId : null}
         onOpenAngle={selectAngle}
         onCloseAngle={requestCloseAngle}
+        onCloseAngleGroup={closeAngleGroup}
         canGenerateModels={canGenerateModels}
         onGenerationBlocked={showGenerationPermissionError}
         onUpload={handleUpload}

@@ -1,10 +1,9 @@
 /* Task Queue Container */
 .container {
-    padding: 16px 12px 4px 12px;
+    padding: 4px 12px;
     border-bottom: 1px solid rgba(0, 0, 0, 0.05);
     background: transparent;
     max-height: 220px;
-    overflow-y: auto;
     display: flex;
     flex-direction: column;
 }
@@ -15,29 +14,50 @@
     }
 }
 
-/* Custom scrollbar for queue */
-.container::-webkit-scrollbar {
+.queueContents {
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.queueContents::-webkit-scrollbar {
     width: 4px;
     background: transparent;
 }
-.container::-webkit-scrollbar-thumb {
+.queueContents::-webkit-scrollbar-thumb {
     background: rgba(0, 0, 0, 0.1);
     border-radius: 4px;
 }
 @media (prefers-color-scheme: dark) {
-    .container::-webkit-scrollbar-thumb {
+    .queueContents::-webkit-scrollbar-thumb {
         background: rgba(255, 255, 255, 0.2);
     }
 }
 
 .sectionTitle {
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    gap: 8px;
+    width: 100%;
+    min-height: 34px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    padding: 0 4px;
     font-size: 11px;
     color: var(--text-muted);
     font-weight: 600;
     letter-spacing: 0.5px;
-    margin-bottom: 10px;
-    padding-left: 2px;
     text-transform: uppercase;
+    text-align: left;
+    cursor: pointer;
+}
+.sectionTitle:hover { color: var(--text-primary); }
+.sectionTitle:focus-visible { outline: 2px solid var(--editor-accent); outline-offset: -2px; }
+.queueCount { margin-inline-start: auto; font-variant-numeric: tabular-nums; }
+@media (pointer: coarse) {
+    .sectionTitle { min-height: 44px; }
 }
 
 /* Queue Item */
@@ -65,8 +85,6 @@
     transform: translateY(-1px);
 }
 
-.angleTask { width: 100%; gap: 2px; padding: 3px 4px; }
-.angleTask[data-selected='true'] { border-color: var(--editor-accent); }
 .angleOpen, .angleClose {
     display: flex;
     align-items: center;
@@ -78,13 +96,13 @@
 .angleOpen { flex: 1; min-width: 0; gap: 7px; padding: 7px 4px; text-align: left; font: inherit; }
 .angleClose { flex: none; width: 32px; height: 40px; justify-content: center; color: var(--text-muted); }
 .angleClose:hover { color: var(--danger-color); background: var(--glass-bg-light); }
+.angleClose:disabled, .cancelBtn:disabled { cursor: wait; opacity: .5; }
 .angleOpen:focus-visible, .angleClose:focus-visible { outline: 2px solid var(--editor-accent); }
 .angleStage, .angleStatus { font-size: 10px; color: var(--text-secondary); }
 .angleStage { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .angleStatus { display: grid; gap: 2px; text-align: right; white-space: nowrap; }
 .angleStatus strong { color: var(--editor-accent); font-variant-numeric: tabular-nums; }
 .angleChevron { flex: none; color: var(--text-muted); }
-.angleTask .progressFill { display: block; }
 
 @media (prefers-color-scheme: dark) {
     .queueItem {
@@ -97,6 +115,36 @@
         border-color: rgba(255, 255, 255, 0.15);
     }
 }
+
+.imageGroup {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0;
+    padding: 3px 5px;
+}
+.imageGroup:hover { transform: none; }
+.imageGroup[data-selected='true'] { border-color: var(--editor-accent); }
+.groupHeader { display: flex; align-items: center; gap: 2px; min-width: 0; }
+.groupToggle { width: 100%; min-height: 44px; }
+.groupChevron { flex: none; color: var(--text-muted); transition: transform var(--transition-normal); }
+.groupToggle[aria-expanded='true'] .groupChevron,
+.sectionTitle[aria-expanded='true'] .groupChevron { transform: rotate(90deg); }
+.groupTasks:not([hidden]) {
+    display: grid;
+    gap: 2px;
+    padding-block: 3px;
+    border-top: 1px solid var(--glass-border);
+}
+.taskRow {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    min-width: 0;
+    border-radius: var(--radius-sm);
+}
+.taskRow[data-selected='true'] { background: color-mix(in srgb, var(--editor-accent) 10%, transparent); }
+.modelTaskRow { gap: 7px; padding: 7px 4px; }
+.imageGroup .progressFill { display: block; }
 
 .statusIcon {
     width: 20px;

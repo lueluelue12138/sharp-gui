@@ -105,11 +105,15 @@
 
 .compareCard, .refineCanvas, .refineControls { min-width: 0; border: 1px solid var(--angle-line); background: var(--angle-panel); border-radius: var(--radius-xl); padding: clamp(10px, 1.4vw, 18px); }
 .compareCard { display: grid; gap: 12px; }
+.finalPrompt { min-width: 0; padding: 0 10px; border: 1px solid var(--angle-line); border-radius: var(--radius-md); }
+.finalPrompt > summary { padding: 10px 0; cursor: pointer; font-size: .85rem; }
+.finalPrompt > p { margin: 0 0 10px; color: var(--text-secondary); font-size: .85rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 .resultHeader { flex-wrap: wrap; }
 .comparison { display: grid; gap: 10px; --comparison-max-height: min(68dvh, 760px); }
 .comparisonExpanded { --comparison-max-height: calc(100dvh - 112px); padding: 12px; align-content: start; border-radius: var(--radius-xl); }
 .compareControls, .compareZoom { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; }
 .compareControls { justify-content: flex-end; }
+.compareResolution { margin-inline-end: auto; color: var(--text-secondary); font-size: .8rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .compareZoom { gap: 2px; border-radius: var(--radius-md); padding: 3px; background: var(--angle-well); }
 .compareZoom button:nth-child(2) { min-width: 55px; font-variant-numeric: tabular-nums; }
 .compareStage, .compareGrid { min-width: 0; }
