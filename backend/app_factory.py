@@ -1,4 +1,9 @@
 from uuid import uuid4
+from pathlib import Path
+
+from application_dependencies import activate
+
+activate(Path(__file__).resolve().parents[1])
 
 from flask import Flask, g, jsonify
 
@@ -14,6 +19,7 @@ from backend.paths import build_path_context, ensure_runtime_directories, instal
 from backend.routes import register_routes
 from backend.security.hooks import register_security_hooks
 from backend.services import video_reconstruction
+from backend.services.portrait_workflow import has_active_jobs
 from backend.services.model_gallery import generate_thumbnail
 from backend.services.photo_gallery import migrate_photo_gallery_roots_config
 from backend.services.self_update import SelfUpdateManager
@@ -57,6 +63,7 @@ def create_app(start_background_workers=False):
         base_dir=runtime.BASE_DIR,
         task_manager=task_manager,
         restart_callback=stop_process_for_update_later,
+        active_work_callback=has_active_jobs,
     )
 
     register_security_hooks(app)

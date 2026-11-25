@@ -872,6 +872,21 @@ def find_comfy_prompt(prompt_id):
     return history['prompt'] if history else None
 
 
+def has_active_jobs():
+    """仅在显式更新前检查，普通状态读取不查询外部 ComfyUI。"""
+    if _comfy_submit_lock.locked() or portrait_progress.has_active():
+        return True
+    try:
+        queue = comfy_json('/queue', timeout=2)
+    except PortraitError:
+        return False
+    for key in ('queue_running', 'queue_pending'):
+        for item in queue.get(key, []):
+            if len(item) >= 4 and isinstance(item[3], dict) and item[3].get('sharp_gui_portrait_request'):
+                return True
+    return False
+
+
 def cancel_job(prompt_id, source_filename, *, unconfirmed=False):
     """只取消此工作台的任务，并阻止仍在途中的同一提交重新入队。"""
     pattern = _request_id_pattern if unconfirmed else r'[a-f0-9-]{36}'

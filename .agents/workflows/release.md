@@ -105,7 +105,7 @@ git push origin v1.3.0-beta.1
 - `version.txt` 是正式 Release 基线；tag 后的 `main` hotfix 通过 exact SHA 与 commits-ahead 展示，不要把合成版本写回 `version.txt`。
 - 更改更新协议、持久化状态或目标验证方式，且旧 updater 无法安全理解时，递增 `updateProtocolRevision`。
 - 代码需要不同嵌入式 Python、PyTorch/CUDA、视频重建环境、COLMAP/ffmpeg 或其它便携运行时才能工作时，必须在同一个提交递增 `portableRuntimeRevision` 并发布新完整包。不得让 Latest 先进入 `main` 再补 revision。
-- 每个 Stable/Latest 目标都必须包含有效 `update-manifest.json`、匹配的 `supportedPortableTargets` 和当前 `frontend/dist/`。runtime revision 不一致时的唯一自动行为是拒绝代码更新并提示完整包。
+- 每个 Stable/Latest 目标都必须包含有效 `update-manifest.json`、匹配的 `supportedPortableTargets` 和当前 `frontend/dist/`。依据显式基础兼容声明判断旧包，小依赖按精确锁自动准备；无法理解新协议的受管旧包提供持久轻量升级入口。
 
 ### Windows 完整便携包
 
@@ -116,7 +116,7 @@ git push origin v1.3.0-beta.1
 - 固定使用官方标准 x64 MinGit `v2.55.0.windows.3` 的 `MinGit-2.55.0.3-64-bit.zip`，构建前验证 SHA256 `f48e2d2dc74a24454adc6d8fd0ac25bf9c2386f19cfb06202b9465aaad4f9f05`。不得改用实验性 BusyBox asset、浮动 latest URL 或未经校验缓存。
 - 完整复制 MinGit 到 `.sharp-gui-tools/git/`，保留根 `LICENSE.txt`、`mingw64/share/licenses/`、`usr/share/licenses/` 及 archive 中其它 license/notice；同时打包根 [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md)。更新 MinGit pin 时，版本、asset、digest、release/source tag、许可清单和 notice 必须同批更新。
 - `portable-package.json` 至少记录 exact Sharp GUI commit、正式 Release 基线、canonical repo、package target、portable/update protocol revision、MinGit version/digest/相对 executable；不得记录凭据或构建机绝对路径。
-- 发布说明继续提供每个便携 ZIP 的 SHA256 和外部网盘入口，并明确 bootstrap 边界、Stable/Latest 风险、保留范围、自动 rollback 以及 runtime revision 不一致需完整包。
+- 发布说明继续提供每个便携包及轻量升级工具的 SHA256，明确实际已验证的基线、Stable/Latest 风险、保留范围和失败恢复；只有真实基础环境不兼容才要求新完整包。轻量工具由 CI 从 exact tag 的 helper 源码生成。
 
 ### 发布验证
 
@@ -154,7 +154,7 @@ Windows 使用等价的 `update.bat` 参数。CLI 只支持 `--channel`、`--che
 - [ ] 无 ESLint 错误
 - [ ] Git 工作区干净（含未跟踪文件，`release.sh` / `release.bat` 会强制检查）
 - [ ] `version.txt` 与将要打的 tag 完全一致，且由独立的 `chore(release)` 提交同步
-- [ ] 本次是否改动运行时敏感文件（requirements / 安装器 / 便携构建脚本）？若是，`portableRuntimeRevision` 已递增且已计划发布新完整包
+- [ ] 敏感变更已分类，应用依赖锁与连续更新/恢复验证齐全；基础环境确实变化时提供正确兼容声明或新完整包，没有随意提高数字
 - [ ] 没有任何用户数据或运行时路径被误纳入版本管理（`git status --porcelain --untracked-files=all` 复核）
 - [ ] 正式 Release 可被 Stable 解析；prerelease 不会成为 Stable
 - [ ] 便携计划输出的 MinGit version/asset/SHA256 正确，完整 license trees 与 `THIRD_PARTY_NOTICES.md` 已进入 staging

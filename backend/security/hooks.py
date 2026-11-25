@@ -59,6 +59,17 @@ def register_security_hooks(app):
 
         return None
 
+    @app.before_request
+    def protect_work_during_update():
+        update_manager = app.config.get('UPDATE_MANAGER')
+        if (request.method == 'POST' and update_manager
+                and getattr(update_manager, 'is_applying', lambda: False)()
+                and (request.path in {'/api/generate', '/api/photo-conversions', '/api/convert-all',
+                                      '/api/video-reconstructions', '/api/video-reconstructions/upload'}
+                     or (request.path.startswith('/api/portrait/jobs/') and request.path != '/api/portrait/jobs/cancel'))):
+            return make_auth_error('Application update in progress.', 409, 'update_in_progress')
+        return None
+
     @app.after_request
     def after_request(response):
         if getattr(g, 'configuration_error', False):

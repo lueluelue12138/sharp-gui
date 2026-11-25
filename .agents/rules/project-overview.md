@@ -156,7 +156,8 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 | `.sharp-gui-tools/colmap/` | 原生 COLMAP 程序、DLL 和插件 | 不依赖视频 Python 虚拟环境；不跟 workspace 切换 |
 | `ml-sharp/` | Apple ML-Sharp 引擎目录 | 上游依赖目录，不要修改内部文件 |
 | `update-manifest.json` | 更新协议、portable runtime revision、默认分支、最低 Git 与受支持包目标 | **受 Git 跟踪**；每个可更新目标必须包含，不得加入 `.gitignore` |
-| `.sharp-gui-update/` | 原子 `state.json`、最近检查目标、操作锁和有界诊断 | 安装级状态；不随 workspace 切换，代码更新/失败恢复期间保留，空闲时删除会丢失检查与操作记录 |
+| `.sharp-gui-update/` | 原子 `state.json`、最近检查目标、操作锁、有界诊断及不可变应用依赖集合 | 安装级状态；不随 workspace 切换，更新/失败恢复期间保留；删除依赖集合会导致应用无法加载锁定依赖 |
+| `.sharp-gui-upgrade/` | 正式 Release 轻量升级工具的固定 helper 与完整性清单 | 解压到安装根；忽略提交，禁止通过 `/files/` 暴露；不属于 workspace |
 | `.sharp-gui-tools/` | 固定 MinGit 与 `.sharp-gui-tools/brush/ooo-v1.0.0/` 的 Brush CLI | 工具安装器与便携包构建器拥有；保留来源、哈希和许可；代码更新/失败恢复不得替换或删除，不修改系统 PATH |
 | `.portable-build/`、`.portable-smoke/`、`.portable-venvs/`、`portable-dist/` | 本地便携包构建缓存和产物 | 构建输出，不属于源码 |
 
@@ -181,7 +182,7 @@ Sharp GUI 没有数据库，所有持久化状态都落在文件系统。新增�
 - 改动更新状态格式、目标解析或事务协议且旧 updater 无法安全处理时，必须递增 `updateProtocolRevision`，并提供相应迁移或完整包边界。
 - 只要代码需要不同的嵌入式 Python、PyTorch/CUDA、视频重建环境、Brush CLI、COLMAP/ffmpeg 或其它不可由代码 checkout 安全替换的便携运行时，就必须在**同一个提交**递增 `portableRuntimeRevision`。不得仅凭 changed-files 推断兼容。
 - 引入固定 Brush CLI 将 `portableRuntimeRevision` 从 1 递增为 2；本机修复阶段不等于发布完成。发布此运行时变更前必须构建并验证新的完整便携包，旧包不能通过代码更新补齐依赖。
-- installed/target `portableRuntimeRevision` 不一致、清单缺失/非法或目标缺少已构建前端时，代码更新必须在 checkout 前拒绝并要求完整便携包；严禁静默修改大型运行时来绕过 revision gate。
+- 基础运行环境必须符合目标 `portableCompatibility` 的显式基线和能力声明；历史目标未声明新规则时保留旧兼容判断。清单缺失/非法、基础能力不符或缺前端时在 checkout 前拒绝；应用小依赖走精确锁与隔离事务，不以数字不相等自动要求完整包。
 - Stable 只指受信任仓库中版本号最高的正式 `vX.Y.Z` 标签；Latest 只指该仓库 `main` 的精确提交。两者都只能应用后端最近解析并验证过的目标 SHA。
 
 ## 关键依赖版本

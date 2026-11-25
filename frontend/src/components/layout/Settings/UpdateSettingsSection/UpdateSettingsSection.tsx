@@ -45,6 +45,7 @@ const FAILURE_PHASES = new Set(['cancelled', 'failed']);
 
 // Mirrors the phases produced by backend/services/self_update.py.
 const PHASE_KEYS: Record<string, string> = {
+  preparing_dependencies: 'updatePhasePreparingDependencies',
   queued: 'updatePhaseQueued',
   waiting_for_server: 'updatePhaseWaitingForServer',
   fetching: 'updatePhaseFetching',
@@ -77,9 +78,16 @@ const INSTALLATION_KEYS: Record<string, string> = {
 // Every stable code the backend can return through /api/updates/*. Keep this in
 // sync with the UpdateError codes in backend/services/self_update.py.
 const CODE_KEYS: Record<string, string> = {
+  update_base_environment_incompatible: 'updateBaseEnvironmentIncompatible',
+  update_dependencies_not_ready: 'updateDependenciesNotReady',
+  update_dependency_lock_invalid: 'updateDependencyLockInvalid',
+  update_dependency_integrity_failed: 'updateDependencyIntegrityFailed',
+  update_dependency_download_failed: 'updateDependencyDownloadFailed',
+  update_dependency_prepare_failed: 'updateDependencyPrepareFailed',
+  update_bootstrap_tool_invalid: 'updateBootstrapToolInvalid',
   update_already_current: 'updateErrorAlreadyCurrent',
   update_apply_failed: 'updateErrorApplyFailed',
-  update_bootstrap_required: 'updateErrorInstallationUnsupported',
+  update_bootstrap_required: 'updateLightweightUpgradeRequired',
   update_channel_invalid: 'updateErrorRequestInvalid',
   update_check_failed: 'updateErrorCheckFailed',
   update_developer_branch: 'updateReasonNonDefaultBranch',
@@ -100,7 +108,7 @@ const CODE_KEYS: Record<string, string> = {
   update_not_supported: 'updateErrorInstallationUnsupported',
   update_operation_invalid: 'updateErrorOperationInvalid',
   update_owner_required: 'updateReasonOwnerRequired',
-  update_protocol_incompatible: 'updateCompatibilityProtocolMismatch',
+  update_protocol_incompatible: 'updateLightweightUpgradeRequired',
   update_recovery_required: 'updateErrorRecoveryRequired',
   update_release_invalid: 'updateErrorTargetInvalid',
   update_request_invalid: 'updateErrorRequestInvalid',
@@ -532,6 +540,12 @@ export function UpdateSettingsSection({ active, isOwner }: UpdateSettingsSection
                     <dt>{t('updateRelation')}</dt>
                     <dd>{t(relationKey)}</dd>
                   </div>
+                  {Boolean(candidate.dependency_count) && (
+                    <div>
+                      <dt>{t('updateDependencyCount')}</dt>
+                      <dd>{t('updateDependencyPreparationHint', { count: candidate.dependency_count })}</dd>
+                    </div>
+                  )}
                 </dl>
                 {!candidate.update_available && candidate.compatible && (
                   <p className={styles.upToDate}>{t('updateUpToDate')}</p>

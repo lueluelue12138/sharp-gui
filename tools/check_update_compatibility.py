@@ -11,6 +11,15 @@ from pathlib import Path, PurePosixPath
 
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+import application_dependencies as app_dependencies
+
+APPLICATION_INTEGRATION_PATHS = {
+    'install.bat', 'install.sh', 'tools/build_portable_package.ps1',
+    'tools/build_portable_release.ps1',
+}
+LAYOUT_PATHS = {'tools/build_portable_package.ps1', 'tools/build_portable_release.ps1',
+                'tools/trim_portable_runtime.py'}
 
 RUNTIME_SENSITIVE_FILES = {
     "build_portable_release.bat",
@@ -82,6 +91,38 @@ def check_runtime_revision(
             "portableRuntimeRevision must not decrease "
             f"({base_revision} -> {head_revision})"
         )
+    previous_protocol = base_manifest.get('updateProtocolRevision', 1)
+    next_protocol = head_manifest.get('updateProtocolRevision', 1)
+    if previous_protocol != next_protocol:
+        coverage = head_manifest.get('bootstrapSupport') or {}
+        if (not isinstance(coverage, dict) or coverage.get('toProtocol') != next_protocol
+                or previous_protocol not in coverage.get('fromProtocols', [])):
+            raise CompatibilityGuardError('Update protocol change requires a persistent tested bootstrap path')
+    classes = head_manifest.get('updateChangeClasses')
+    if classes is not None:
+        if not isinstance(classes, dict) or set(classes) - {'applicationDependencies', 'packageLayout'}:
+            raise CompatibilityGuardError('Invalid updateChangeClasses classification')
+        application = classes.get('applicationDependencies', [])
+        layout = classes.get('packageLayout', [])
+        if (not isinstance(application, list) or not isinstance(layout, list)
+                or not all(isinstance(path, str) for path in application + layout)
+                or set(application) - APPLICATION_INTEGRATION_PATHS or set(layout) - LAYOUT_PATHS
+                or set(application) & set(layout)):
+            raise CompatibilityGuardError('Invalid or unclassified base-runtime input')
+        if application:
+            try:
+                app_dependencies.descriptor(head_manifest)
+                if not head_manifest.get('applicationDependencies') or not head_manifest.get('portableCompatibility'):
+                    raise CompatibilityGuardError('Application dependency integration requires a lock and base compatibility')
+            except app_dependencies.DependencyError as exc:
+                raise CompatibilityGuardError(str(exc)) from exc
+        if layout and not head_manifest.get('layoutCompatibilityEvidence'):
+            raise CompatibilityGuardError('Layout changes require retained-capability evidence')
+        unclassified = set(sensitive_paths) - set(application) - set(layout)
+        if unclassified and head_revision <= base_revision:
+            raise CompatibilityGuardError('Unclassified runtime-sensitive changes: ' + ', '.join(sorted(unclassified)))
+        if not unclassified:
+            return sensitive_paths, base_revision, head_revision
     if sensitive_paths and head_revision <= base_revision:
         joined = "\n".join(f"  - {path}" for path in sensitive_paths)
         raise CompatibilityGuardError(
@@ -158,6 +199,19 @@ def main() -> int:
     args = parse_args()
     try:
         head_manifest = manifest_at(args.head, required=True)
+        dependency = head_manifest.get('applicationDependencies')
+        if dependency:
+            try:
+                app_dependencies.descriptor(head_manifest)
+                lock_result = run_git('show', f"{args.head}:{dependency['lockFile']}")
+                app_dependencies.validate_lock(json.loads(lock_result.stdout), dependency['sha256'])
+            except (ValueError, app_dependencies.DependencyError) as exc:
+                raise CompatibilityGuardError('Invalid application dependency lock') from exc
+            for required in ('tests/test_application_dependencies.py', 'tests/test_portable_update_bootstrap.py',
+                             'tools/build_update_bootstrap.py'):
+                if run_git('cat-file', '-e', f'{args.head}:{required}', check=False).returncode:
+                    raise CompatibilityGuardError(f'Missing update transition evidence: {required}')
+        base_manifest = None
         runtime_revision(head_manifest, "Head")
         base = resolve_base_revision(args.base, args.head)
         if not base:
@@ -178,7 +232,7 @@ def main() -> int:
 
     if sensitive:
         print(
-            "[update-compatibility] Runtime revision bump verified: "
+            "[update-compatibility] Classified runtime inputs verified: "
             f"{base_revision} -> {head_revision}"
         )
         for path in sensitive:

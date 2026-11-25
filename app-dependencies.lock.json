@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "packages": [
+    {
+      "name": "websocket-client",
+      "version": "1.8.0",
+      "filename": "websocket_client-1.8.0-py3-none-any.whl",
+      "url": "https://files.pythonhosted.org/packages/5a/84/44687a29792a70e111c5c477230a72c4b957d88d16141199bf9acb7537a3/websocket_client-1.8.0-py3-none-any.whl",
+      "sha256": "17b44cc997f5c498e809b22cdf2d9c7a9e71c02c8cc2b6c56e7c2d1239bfa526",
+      "imports": ["websocket"],
+      "requires": [],
+      "pythonMinimum": [3, 10]
+    }
+  ]
+}

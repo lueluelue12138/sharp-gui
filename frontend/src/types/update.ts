@@ -42,6 +42,7 @@ export interface UpdateCapabilities {
 }
 
 export interface UpdateCandidate {
+  dependency_count?: number;
   channel: UpdateChannel;
   target_sha: string;
   short_sha: string;

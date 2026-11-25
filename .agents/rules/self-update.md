@@ -15,8 +15,8 @@
 
 - Stable：规范仓库中版本号最高的正式 **vX.Y.Z** 标签，不包含 prerelease 标签。
 - Latest：规范仓库 **main** 分支的最新精确提交。
-- 只更新 Git 跟踪的应用文件；新增、删除、重命名和目录重构都由 Git 精确收敛。
-- Python、PyTorch/CUDA、视频重建环境、模型、workspace、配置、证书、日志和包内工具不随代码更新替换。
+- Git 跟踪的应用文件由 exact commit 精确收敛；锁定的纯 Python 应用依赖通过安装级隔离集合准备，不写入基础 site-packages。
+- 基础 Python、PyTorch/CUDA、视频重建环境、模型、workspace、配置、证书、日志和包内工具不随应用更新替换。应用与依赖锁成对验证和恢复，细节见 [应用升级契约](../../docs/application-updates.md)。
 - 目标验证或重启失败时自动恢复上一提交；不提供成功更新后的手动回滚产品入口。
 
 源码安装与 Windows 便携包共用同一套检查和事务。普通 GitHub 源码快照或旧便携包没有受管 worktree，只显示版本状态，不能原地自更新。
@@ -29,6 +29,9 @@
 |------|------|
 | [update-manifest.json](../../update-manifest.json) | 项目根目录中的更新协议与便携运行时兼容契约 |
 | [backend/services/self_update.py](../../backend/services/self_update.py) | 安装识别、Git 目标解析、兼容判断、状态、事务和失败恢复 |
+| [application_dependencies.py](../../application_dependencies.py)、[app-dependencies.lock.json](../../app-dependencies.lock.json) | 标准库依赖准备、完整性校验及按当前提交只读加载 |
+| [tools/build_update_bootstrap.py](../../tools/build_update_bootstrap.py) | 从 exact Git 快照生成小型旧包升级工具及 SHA256 |
+| [tools/check_update_release.py](../../tools/check_update_release.py) | 发布前实际旧包升级链与已测源码摘要检查 |
 | [backend/routes/updates.py](../../backend/routes/updates.py) | status、check、apply API |
 | [tools/update.py](../../tools/update.py) | CLI 与服务外更新 helper |
 | [update.bat](../../update.bat)、[update.sh](../../update.sh) | 用户命令行入口 |
@@ -85,8 +88,10 @@
 版本规则：
 
 - **schemaVersion**：清单结构不兼容时调整。
-- **updateProtocolRevision**：旧 updater 无法安全理解新事务协议时调整，并要求用户安装完整包。
-- **portableRuntimeRevision**：Python、PyTorch/CUDA、原生依赖、安装器或便携构建结果变化时递增，并发布完整包。
+- **updateProtocolRevision**：旧 updater 无法理解新协议时调整，必须提供持久可达且经过验证的轻量过渡工具与 `bootstrapSupport`；不能只把新逻辑放在旧客户端到达不了的目标中。
+- **portableRuntimeRevision**：保留出厂基础环境的历史标识，不降低或伪造。`portableCompatibility` 显式支持经过验证的基线和能力，基础环境不兼容才要求迁移或新完整包。
+- **applicationDependencies**：绑定精确锁的 canonical JSON SHA256。小依赖变化先准备隔离集合，失败不停止当前服务。安装器与未来便携构建消费同一份锁。
+- 安装器的小依赖集成通过 `updateChangeClasses.applicationDependencies` 分类；布局与压缩变化需要保留能力证据，不自动要求完整包。未知敏感变更仍阻断。
 - 普通前后端源码、路由、组件和目录重构通常不调整 runtime revision，但目标必须提交新的 **frontend/dist**。
 
 目录或文件新增、删除、改名、拆分和合并不需要额外适配；Git reset 到 exact target 会同步整个 tracked tree。例外是把运行时/用户数据误纳入 Git，或把后端需要的文件移到打包排除范围，这些必须在合并前修正。
@@ -100,8 +105,8 @@
 3. 拉取目标到本地更新 ref，读取目标清单和 **frontend/dist/index.html**，计算与当前提交的关系。
 4. 仅持久化最近一次检查得到的 exact SHA、通道、兼容结果和时间；不使用 GitHub REST、ETag 或客户端 target token。
 5. apply 只接受通道，并要求存在未过期的服务端检查结果。
-6. 外部 helper 等待 Flask 停止，再次 fetch 并校验 exact SHA、清单、受保护路径和当前 HEAD。
-7. 记录 previous SHA，更新 tracked tree，执行 Python compile/import、前端入口和包元数据健康检查。
+6. 外部 helper 再次 fetch 并校验 exact SHA、清单、锁与受保护路径，先准备目标依赖；新服务只在准备成功且复查工作状态后停止。旧目标沿用历史停服流程。
+7. 记录 previous/target SHA 和依赖声明，更新 tracked tree，执行匹配依赖的 Python compile/import、前端入口和包元数据健康检查。
 8. 启动新服务并验证 commit；失败时自动 reset 到 previous SHA、验证并重新启动旧版本。
 9. **.sharp-gui-update/state.json** 原子保存阶段；启动时按实际 HEAD 对账未完成操作。
 
@@ -182,11 +187,12 @@ Windows 便携包固定内置经 SHA256 校验的 MinGit，并记录版本、来
 **update-compatibility.yml** 比较 base/head 的变更路径：
 
 - 普通应用源码和 frontend/dist 变化不要求递增 portableRuntimeRevision。
-- requirements、环境锁文件、安装器、PyTorch/视频环境工具、便携构建器和共享构建助手变化时，必须递增 revision。
+- 应用小依赖集成必须带精确锁、隔离准备、连续更新和恢复测试，可以保留基础 revision；分类不能包含原生安装器等基础变更。
+- requirements、PyTorch/视频原生工具或未分类敏感输入变化时，必须更新真实基础环境与兼容声明；布局裁剪另需保留能力证据。
 - revision 不得降低。
 - 仓库首次引入 update-manifest.json 时按 bootstrap 处理。
 
-如 CI 要求 bump，必须同步发布新的完整便携包；不能为了通过检查随意递增而不发布对应运行时。
+不得为了通过 CI 随意递增数字。真实基础环境不兼容时才提供相应新环境或完整包。发布前记录支持旧包引导、后续两个版本的依赖变更、降级和失败恢复；未实包验证的基线不进入兼容承诺。
 
 ## 10. 验证清单
 
@@ -195,7 +201,9 @@ Windows 便携包固定内置经 SHA256 校验的 MinGit，并记录版本、来
 ~~~bash
 python -m pytest tests/test_self_update.py tests/test_self_update_routes.py \
   tests/test_self_update_transaction.py tests/test_self_update_recovery.py \
-  tests/test_update_cli.py tests/test_update_compatibility_guard.py -q
+  tests/test_update_cli.py tests/test_update_compatibility_guard.py \
+  tests/test_application_dependencies.py tests/test_portable_update_bootstrap.py \
+  tests/test_portable_compatibility.py tests/test_portrait_progress_transport.py -q
 cd frontend
 npm run lint
 npm run build

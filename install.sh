@@ -272,7 +272,8 @@ install_dependencies() {
     
     # 安装 GUI 依赖
     print_step "安装 GUI 依赖..."
-    pip install flask 'websocket-client>=1.8,<2'
+    pip install flask
+    python "$SCRIPT_DIR/tools/prepare_app_dependencies.py"
     
     print_success "所有依赖安装完成"
 }

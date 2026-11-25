@@ -26,6 +26,11 @@ jobs:
       - name: Test compatibility guard
         run: python -m unittest discover -s tests -p "test_update_compatibility_guard.py"
 
+      - name: Verify dependency updates and legacy transition transactions
+        run: |
+          python -m pip install "pytest>=8,<10"
+          python -m pytest --noconftest -q tests/test_application_dependencies.py tests/test_portable_update_bootstrap.py tests/test_self_update.py tests/test_self_update_transaction.py tests/test_self_update_recovery.py tests/test_update_compatibility_guard.py tests/test_portable_compatibility.py tests/test_update_release.py
+
       - name: Check portable runtime revision
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}

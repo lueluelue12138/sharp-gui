@@ -1047,6 +1047,11 @@ Write-Step "复制 Python 运行时与依赖"
 Invoke-Robocopy -Source $pythonHome -Destination "$packageRoot\python" -ExtraArgs @("/XD", "__pycache__", "Doc", "tcl", "Tools")
 Invoke-Robocopy -Source "$VenvDir\Lib\site-packages" -Destination "$packageRoot\python\Lib\site-packages" -ExtraArgs @("/XD", "__pycache__")
 
+& (Join-Path $packageRoot "python\python.exe") (Join-Path $packageRoot "tools\prepare_app_dependencies.py")
+if ($LASTEXITCODE -ne 0) {
+    Fail "锁定应用依赖准备失败，拒绝生成不可运行的便携包"
+}
+
 $editablePth = "$packageRoot\python\Lib\site-packages\__editable__.sharp-0.1.pth"
 if (Test-Path -LiteralPath $editablePth) {
     Set-Content -LiteralPath $editablePth -Encoding UTF8 -Value "..\..\..\ml-sharp\src"

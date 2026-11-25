@@ -25,6 +25,9 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
+import application_dependencies as app_dependencies
+from backend.services import portable_compatibility
+
 
 UPDATE_STATE_SCHEMA = 1
 SUPPORTED_MANIFEST_SCHEMA = 1
@@ -43,6 +46,7 @@ OPERATION_STALE_SECONDS = 30 * 60
 LOCK_INITIALIZATION_GRACE_SECONDS = 5
 APPLICATION_HEALTH_TIMEOUT_SECONDS = 60
 ACTIVE_PHASES = {
+    "preparing_dependencies",
     "queued",
     "waiting_for_server",
     "fetching",
@@ -57,6 +61,7 @@ PROTECTED_RUNTIME_PATHS = {
     ".photo-gallery-cache",
     ".sharp-gui-tools",
     ".sharp-gui-update",
+    ".sharp-gui-upgrade",
     ".thumbnails",
     ".video-reconstruction",
     ".video-reconstruction-env",
@@ -224,6 +229,18 @@ def normalize_manifest(raw):
     )
     if not _is_safe_relative_path(normalized["frontend_entrypoint"]):
         raise UpdateError("update_manifest_invalid")
+    policy = raw.get("portableCompatibility", raw.get("portable_compatibility"))
+    if policy is not None and not portable_compatibility.validate_policy(
+        policy, normalized["supported_portable_targets"]
+    ):
+        raise UpdateError("update_manifest_invalid")
+    normalized["portable_compatibility"] = policy
+    try:
+        normalized["application_dependencies"] = app_dependencies.descriptor(raw) if "applicationDependencies" in raw else raw.get("application_dependencies")
+        if normalized["application_dependencies"] is not None:
+            app_dependencies.descriptor({"applicationDependencies": normalized["application_dependencies"]})
+    except app_dependencies.DependencyError as exc:
+        raise UpdateError(exc.code) from exc
     return normalized
 
 
@@ -522,7 +539,10 @@ def compare_manifest_compatibility(base_dir, target_manifest, *, target_frontend
         )
         if protocol_revision != target.get("update_protocol_revision"):
             return False, "update_protocol_incompatible"
-        if runtime_revision != target.get("portable_runtime_revision"):
+        policy = target.get("portable_compatibility")
+        if policy is not None and not portable_compatibility.compatible(base_dir, metadata, policy):
+            return False, "update_base_environment_incompatible"
+        if policy is None and runtime_revision != target.get("portable_runtime_revision"):
             return False, "update_full_package_required"
         if package_target not in target.get("supported_portable_targets", []):
             return False, "update_target_unsupported"
@@ -671,6 +691,9 @@ class GitTargetResolver:
             git_executable=self.git_executable,
         )
         normalized_manifest = normalize_manifest(raw_manifest)
+        dependency_lock = dependency_contract_from_git(
+            self.base_dir, target_sha, normalized_manifest, git_executable=self.git_executable
+        )
         frontend_present = git_path_exists(
             self.base_dir,
             target_sha,
@@ -719,6 +742,7 @@ class GitTargetResolver:
             "advisory_code": advisory_code,
             "checked_at": utc_now(),
             "_target_manifest": raw_manifest,
+            "dependency_count": len(dependency_lock['packages']) if dependency_lock is not None else 0,
         }
 
 
@@ -735,6 +759,7 @@ PUBLIC_CURRENT_KEYS = {
     "branch",
 }
 PUBLIC_CANDIDATE_KEYS = {
+    "dependency_count",
     "channel",
     "target_sha",
     "short_sha",
@@ -873,12 +898,14 @@ class SelfUpdateManager:
         restart_callback=None,
         resolver_factory=None,
         process_factory=None,
+        active_work_callback=None,
     ):
         self.base_dir = os.path.realpath(str(base_dir))
         self.task_manager = task_manager
         self.restart_callback = restart_callback
         self.resolver_factory = resolver_factory or (lambda: GitTargetResolver(self.base_dir))
         self.process_factory = process_factory or subprocess.Popen
+        self.active_work_callback = active_work_callback
         self._lock = threading.RLock()
         self._checking = False
 
@@ -925,6 +952,9 @@ class SelfUpdateManager:
         helper_pid = operation.get("_helper_pid")
         helper_alive = _process_exists(helper_pid)
         stale = updated_at is None or time.time() - updated_at > OPERATION_STALE_SECONDS
+        if (not helper_pid and updated_at is not None
+                and time.time() - updated_at < LOCK_INITIALIZATION_GRACE_SECONDS):
+            return state
         if not helper_alive or stale:
             verified = False
             verification_code = None
@@ -1046,6 +1076,33 @@ class SelfUpdateManager:
             task_manager=self.task_manager,
             checking=self._checking,
         )
+        if self.active_work_callback and self.active_work_callback():
+            raise UpdateError("update_tasks_active")
+
+    def is_applying(self):
+        return _operation_active(self._read_state().get('operation'))
+
+    def _wait_for_preparation(self, operation_id):
+        """helper 准备完成后才停止服务；准备失败时旧服务继续运行。"""
+        while True:
+            with self._lock:
+                operation = (self._read_state().get('operation') or {})
+                if operation.get('id') != operation_id or not _operation_active(operation):
+                    return
+                if operation.get('phase') == 'waiting_for_server':
+                    try:
+                        state = self._read_state()
+                        state['operation'] = None
+                        identity = get_installed_identity(self.base_dir, state)
+                        self._assert_mutation_preconditions(state, identity)
+                        if identity.get('commit') != operation.get('previous_sha'):
+                            raise UpdateError('update_installed_revision_changed')
+                        self.restart_callback()
+                    except UpdateError as exc:
+                        _update_operation(self.base_dir, operation_id, phase='failed', progress=100,
+                                          error_code=exc.code, completed_at=utc_now())
+                    return
+            time.sleep(0.2)
 
     def _new_operation(
         self,
@@ -1077,6 +1134,7 @@ class SelfUpdateManager:
             "started_at": now,
             "updated_at": now,
             "_server_pid": os.getpid(),
+            "_defer_stop": bool(target_manifest.get('applicationDependencies') and self.restart_callback),
         }
 
     def _spawn(self, operation):
@@ -1123,12 +1181,19 @@ class SelfUpdateManager:
             if isinstance(exc, UpdateError):
                 raise
             raise UpdateError("update_helper_start_failed", status_code=500) from exc
-        operation["_helper_pid"] = process.pid
-        operation["phase"] = "waiting_for_server"
-        operation["progress"] = 5
-        operation["updated_at"] = utc_now()
-        self._write_state(state)
-        if self.restart_callback:
+        current = self._read_state()
+        current_operation = current.get('operation') or {}
+        if current_operation.get('id') != operation['id']:
+            raise UpdateError('update_operation_invalid')
+        current_operation['_helper_pid'] = process.pid
+        if current_operation.get('phase') == 'queued':
+            current_operation['phase'] = 'fetching' if operation.get('_defer_stop') else 'waiting_for_server'
+            current_operation['progress'] = 5
+        current_operation['updated_at'] = utc_now()
+        self._write_state(current)
+        if operation.get('_defer_stop'):
+            threading.Thread(target=self._wait_for_preparation, args=(operation['id'],), daemon=True).start()
+        elif self.restart_callback:
             self.restart_callback()
 
     def start_apply(self, channel, *, is_owner=True, server_instance_id=None):
@@ -1188,6 +1253,18 @@ def manifest_from_git(base_dir, revision, *, git_executable=None):
         raise UpdateError("update_manifest_invalid") from exc
     normalize_manifest(payload)
     return payload
+
+
+def dependency_contract_from_git(base_dir, revision, manifest, *, git_executable=None):
+    value = manifest.get('application_dependencies')
+    if value is None:
+        return None
+    try:
+        result = run_git(base_dir, ['show', f"{revision}:{value['lockFile']}"],
+                         git_executable=git_executable)
+        return app_dependencies.validate_lock(json.loads(result.stdout), value['sha256'])
+    except (ValueError, app_dependencies.DependencyError, UpdateError) as exc:
+        raise UpdateError(getattr(exc, 'code', 'update_dependency_lock_invalid')) from exc
 
 
 def git_path_exists(base_dir, revision, relative_path, *, git_executable=None):
@@ -1282,6 +1359,19 @@ def wait_for_process_exit(pid, timeout=45):
     return not _process_exists(pid)
 
 
+def wait_for_prepared_server_exit(base_dir, operation_id, pid, timeout=45):
+    deadline = time.monotonic() + timeout
+    while _process_exists(pid):
+        operation = load_update_state(base_dir).get('operation') or {}
+        if operation.get('id') != operation_id:
+            raise UpdateError('update_operation_invalid')
+        if operation.get('phase') == 'failed':
+            raise UpdateError(operation.get('error_code') or 'update_apply_failed')
+        if time.monotonic() > deadline:
+            raise UpdateError('update_server_stop_timeout')
+        time.sleep(0.1)
+
+
 def _fetch_exact_target(base_dir, operation, git_executable):
     target_ref = operation.get("target_ref")
     target_sha = operation.get("target_sha")
@@ -1352,6 +1442,12 @@ def verify_checked_out_revision(base_dir, expected_sha, *, git_executable=None, 
     )
     if not compatible:
         raise UpdateError(compatibility_code)
+    try:
+        dependency_lock = app_dependencies.load_contract(base_dir)
+        if dependency_lock is not None:
+            app_dependencies.verified_paths(base_dir, dependency_lock)
+    except app_dependencies.DependencyError as exc:
+        raise UpdateError(exc.code) from exc
     if not deep:
         if tracked_worktree_dirty(base_dir, git_executable):
             raise UpdateError("update_verification_failed")
@@ -1393,6 +1489,8 @@ def launch_application(base_dir):
     """
 
     environment = os.environ.copy()
+    environment.pop('PYTHONPATH', None)
+    environment.pop('PYTHONHOME', None)
     for key in ("SHARP_UPDATE_HELPER", "SHARP_WINDOWS_SERVER_CHILD", "WERKZEUG_RUN_MAIN", "WERKZEUG_SERVER_FD"):
         environment.pop(key, None)
     kwargs = {
@@ -1530,7 +1628,9 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
     if not isinstance(operation, dict) or operation.get("id") != operation_id:
         raise UpdateError("update_operation_invalid", status_code=409)
     server_pid = operation.get("_server_pid")
-    if wait_for_server and server_pid and not wait_for_process_exit(server_pid):
+    defer_stop = operation.get('_defer_stop', False)
+    server_stopped = not defer_stop
+    if wait_for_server and server_pid and not defer_stop and not wait_for_process_exit(server_pid):
         _update_operation(
             base_dir,
             operation_id,
@@ -1539,8 +1639,7 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
             error_code="update_server_stop_timeout",
             completed_at=utc_now(),
         )
-        if relaunch:
-            launch_application(base_dir)
+        # 服务尚未停止，不能再启动第二个实例。
         return False
     previous_sha = operation.get("previous_sha")
     mutated = False
@@ -1601,6 +1700,27 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
                     git_executable=git_executable,
                 ):
                     raise UpdateError("update_target_tracks_runtime")
+                dependency_lock = dependency_contract_from_git(base_dir, target_sha, normalized,
+                                                               git_executable=git_executable)
+                previous_manifest = normalize_manifest(manifest_from_git(base_dir, previous_sha,
+                                                                          git_executable=git_executable))
+                previous_dependencies = previous_manifest.get('application_dependencies')
+                _update_operation(base_dir, operation_id, phase='preparing_dependencies', progress=32,
+                                  previous_dependencies=previous_dependencies,
+                                  target_dependencies=normalized.get('application_dependencies'))
+                if dependency_lock is not None:
+                    app_dependencies.prepare(base_dir, dependency_lock)
+                if defer_stop and wait_for_server and server_pid:
+                    _update_operation(base_dir, operation_id, phase='waiting_for_server', progress=45)
+                    wait_for_prepared_server_exit(base_dir, operation_id, server_pid)
+                    server_stopped = True
+                    latest_operation = load_update_state(base_dir).get('operation') or {}
+                    if latest_operation.get('phase') == 'failed':
+                        raise UpdateError(latest_operation.get('error_code') or 'update_apply_failed')
+                if tracked_worktree_dirty(base_dir, git_executable):
+                    raise UpdateError('update_worktree_dirty')
+                if _git_value(base_dir, ['rev-parse', 'HEAD'], git_executable=git_executable) != previous_sha:
+                    raise UpdateError('update_installed_revision_changed')
                 _update_operation(base_dir, operation_id, phase="applying", progress=55)
                 # A failed reset can still replace a prefix of the worktree
                 # (disk full, antivirus lock, permissions). Mark mutation
@@ -1640,7 +1760,7 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
                 if launched_process is not None:
                     terminate_application_process(launched_process)
                 launched_process = None
-                code = exc.code if isinstance(exc, UpdateError) else "update_apply_failed"
+                code = getattr(exc, 'code', "update_apply_failed")
                 rolled_back = False
                 if mutated:
                     if previous_sha:
@@ -1669,7 +1789,7 @@ def run_update_operation(base_dir, operation_id, *, wait_for_server=True, relaun
                     else:
                         code = "update_rollback_failed"
 
-                should_restart_previous = relaunch and (not mutated or rolled_back)
+                should_restart_previous = relaunch and server_stopped and (not mutated or rolled_back)
                 if should_restart_previous:
                     try:
                         launched_process = launch_application(base_dir)
@@ -1744,3 +1864,51 @@ def prepare_cli_operation(base_dir, channel, candidate):
     state["selected_channel"] = channel
     save_update_state(base_dir, state)
     return operation
+
+
+def recover_interrupted_operation(base_dir):
+    """命令行/轻量工具在停服状态下恢复中断事务，不在 HTTP 请求中执行。"""
+    state = load_update_state(base_dir)
+    operation = state.get('operation') or {}
+    recoverable = operation.get('phase') in ACTIVE_PHASES or operation.get('error_code') in {
+        'update_recovery_required', 'update_rollback_failed'}
+    if not recoverable:
+        return None
+    if _process_exists(operation.get('_helper_pid')):
+        raise UpdateError('update_in_progress')
+    previous = operation.get('previous_sha')
+    target = operation.get('target_sha')
+    if not all(isinstance(value, str) and re.fullmatch('[0-9a-f]{40}', value) for value in (previous, target)):
+        raise UpdateError('update_recovery_required')
+    with operation_lock(base_dir, operation['id']):
+        git = resolve_git_executable(base_dir)
+        current = _git_value(base_dir, ['rev-parse', 'HEAD'], git_executable=git)
+        if current not in {previous, target}:
+            raise UpdateError('update_recovery_required')
+        mutation_started = operation.get('phase') in {
+            'applying', 'verifying', 'rolling_back', 'restarting'} or operation.get('error_code') in {
+                'update_recovery_required', 'update_rollback_failed'}
+        if not mutation_started and tracked_worktree_dirty(base_dir, git):
+            raise UpdateError('update_worktree_dirty')
+        try:
+            if current == target:
+                try:
+                    verify_checked_out_revision(base_dir, target, git_executable=git)
+                except Exception:
+                    pass
+                else:
+                    _update_operation(base_dir, operation['id'], phase='completed', progress=100,
+                                      error_code=None, completed_at=utc_now())
+                    return True
+            # apply 已取得对 tracked 文件的写权限。中断后的部分 reset 也要回到之前的精确提交。
+            if mutation_started or current != previous:
+                run_git(base_dir, ['reset', '--hard', previous], git_executable=git)
+            verify_checked_out_revision(base_dir, previous, git_executable=git)
+            _update_operation(base_dir, operation['id'], phase='failed', progress=100,
+                              error_code='update_interrupted_rolled_back', rolled_back=True,
+                              completed_at=utc_now())
+            return True
+        except Exception as exc:
+            _update_operation(base_dir, operation['id'], phase='failed', progress=100,
+                              error_code='update_recovery_required', completed_at=utc_now())
+            raise UpdateError('update_recovery_required') from exc

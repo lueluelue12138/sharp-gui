@@ -331,7 +331,7 @@ After startup, visit **https://127.0.0.1:5050**. Other devices on your LAN use t
 
 <a id="version-and-updates"></a>
 
-Check **Settings → Updates**: **Stable** uses formal releases, while **Latest** uses newer main-branch code with less testing. Supported source installations and managed portable bundles can install compatible updates; older bundles need a new full package first. Workspaces, models and configuration are preserved; runtime changes may require a new complete bundle. See [updates and CLI commands](docs/deployment.en.md#version-and-updates).
+Check **Settings → Updates**: **Stable** uses formal releases, while **Latest** uses newer main-branch code with less testing. Compatible source and managed portable installations automatically prepare locked application dependencies, preserving workspaces, models, configuration and the base Python/CUDA environment. A lightweight tool distributed with formal Releases can migrate supported old updaters; see the [verification and upgrade guide](docs/application-updates.md). Incompatible base environments and old snapshots without managed Git still require the appropriate environment or full bundle. See [updates and CLI commands](docs/deployment.en.md#version-and-updates).
 
 ---
 

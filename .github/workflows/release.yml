@@ -57,7 +57,7 @@ jobs:
           # 复制核心文件
           cp app.py release-build/
           cp install.sh install.bat run.sh run.bat build.sh build.bat update.sh update.bat release-build/
-          cp README.md README.en.md LICENSE THIRD_PARTY_NOTICES.md update-manifest.json version.txt release-build/
+          cp README.md README.en.md LICENSE THIRD_PARTY_NOTICES.md update-manifest.json app-dependencies.lock.json application_dependencies.py version.txt release-build/
 
           # 复制目录
           cp -r backend tools templates static release-build/
@@ -75,6 +75,11 @@ jobs:
           echo "Created: sharp-gui-${VERSION}-source-install-required.zip"
           ls -lh ../sharp-gui-${VERSION}-source-install-required.zip
 
+      - name: Build lightweight portable upgrade tool
+        run: |
+          python tools/check_update_release.py
+          python tools/build_update_bootstrap.py --output-dir update-tool
+
       # 5. 上传到 Release
       - name: Upload Release Asset
         uses: softprops/action-gh-release@v2
@@ -82,6 +87,8 @@ jobs:
           files: |
             .github/release-assets/00-*.txt
             sharp-gui-*-source-install-required.zip
+            update-tool/*.zip
+            update-tool/*.sha256.txt
           fail_on_unmatched_files: true
           prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: true
@@ -91,6 +98,10 @@ jobs:
             **[网盘下载完整便携包 / Download full portable packages](https://pan.quark.cn/s/94f4acaada40)**
 
             > GitHub 下方的源码安装包与 Source code 不包含 Python/CUDA 运行环境和模型权重，需要另行安装依赖。完整便携包请使用上方网盘入口，按显卡选择并核对 SHA256。 / The source/install ZIP and Source code assets below do not include the Python/CUDA runtime or model weights. For a full portable package, use the download folder above, choose your GPU target, and verify SHA256.
+
+            **已有受管便携包升级 / Upgrade an existing managed portable bundle**
+
+            下载本次发布中的 `sharp-gui-update-tool.zip` 与校验文件，核对 SHA256，正常关闭应用后解压到原便携目录并运行 `upgrade-portable.bat`。适用基线与操作步骤见[升级指南](https://github.com/${{ github.repository }}/blob/${{ github.ref_name }}/docs/application-updates.md)。 / Download the lightweight tool and checksum, verify SHA256, close the app, extract into the existing portable root and run the launcher. See the guide for verified baselines. This tool does not contain a replacement Python/CUDA environment.
 
             ---
 

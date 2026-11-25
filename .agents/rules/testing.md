@@ -32,6 +32,7 @@
 python -m pip install -r requirements-dev.txt
 
 # 运行后端测试
+python tools/prepare_app_dependencies.py
 python -m pytest -q
 ```
 
@@ -111,7 +112,9 @@ python -m pytest -q
 - 初始受管 worktree 必须 clean 且 HEAD 等于 package metadata。用临时本地 bare remote 构造兼容目标，至少同时包含 tracked addition/modification/deletion/rename；应用后 tracked tree 必须逐项收敛到 exact target，不能留下已删除旧文件。
 - 分别验证 Stable、Latest、already-current no-op 和 Latest → Stable 显式降级；版本标签必须能区分正式 `vX.Y.Z` 与 `vX.Y.Z + N commits (abcdefg)`，apply 只能使用刚检查过的 exact SHA。
 - 在 Python/PyTorch/CUDA、`.video-reconstruction-env/`、固定 Brush 目录、模型/缓存、三个 workspace 的 inputs/outputs/model-assets/index、`config.json`、证书、日志、`portable-package.json`、`.sharp-gui-update/` 和 `.sharp-gui-tools/` 放置可校验 marker；兼容 update 与自动失败恢复后均须保留，必要时比较 hash/字节内容。
-- 构造不同 `portableRuntimeRevision`、缺失/非法 manifest、缺失 `frontend/dist` 的目标，断言 checkout 前拒绝、HEAD/markers 不变且状态明确要求完整包。
+- 构造未声明兼容的不同出厂基线、缺失/非法 manifest、缺失 `frontend/dist` 的目标，断言 checkout 前拒绝、HEAD/markers 不变。另验证显式支持旧基线时可以准备隔离依赖并更新，不能仅因数字不同要求完整包。
+- 应用依赖验证必须包含固定来源/TLS/摘要、原生包和路径逃逸拒绝、缓存复用、准备失败原服务不停止、两次连续版本变更、依赖移除、降级与代码/依赖联合失败恢复。
+- 旧更新器用正式 Release 的固定 helper 轻量工具迁移，验证无系统 Python/Git、旧 equality gate 原本拒绝的目标可以到达；实际归档与合成事务证据分开记录，未知基线不得标为通过。
 - `tools/install_brush.py` 属于 runtime-sensitive 文件，守卫测试必须拒绝 revision 1→1 并接受 1→2；固定视频训练引擎的本轮迁移要求 revision 4（3→4）。只运行脚本语法/针对性测试不等于便携包发布完成，发布前仍须完成完整构建与 clean-extract gate。
 - 构造 dirty tracked file、pending/running/processing generation task、非 `main` source branch、并发锁和过期 target；均须稳定拒绝且不得 fetch apply target、改文件或停止服务。远程会话及伪造 `X-Forwarded-For`/`Forwarded`/`X-Real-IP` 不能调用 check/apply。
 - 注入网络/TLS/rate-limit、只读目录/磁盘不足、checkout/compile/import/frontend/health-check 失败和 updater 中断。验证错误不被误报为 up-to-date/success，mutation 后失败自动恢复 previous SHA，非终态下次启动可对账恢复且服务最终可用。

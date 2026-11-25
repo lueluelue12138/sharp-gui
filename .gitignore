@@ -58,6 +58,7 @@ Thumbs.db
 *.log
 
 # Local portable package output
+.sharp-gui-upgrade/
 .portable-build/
 .portable-smoke/
 .portable-venvs/

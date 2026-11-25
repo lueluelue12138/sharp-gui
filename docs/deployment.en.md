@@ -131,7 +131,7 @@ Open **Settings → Updates** to see the current version, choose a channel, chec
 - **Stable (recommended)**: the highest formal `vX.Y.Z` tag in the repository.
 - **Latest**: the newest commit on `main`. It receives hotfixes sooner but is less tested than Stable.
 
-Portable bundles use their bundled Python and Git; clean source installations on `main` are supported too. Code updates preserve workspaces, models, configuration, and large Python/CUDA runtimes. If a target needs a different runtime, the app asks for a new complete bundle. Portable bundles at `v1.3.0` or earlier must first move to a complete bundle containing the new updater.
+Portable bundles use bundled Python and Git; clean source installs on `main` can use it too. Updates preserve workspaces, models, configuration and base Python/CUDA runtimes while preparing exact application dependencies automatically. Supported managed older bundles can migrate using the formal Release's lightweight tool; see [upgrade instructions and verified scope](application-updates.md). Incompatible base environments and bundles without managed Git still require an appropriate new environment or complete bundle.
 
 Use Settings if you do not need the command line. The scripts provide equivalent operations:
 

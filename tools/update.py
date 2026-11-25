@@ -7,6 +7,7 @@ import argparse
 import os
 import socket
 import sys
+import time
 from pathlib import Path
 
 
@@ -22,6 +23,7 @@ from backend.services.self_update import (  # noqa: E402
     load_update_state,
     prepare_cli_operation,
     run_update_operation,
+    recover_interrupted_operation,
 )
 
 
@@ -96,9 +98,25 @@ def confirm(prompt):
 
 def run_cli(args):
     if args.internal_run:
+        # 父进程先写入 helper PID 和初始阶段，子进程再开始推进状态，避免相互覆盖。
+        deadline = time.monotonic() + 10
+        while True:
+            operation = load_update_state(BASE_DIR).get('operation') or {}
+            if operation.get('id') != args.internal_run:
+                raise UpdateError('update_operation_invalid')
+            if operation.get('_helper_pid') == os.getpid():
+                break
+            if time.monotonic() > deadline:
+                raise UpdateError('update_helper_start_failed')
+            time.sleep(0.02)
         return 0 if run_update_operation(BASE_DIR, args.internal_run) else 1
 
     channel = args.channel
+
+    if not args.check and not local_server_is_running():
+        if recover_interrupted_operation(BASE_DIR):
+            print('Interrupted update recovered. Start Sharp GUI normally.')
+            return 0
 
     manager = SelfUpdateManager(base_dir=BASE_DIR)
     # Reconcile a previously interrupted terminal/restart state before deciding

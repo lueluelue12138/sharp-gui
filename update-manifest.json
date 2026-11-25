@@ -8,6 +8,35 @@
   "defaultBranch": "main",
   "updateProtocolRevision": 1,
   "portableRuntimeRevision": 7,
+  "updateChangeClasses": {
+    "applicationDependencies": [
+      "install.bat", "install.sh", "tools/build_portable_package.ps1", "tools/build_portable_release.ps1"
+    ]
+  },
+  "applicationDependencies": {
+    "lockFile": "app-dependencies.lock.json",
+    "sha256": "e103ef3ef8446afc9ca25fa99af22ce119d2caaf043da38e870d2eab0817c1d5"
+  },
+  "portableCompatibility": {
+    "schemaVersion": 1,
+    "targets": {
+      "cu128-rtx50": {
+        "runtimeRevisions": [6, 7],
+        "pythonMinor": [3, 12],
+        "torchVersion": "2.8.0+cu128"
+      },
+      "cu128-rtx50-video-recon": {
+        "runtimeRevisions": [6, 7],
+        "pythonMinor": [3, 12],
+        "torchVersion": "2.8.0+cu128"
+      },
+      "cu126-mainstream": {
+        "runtimeRevisions": [6, 7],
+        "pythonMinor": [3, 12],
+        "torchVersion": "2.8.0+cu126"
+      }
+    }
+  },
   "minimumGitVersion": "2.30.0",
   "frontend": {
     "builtAssetsRequired": true,

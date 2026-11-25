@@ -1,0 +1,98 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-11-25",
+  "status": "passed",
+  "unverifiedHistoricalBaselines": [
+    4,
+    5
+  ],
+  "baseRuntimeRevision": 6,
+  "packages": [
+    {
+      "target": "cu128-rtx50",
+      "runtimeRevision": 6,
+      "archiveSha256": "b10d7548303483ea6eae75f80ffe741472607533e9282d92a15a7122a2677097",
+      "bootstrap": true,
+      "subsequentUpdates": true,
+      "downgrade": true,
+      "rollback": true,
+      "basePreserved": true,
+      "health": true,
+      "baseFilesVerified": 23763,
+      "baseVerificationMethod": "Complete size/mtime inventory excluding bytecode; SHA256 of provenance, Python, Torch/Flask entry modules and workspace marker"
+    },
+    {
+      "target": "cu126-mainstream",
+      "runtimeRevision": 6,
+      "archiveSha256": "369208ed67c56bfd267ac41583b6eacf173913392d0978cbef02f214c072708b",
+      "bootstrap": true,
+      "subsequentUpdates": true,
+      "downgrade": true,
+      "rollback": true,
+      "basePreserved": true,
+      "health": true,
+      "baseFilesVerified": 23874,
+      "baseVerificationMethod": "Complete size/mtime inventory excluding bytecode; SHA256 of provenance, Python, Torch/Flask entry modules and workspace marker"
+    },
+    {
+      "target": "cu128-rtx50-video-recon",
+      "runtimeRevision": 6,
+      "archiveSha256": "8e5ac175652be897f2cf650b1e042d956b6cddcfc70281afef9a9f58ad3a4a7f",
+      "bootstrap": true,
+      "subsequentUpdates": true,
+      "downgrade": true,
+      "rollback": true,
+      "basePreserved": true,
+      "health": true,
+      "baseFilesVerified": 23915,
+      "baseVerificationMethod": "Complete size/mtime inventory excluding bytecode; SHA256 of provenance, Python, Torch/Flask entry modules and workspace marker"
+    }
+  ],
+  "syntheticTests": {
+    "dependencyPreparation": true,
+    "consecutiveUpdates": true,
+    "dependencyRemoval": true,
+    "downgrade": true,
+    "failedPreparationPreservesService": true,
+    "automaticRollback": true,
+    "interruptionRecovery": true
+  },
+  "testedSnapshot": "8f7178aa53213c54f600675d8d8c199dc3f3f7a6",
+  "fixtureScope": "Local bare remote and synthetic channel refs; no public branches/tags modified",
+  "testedFiles": {
+    "application_dependencies.py": "09c36d87280344c56f39a9a75aae7101de1925ca31e76e63b407964b648c1c8e",
+    "backend/services/self_update.py": "2d3c9402cc656cc7ce1ccdf6b3d783997fb9a733e4026b94f758257252b7e553",
+    "backend/services/portable_compatibility.py": "944ac8130f0dc5c09017dd6294e4f501f25127bff84b3b7fb33db0ec92c0d8ae",
+    "tools/update.py": "a0701cc6f69d5b89879dfbe61ad824cb2b68b21e228d288da5b62b24128bc41a",
+    "tools/portable_update_bootstrap.py": "126766a4d4db69b99e51ce34e7a43f40d032f981c909751bd30020d8a77fee67",
+    "backend/app_factory.py": "7685873c6bc6f68a1f3cf1f9920bad62b34058e0917686de9e321ba2c3062971",
+    "backend/routes/__init__.py": "912507a2631eff2b52d2b547947bd72ba251de2430ede274197257d8c38257a2",
+    "app.py": "4001ff468cbb1826ff5cab2d766c7da0eff515caf61c37ac87004d269da5dc9c",
+    "update-manifest.json": "a335f973ba00558858767ee82989309137c23c58c3ce4102b88e37096c880822"
+  },
+  "backendTests": {
+    "passed": 609,
+    "skipped": 4,
+    "subtestsPassed": 19,
+    "additionalReleaseGuardTestsPassed": 3
+  },
+  "frontendVerification": {
+    "lint": true,
+    "build": true,
+    "taskTestsPassed": 8,
+    "desktopAnd390pxFixture": true,
+    "semanticDependencyProgress": true,
+    "horizontalOverflow": false
+  },
+  "transportVerification": {
+    "lockedWebsocketVersion": "1.8.0",
+    "realLoopbackWebsocketCasesPassed": 3,
+    "newGpuInferenceTriggered": false
+  },
+  "historicalArchiveAvailability": "Runtime 4/5 archives were not available locally and remain excluded; runtime 7 is the new builder contract using the verified same base capabilities.",
+  "packagingPlan": {
+    "allThreeTargetsPassed": true,
+    "planOnly": true,
+    "completePortablePackagesBuilt": false
+  }
+}

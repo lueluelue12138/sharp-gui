@@ -88,6 +88,33 @@ class UpdateCompatibilityGuardTests(unittest.TestCase):
                 with self.assertRaises(guard.CompatibilityGuardError):
                     guard.runtime_revision(manifest(revision), "Head")
 
+    def test_classified_application_dependencies_keep_the_base_revision(self):
+        target = manifest(7)
+        target.update(applicationDependencies={'lockFile': 'app-dependencies.lock.json', 'sha256': 'a' * 64},
+                      portableCompatibility={'schemaVersion': 1},
+                      updateChangeClasses={'applicationDependencies': ['install.bat']})
+        self.assertEqual(guard.check_runtime_revision(['install.bat'], manifest(7), target),
+                         (['install.bat'], 7, 7))
+
+    def test_native_changes_cannot_be_classified_as_application_dependencies(self):
+        target = manifest(7)
+        target['updateChangeClasses'] = {'applicationDependencies': ['tools/install_torch.py']}
+        with self.assertRaises(guard.CompatibilityGuardError):
+            guard.check_runtime_revision(['tools/install_torch.py'], manifest(7), target)
+
+    def test_layout_change_requires_retained_capability_evidence(self):
+        target = manifest(7)
+        target['updateChangeClasses'] = {'packageLayout': ['tools/trim_portable_runtime.py']}
+        with self.assertRaises(guard.CompatibilityGuardError):
+            guard.check_runtime_revision(['tools/trim_portable_runtime.py'], manifest(7), target)
+
+    def test_protocol_change_requires_persistent_bootstrap_support(self):
+        target = dict(manifest(7), updateProtocolRevision=2)
+        with self.assertRaises(guard.CompatibilityGuardError):
+            guard.check_runtime_revision([], manifest(7), target)
+        target['bootstrapSupport'] = {'fromProtocols': [1], 'toProtocol': 2}
+        self.assertEqual(guard.check_runtime_revision([], manifest(7), target), ([], 7, 7))
+
 
 if __name__ == "__main__":
     unittest.main()

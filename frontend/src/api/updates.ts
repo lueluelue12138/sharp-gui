@@ -10,6 +10,7 @@ import type {
 // Mirrors ACTIVE_PHASES in backend/services/self_update.py. The backend only
 // ever reports these plus the terminal `completed` / `failed` phases.
 const ACTIVE_UPDATE_PHASES = new Set([
+  'preparing_dependencies',
   'queued',
   'waiting_for_server',
   'fetching',

@@ -75,7 +75,7 @@ type(scope): 简要描述
 
 自更新让 `main` 上的**每个提交**都可能被便携用户直接安装。以下四条不是风格建议，漏掉会直接影响已发布的用户。
 
-**1. 运行时敏感改动必须在同一个提交递增 `portableRuntimeRevision`**
+**1. 运行时敏感改动必须分类并验证兼容性**
 
 触发路径（`tools/check_update_compatibility.py` 的判定口径）：
 
@@ -84,7 +84,7 @@ type(scope): 简要描述
 - `tools/install_torch.py` / `tools/install_video_reconstruction.py`
 - `tools/build_portable_package.ps1` / `tools/build_portable_release.ps1` / `tools/portable_update_common.ps1`
 
-改了这些就说明"新代码需要新的运行环境"，必须同提交把 `update-manifest.json` 的 `portableRuntimeRevision` 加一，**并配套发布新的完整便携包**。CI 的 `update-compatibility.yml` 会拦住只改脚本不提版本的 PR。反过来也不许为了过 CI 随便递增而不发对应运行时。
+上述路径需要兼容性审查，不能仅凭路径判定必须换完整包。纯 Python 小依赖使用 `applicationDependencies` 精确锁、隔离集合和联合恢复，安装器集成在 `updateChangeClasses` 中分类；布局与压缩变化需提供保留能力证据。基础 Python/Torch/CUDA/原生工具确实变化时仍需相应的新环境或完整包。不得随意提高数字代替兼容证明，细节见 `.agents/rules/self-update.md` 与 `docs/application-updates.md`。
 
 普通前后端源码、路由、组件、目录重构和 `frontend/dist` 变化**不需要**递增。
 
@@ -273,12 +273,12 @@ build_portable_release.bat -CleanOldArtifacts
 
 ### Release Note 中的自更新表述纪律
 
-- **bootstrap 版**（首个内置 MinGit 与受管 worktree 的完整便携包）必须在 release note 里明确写出："这是最后一次需要手动下载完整包，之后可在界面内更新。"
+- **bootstrap 版**（首个内置 MinGit 与受管 worktree 的完整便携包）必须说明之后可以在界面内安装兼容应用更新；不得承诺任意未来基础环境都不需要迁移。
 - **不得承诺旧便携包能原地获得新更新能力**。bootstrap 之前的包没有内置 Git 和受管基线，只能再下载一次完整包。
-- 若本次 `portableRuntimeRevision` 有变化，release note 必须写明**必须下载新完整包、不能用代码更新**，并说明原因（Python / CUDA / 视频重建环境等大型运行环境变了）。
+- 发布说明按实际兼容声明描述升级路径。可隔离小依赖自动准备；已支持旧更新器使用带 SHA256 的轻量工具；真实基础环境不兼容才要求新完整包。不得以 runtime 数字变化自动推断所有旧包都要重下，也不得宣称未经实包验证的基线可升级。
 - 描述 Latest 通道时要点明它包含正式发布之后的提交、测试较少；描述 Stable 时点明它只取正式 `vX.Y.Z` 版本。
 - 可以写"更新失败会自动恢复到更新前的版本"，**不要**写成用户可以手动回滚。
-- 提到保留范围时按用户语言写：工作区、模型、配置、证书和运行环境都会保留，只替换应用代码。
+- 提到保留范围时按用户语言写：工作区、模型、配置、证书和基础 Python/CUDA 环境保留；应用代码与锁定的小依赖一起更新。
 
 ### 规则
 

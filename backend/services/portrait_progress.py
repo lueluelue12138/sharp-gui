@@ -99,6 +99,11 @@ def progress(prompt_id):
         return item[1] if item else {}
 
 
+def has_active():
+    with _lock:
+        return bool(_jobs)
+
+
 def finish(prompt_id):
     with _lock:
         item = _jobs.pop(prompt_id, None)
